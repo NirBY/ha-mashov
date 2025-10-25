@@ -17,7 +17,7 @@ CONF_SCHEDULE_DAY = "schedule_day"  # 0-6 for weekly (0=Monday) - backwards comp
 CONF_SCHEDULE_DAYS = "schedule_days"  # list of 0-6 for weekly
 CONF_SCHEDULE_INTERVAL = "schedule_interval"  # minutes for interval
 
-PLATFORMS = ["sensor"]
+PLATFORMS = ["sensor", "calendar"]
 
 DEFAULT_HOMEWORK_DAYS_BACK = 7
 DEFAULT_HOMEWORK_DAYS_FORWARD = 21

@@ -33,6 +33,12 @@ from .const import (
     SENSOR_KEY_TIMETABLE,
     SENSOR_KEY_WEEKLY_PLAN,
 )
+from .holidays_utils import (
+    HOLIDAY_DEFAULT_NAME,
+    HOLIDAY_ICON,
+    create_holidays_device_info,
+    parse_iso_date_to_formatted,
+)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
@@ -371,7 +377,7 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
                 schedule_type = DEFAULT_SCHEDULE_TYPE
             schedule_time = str(merged.get(CONF_SCHEDULE_TIME, DEFAULT_SCHEDULE_TIME))
             try:
-                hh, mm = [int(x) for x in schedule_time.split(":")]
+                hh, mm = (int(x) for x in schedule_time.split(":"))
                 if not (0 <= hh <= 23 and 0 <= mm <= 59):
                     raise ValueError
             except Exception:
@@ -405,9 +411,9 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
 
             if schedule_type == "daily":
                 try:
-                    hh, mm = [int(x) for x in str(schedule_time).split(":")]
+                    hh, mm = (int(x) for x in str(schedule_time).split(":"))
                 except Exception:
-                    hh, mm = [int(x) for x in DEFAULT_SCHEDULE_TIME.split(":")]
+                    hh, mm = (int(x) for x in DEFAULT_SCHEDULE_TIME.split(":"))
                 next_dt = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
                 if next_dt <= now:
                     next_dt = next_dt + timedelta(days=1)
@@ -415,9 +421,9 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
                 next_time_iso = next_dt.isoformat(timespec="seconds")
             elif schedule_type == "weekly":
                 try:
-                    hh, mm = [int(x) for x in str(schedule_time).split(":")]
+                    hh, mm = (int(x) for x in str(schedule_time).split(":"))
                 except Exception:
-                    hh, mm = [int(x) for x in DEFAULT_SCHEDULE_TIME.split(":")]
+                    hh, mm = (int(x) for x in DEFAULT_SCHEDULE_TIME.split(":"))
                 # Our 0=Monday mapping; Python weekday(): Monday=0
                 # Compute next closest day from the list
                 candidates = []
@@ -751,7 +757,7 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
 
 
 class MashovHolidaysSensor(CoordinatorEntity, SensorEntity):
-    _attr_icon = "mdi:calendar-star"
+    _attr_icon = HOLIDAY_ICON
 
     def __init__(self, coordinator, entry_id: str):
         super().__init__(coordinator)
@@ -778,20 +784,10 @@ class MashovHolidaysSensor(CoordinatorEntity, SensorEntity):
         for h in items:
             start = h.get("start") or ""
             end = h.get("end") or ""
-            name = h.get("name") or "חג/חופשה"
+            name = h.get("name") or HOLIDAY_DEFAULT_NAME
 
-            # format dates dd/mm/yyyy
-            def fmt(dt):
-                if not dt:
-                    return ""
-                try:
-                    d = datetime.fromisoformat(dt.replace("T00:00:00", ""))
-                    return d.strftime("%d/%m/%Y")
-                except Exception:
-                    return dt.split("T")[0]
-
-            start_f = fmt(start)
-            end_f = fmt(end)
+            start_f = parse_iso_date_to_formatted(start)
+            end_f = parse_iso_date_to_formatted(end)
             key = f"{start_f}–{end_f}" if end_f and end_f != start_f else start_f
             by_date.setdefault(key, []).append(name)
 
@@ -805,9 +801,4 @@ class MashovHolidaysSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def device_info(self):
-        return {
-            "identifiers": {(DOMAIN, f"holidays_{self._entry_id}")},
-            "name": "Mashov – Holidays",
-            "manufacturer": DEVICE_MANUFACTURER,
-            "model": DEVICE_MODEL,
-        }
+        return create_holidays_device_info(DOMAIN, self._entry_id, DEVICE_MANUFACTURER, DEVICE_MODEL)
