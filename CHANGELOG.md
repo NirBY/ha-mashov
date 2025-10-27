@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [1.0.4] - 2025-10-27
+
+### Fixed
+- **Critical bug** in calendar.py - Fixed operator precedence that could cause crash when finding next holiday
+- **Grades sensor** formatting - Added proper display formatting (by_date, by_subject, with average calculation)
+- **Grades data cleaning** - Now removes redundant technical fields (gradingEventId, gradeTypeId, etc.)
+
+### Changed
+- Updated README with @aviadlevy credit for calendar contribution
+
 ## [1.0.3] - 2025-10-24
 
 ### Added
@@ -9,6 +19,8 @@
   - Displays grade, grading event, teacher name, subject, grade type
   - Includes event date, grading period, and textual grades
   - Full integration with size-based limiting (14KB target)
+- **Calendar entity** - Holidays calendar integration for Home Assistant calendar view
+  - Contributed by @aviadlevy
 
 ## [1.0.2] - 2025-10-24
 
