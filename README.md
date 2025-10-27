@@ -19,7 +19,8 @@ Unofficial integration for **משו"ב (Mashov)** that logs into the student por
 ## 🧩 Features
 - Simple **Config Flow (UI)** via Settings → Devices & Services → Add Integration → **Mashov**.
 - **Daily refresh** (02:30 by default) + `mashov.refresh_now` service for on-demand updates.
-- Sensors expose compact **state** (count) + rich **attributes** (lists you can use in automations / dashboards).
+- **Sensors** expose compact **state** (count) + rich **attributes** (lists you can use in automations / dashboards).
+- **Calendar entity** for school holidays - integrates with Home Assistant calendar view 📅
 - **Diagnostics** endpoint for safe issue reporting (redacts credentials).
 
 ---
@@ -108,8 +109,12 @@ For each child **N**, these sensors are created:
 > - Full raw data is always available via `coordinator.data` for advanced automations
 
 ### Global Entities
-- **Holidays** – `sensor.mashov_holidays`  
+- **Holidays Sensor** – `sensor.mashov_holidays`  
   State = number of holidays. Attributes: `items`, `formatted_summary`, `formatted_by_date`.
+
+- **Holidays Calendar** – `calendar.mashov_holidays_calendar` – 🆕 **New in v1.0.3**  
+  Full calendar integration for school holidays. Shows events in Home Assistant calendar view with start/end dates.  
+  _Contributed by [@aviadlevy](https://github.com/aviadlevy)_
 
 ---
 

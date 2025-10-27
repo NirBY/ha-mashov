@@ -82,7 +82,7 @@ class MashovHolidaysCalendar(CoordinatorEntity, CalendarEntity):
                         summary=name,
                     )
 
-                if start_dt > now and current_or_next is None or start_dt < current_or_next[0]:
+                if start_dt > now and (current_or_next is None or start_dt < current_or_next[0]):
                     current_or_next = (start_dt, start_date, end_date, name)
 
             except Exception as e:

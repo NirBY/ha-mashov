@@ -197,6 +197,12 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
             "achvaAval",
             "achva_aval",
             "justified",
+            # Grades-specific fields to remove
+            "gradingEventId",
+            "gradeTypeId",
+            "id",  # Generic ID field
+            "rate",
+            "gradeRate",
         }
 
         cleaned = {}
@@ -354,6 +360,8 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
             return self._format_timetable_data(items)
         if self._data_key == "lessons_history":
             return self._format_lessons_history(items)
+        if self._data_key == "grades":
+            return self._format_grades_data(items)
         return {"summary": f"יש {len(items)} פריטים", "by_date": {}, "by_subject": {}}
 
     def _compute_schedule_info(self) -> dict[str, Any]:
@@ -749,6 +757,76 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
             by_subject.setdefault(subj, []).append(text)
 
         summary = f"יש {len(items)} שיעורים היסטוריים"
+        return {
+            "summary": summary,
+            "by_date": by_date,
+            "by_subject": by_subject,
+        }
+
+    def _format_grades_data(self, items: list) -> dict[str, Any]:
+        """Format grades data for display"""
+        from datetime import datetime
+
+        by_date = {}
+        by_subject = {}
+
+        for item in items:
+            # Format date
+            date_str = item.get("eventDate", "")
+            if date_str:
+                try:
+                    date_obj = datetime.fromisoformat(date_str.replace("T00:00:00", ""))
+                    formatted_date = date_obj.strftime("%d/%m/%Y")
+                except Exception:
+                    formatted_date = date_str
+            else:
+                formatted_date = "תאריך לא ידוע"
+
+            # Group by date
+            if formatted_date not in by_date:
+                by_date[formatted_date] = []
+
+            # Group by subject
+            subject = item.get("subjectName", "מקצוע לא ידוע")
+            if subject not in by_subject:
+                by_subject[subject] = []
+
+            # Format grade entry
+            grade = item.get("grade", "")
+            range_grade = item.get("rangeGrade", "")
+            grading_event = item.get("gradingEvent", "")
+            grade_type = item.get("gradeType", "")
+            teacher = item.get("teacherName", "")
+            textual_grade = item.get("textualGrade", "")
+
+            # Build entry text
+            entry = f"{subject} - {grading_event}: {grade}"
+            if range_grade:
+                entry += f" ({range_grade})"
+            if grade_type:
+                entry += f" [{grade_type}]"
+            if textual_grade:
+                entry += f" - {textual_grade}"
+            if teacher:
+                entry += f" | מורה: {teacher}"
+
+            by_date[formatted_date].append(entry)
+            by_subject[subject].append(entry)
+
+        # Create summary
+        total_grades = len(items)
+        subjects_count = len(by_subject)
+        dates_count = len(by_date)
+
+        # Calculate average if there are numeric grades
+        numeric_grades = [item.get("grade") for item in items if isinstance(item.get("grade"), (int, float))]
+        avg_text = ""
+        if numeric_grades:
+            avg = sum(numeric_grades) / len(numeric_grades)
+            avg_text = f", ממוצע: {avg:.1f}"
+
+        summary = f"יש {total_grades} ציונים ב-{subjects_count} מקצועות על פני {dates_count} תאריכים{avg_text}"
+
         return {
             "summary": summary,
             "by_date": by_date,
