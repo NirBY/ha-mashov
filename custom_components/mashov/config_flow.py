@@ -257,15 +257,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class OptionsFlowHandler(config_entries.OptionsFlow):
     def __init__(self, config_entry: config_entries.ConfigEntry):
         self.config_entry = config_entry
-        try:
-            _LOGGER.debug(
-                "OptionsFlowHandler init for entry='%s' (id=%s) – current options keys: %s",
-                getattr(config_entry, "title", ""),
-                getattr(config_entry, "entry_id", ""),
-                list(dict(getattr(config_entry, "options", {})).keys()),
-            )
-        except Exception as e:
-            _LOGGER.debug("OptionsFlowHandler init logging failed: %s", e)
 
     async def async_step_init(self, user_input=None) -> FlowResult:
         _LOGGER.debug(
