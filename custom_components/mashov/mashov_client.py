@@ -22,9 +22,8 @@ def _trace(msg: str, *args):
 
 
 API_BASE = "https://web.mashov.info/api/"  # default; can be overridden
-LOGIN_ENDPOINT = None
-ME_ENDPOINT = None
-ENDPOINTS: dict[str, str] = {}
+
+# API_BASE = "https://web.mashov.info/api/"  # default; can be overridden
 
 
 class MashovError(Exception):
@@ -61,6 +60,7 @@ class MashovClient:
         homework_days_back: int = 7,
         homework_days_forward: int = 21,
         api_base: str | None = None,
+        saved_auth: dict[str, Any] | None = None,
     ) -> None:
         # school may be semel int or name string (resolved in async_init)
         self.school_id = int(school_id) if str(school_id).isdigit() else None
@@ -80,12 +80,17 @@ class MashovClient:
         # store all students
         self._students: list[dict[str, Any]] = []  # [{id, name, slug}]
         self._auth_data: dict[str, Any] = {}  # Store authentication response data
+        self._saved_auth = saved_auth  # Data restored from cache
+
+        # Instance-level endpoints (fix race condition)
+        self._login_endpoint = ""
+        self._me_endpoint = ""
+        self._endpoints: dict[str, str] = {}
 
     def _resolve_endpoints(self):
-        global LOGIN_ENDPOINT, ME_ENDPOINT, ENDPOINTS
-        LOGIN_ENDPOINT = self._api_base + "login"
-        ME_ENDPOINT = self._api_base + "me"
-        ENDPOINTS = {
+        self._login_endpoint = self._api_base + "login"
+        self._me_endpoint = self._api_base + "me"
+        self._endpoints = {
             "homework": self._api_base + "students/{student_id}/homework?from={start}&to={end}&year={year}",
             "behavior": self._api_base + "students/{student_id}/behave?from={start}&to={end}&year={year}",
             "weekly_plan": self._api_base + "students/{student_id}/lessons/plans",
@@ -93,6 +98,21 @@ class MashovClient:
             "holidays": self._api_base + "holidays",
             "lessons_history": self._api_base + "students/{student_id}/lessons/history",
             "grades": self._api_base + "students/{student_id}/grades",
+        }
+
+    @property
+    def auth_data(self) -> dict[str, Any]:
+        """Return authentication data for persistence."""
+        # Export cookies from jar if session is open
+        cookies = {}
+        if self._session and self._session.cookie_jar:
+            for cookie in self._session.cookie_jar:
+                cookies[cookie.key] = cookie.value.value if hasattr(cookie.value, "value") else cookie.value
+
+        return {
+            "local_auth": self._auth_data,
+            "csrf_token": self._headers.get("X-Csrf-Token"),
+            "cookies": cookies,
         }
 
     async def async_open_session(self) -> None:
@@ -247,6 +267,45 @@ class MashovClient:
             self.school_id = int(best.get("semel") or best.get("id"))
             _LOGGER.info("Resolved school '%s' to semel %s", best.get("name"), self.school_id)
 
+        # Attempt to restore session
+        if self._saved_auth and not self._session.closed:
+            _LOGGER.info("Attempting to restore session from cached auth data")
+            try:
+                # Restore cookies
+                saved_cookies = self._saved_auth.get("cookies", {})
+                if saved_cookies:
+                    self._session.cookie_jar.update_cookies(saved_cookies)
+                    _LOGGER.debug("Restored %d cookies from cache", len(saved_cookies))
+
+                # Restore headers
+                csrf = self._saved_auth.get("csrf_token")
+                if csrf:
+                    self._headers["X-Csrf-Token"] = csrf
+                    self._headers["Accept"] = "application/json"
+                    _LOGGER.debug("Restored CSRF token from cache")
+
+                # Restore internal auth data
+                self._auth_data = self._saved_auth.get("local_auth", {})
+
+                # Verify session validity with a lightweight call (ME endpoint)
+                try:
+                    async with self._session.get(self._me_endpoint, headers=self._headers) as resp:
+                        if resp.status == 200:
+                            _LOGGER.info("Session restored successfully (Me endpoint returned 200)")
+                            # We can skip login
+                            await self._extract_students()
+                            return
+                        else:
+                            _LOGGER.warning("Restored session invalid (Me endpoint returned %s) - proceeding to login", resp.status)
+                except Exception as e:
+                    _LOGGER.warning("Error verifying restored session: %s", e)
+
+            except Exception as e:
+                _LOGGER.warning("Failed to restore session: %s", e)
+                # clear potentially bad state
+                self._headers = {}
+                self._session.cookie_jar.clear()
+
         # Login
         payload = {
             "semel": int(self.school_id),
@@ -282,9 +341,9 @@ class MashovClient:
                 self.year,
                 self.username,
             )
-            _LOGGER.info("Login endpoint: %s", LOGIN_ENDPOINT)
+            _LOGGER.info("Login endpoint: %s", self._login_endpoint)
             try:
-                async with self._session.post(LOGIN_ENDPOINT, json=payload, headers=headers) as resp:
+                async with self._session.post(self._login_endpoint, json=payload, headers=headers) as resp:
                     _LOGGER.info("Login response status: %s", resp.status)
                     _LOGGER.info("Login response headers: %s", dict(resp.headers))
 
@@ -386,6 +445,9 @@ class MashovClient:
                 raise MashovError(f"Network error during login: {e}") from e
 
         # Extract students from authentication response
+        await self._extract_students()
+
+    async def _extract_students(self):
         _LOGGER.info("=== EXTRACTING STUDENTS FROM AUTH RESPONSE ===")
 
         # Get children from the authentication response
@@ -461,12 +523,12 @@ class MashovClient:
             sid = stu["id"]
 
             urls = {
-                "homework": ENDPOINTS["homework"].format(student_id=sid, start=from_dt, end=to_dt, year=self.year),
-                "behavior": ENDPOINTS["behavior"].format(student_id=sid, start=from_dt, end=to_dt, year=self.year),
-                "weekly_plan": ENDPOINTS["weekly_plan"].format(student_id=sid),
-                "timetable": ENDPOINTS["timetable"].format(student_id=sid),
-                "lessons_history": ENDPOINTS["lessons_history"].format(student_id=sid),
-                "grades": ENDPOINTS["grades"].format(student_id=sid),
+                "homework": self._endpoints["homework"].format(student_id=sid, start=from_dt, end=to_dt, year=self.year),
+                "behavior": self._endpoints["behavior"].format(student_id=sid, start=from_dt, end=to_dt, year=self.year),
+                "weekly_plan": self._endpoints["weekly_plan"].format(student_id=sid),
+                "timetable": self._endpoints["timetable"].format(student_id=sid),
+                "lessons_history": self._endpoints["lessons_history"].format(student_id=sid),
+                "grades": self._endpoints["grades"].format(student_id=sid),
             }
 
             async def fetch(url_key: str):
@@ -530,7 +592,7 @@ class MashovClient:
         # Fetch holidays once (not per student)
         holidays_raw = []
         try:
-            url = ENDPOINTS.get("holidays")
+            url = self._endpoints.get("holidays")
             if url:
                 _LOGGER.debug("Fetching holidays from: %s", url)
                 async with self._session.get(url, headers=self._headers) as resp:

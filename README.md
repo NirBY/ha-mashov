@@ -249,6 +249,7 @@ views:
 - **Autocomplete not working**: the dropdown is limited to 200 schools for performance; try typing the school name to filter the list.
 - **Multiple kids missing**: ensure your account actually lists multiple students in Mashov. Check HA logs for `custom_components.mashov` debug entries.
 - **Session errors**: if you see "Unclosed client session" errors, restart Home Assistant to clear any stale connections.
+- **"New Device" emails**: v1.0.5+ includes session persistence to prevent repetitive "New Device login" emails. If you still receive them, ensure the integration is not being restarted too frequently (e.g., watchlists or full system restarts) and that `custom_components.mashov.cache` exists in `.storage`.
 
 ### Enable debug logs
 ```yaml
