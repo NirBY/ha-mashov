@@ -137,6 +137,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         _LOGGER.info("Updating hub title: '%s' -> '%s'", entry.title, expected_title)
         hass.config_entries.async_update_entry(entry, title=expected_title)
 
+    # Set up simple cache store per entry to avoid immediate API calls on startup
+    store: Store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.cache")
+    cached: dict | None = None
+    try:
+        cached = await store.async_load()
+        if isinstance(cached, dict) and cached.get("data"):
+            _LOGGER.debug("Loaded cached data for entry %s (ts=%s)", entry.entry_id, cached.get("last_refresh_ts"))
+    except Exception as e:
+        _LOGGER.debug("No cache available for entry %s: %s", entry.entry_id, e)
+
     client = MashovClient(
         school_id=data[CONF_SCHOOL_ID],
         year=data.get(CONF_YEAR),
@@ -150,16 +160,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     coordinator = MashovCoordinator(hass, client, entry)
 
-    # Set up simple cache store per entry to avoid immediate API calls on startup
-    store: Store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.cache")
-    cached: dict | None = None
-    try:
-        cached = await store.async_load()
-        if isinstance(cached, dict) and cached.get("data"):
-            coordinator.data = cached.get("data")
-            _LOGGER.debug("Loaded cached data for entry %s (ts=%s)", entry.entry_id, cached.get("last_refresh_ts"))
-    except Exception as e:
-        _LOGGER.debug("No cache available for entry %s: %s", entry.entry_id, e)
+    # Inject cached data into coordinator if available
+    if isinstance(cached, dict) and cached.get("data"):
+        coordinator.data = cached.get("data")
 
     hass.data[DOMAIN][entry.entry_id] = {
         "client": client,
