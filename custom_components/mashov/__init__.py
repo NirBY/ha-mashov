@@ -145,6 +145,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         homework_days_back=entry.options.get(CONF_HOMEWORK_DAYS_BACK, DEFAULT_HOMEWORK_DAYS_BACK),
         homework_days_forward=entry.options.get(CONF_HOMEWORK_DAYS_FORWARD, DEFAULT_HOMEWORK_DAYS_FORWARD),
         api_base=entry.options.get(CONF_API_BASE, DEFAULT_API_BASE),
+        saved_auth=cached.get("auth") if isinstance(cached, dict) else None,
     )
 
     coordinator = MashovCoordinator(hass, client, entry)
@@ -253,6 +254,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                     {
                         "last_refresh_ts": time.time(),
                         "data": coordinator.data,
+                        "auth": client.auth_data,
                     }
                 )
             except Exception as e:
@@ -443,6 +445,7 @@ async def _async_setup_scheduler(hass: HomeAssistant, entry: ConfigEntry):
                 {
                     "last_refresh_ts": time.time(),
                     "data": coordinator.data,
+                    "auth": coordinator.client.auth_data,
                 }
             )
         except Exception as e:
