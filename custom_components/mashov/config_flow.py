@@ -251,13 +251,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: config_entries.ConfigEntry):
-        return OptionsFlowHandler(config_entry)
+        return OptionsFlowHandler()
 
 
 class OptionsFlowHandler(config_entries.OptionsFlow):
-    def __init__(self, config_entry):
-        self.config_entry = config_entry
-
     async def async_step_init(self, user_input=None) -> FlowResult:
         _LOGGER.debug(
             "Options flow step_init called (entry_id=%s). user_input=%s",
@@ -365,4 +362,4 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 # Backward/compatibility helper: expose options flow factory from this module as well
 @callback
 def async_get_options_flow(config_entry: config_entries.ConfigEntry):
-    return OptionsFlowHandler(config_entry)
+    return OptionsFlowHandler()
