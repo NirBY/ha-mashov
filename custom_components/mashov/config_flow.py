@@ -270,6 +270,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             if time_val and not re.match(r"^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$", time_val):
                 errors[CONF_SCHEDULE_TIME] = "invalid_time_format"
             
+            # Validate API URL
+            api_val = user_input.get(CONF_API_BASE, "").strip()
+            if api_val and not (api_val.startswith("http://") or api_val.startswith("https://")):
+                errors[CONF_API_BASE] = "invalid_api_url"
+            
             if not errors:
                 # Normalize: accept both legacy single day and new multi-days selector
             normalized = dict(user_input)

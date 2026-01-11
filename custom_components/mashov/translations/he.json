@@ -40,7 +40,8 @@
       }
     },
     "error": {
-      "invalid_time_format": "פורמט זמן שגוי (HH:MM)"
+      "invalid_time_format": "פורמט זמן שגוי (HH:MM)",
+      "invalid_api_url": "כתובת לא תקינה (חובה http/https)"
     }
   }
 }
