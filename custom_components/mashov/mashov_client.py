@@ -74,6 +74,11 @@ class MashovClient:
 
         self._session: aiohttp.ClientSession | None = None
         self._headers: dict[str, str] = {}
+        # Instance-level endpoints (fix race condition)
+        self._login_endpoint = ""
+        self._me_endpoint = ""
+        self._endpoints: dict[str, str] = {}
+
         self._api_base = (api_base or API_BASE).rstrip("/") + "/"
         self._resolve_endpoints()
 
@@ -81,11 +86,6 @@ class MashovClient:
         self._students: list[dict[str, Any]] = []  # [{id, name, slug}]
         self._auth_data: dict[str, Any] = {}  # Store authentication response data
         self._saved_auth = saved_auth  # Data restored from cache
-
-        # Instance-level endpoints (fix race condition)
-        self._login_endpoint = ""
-        self._me_endpoint = ""
-        self._endpoints: dict[str, str] = {}
 
     def _resolve_endpoints(self):
         self._login_endpoint = self._api_base + "login"
