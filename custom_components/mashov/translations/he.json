@@ -38,6 +38,9 @@
           "schedule_interval": "מרווח בדקות (במצב interval)"
         }
       }
+    },
+    "error": {
+      "invalid_time_format": "פורמט זמן שגוי (HH:MM)"
     }
   }
 }

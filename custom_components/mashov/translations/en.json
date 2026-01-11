@@ -38,6 +38,9 @@
           "schedule_interval": "Interval minutes (interval mode)"
         }
       }
+    },
+    "error": {
+      "invalid_time_format": "Invalid time format (HH:MM)"
     }
   }
 }

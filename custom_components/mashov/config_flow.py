@@ -256,13 +256,22 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 class OptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_init(self, user_input=None) -> FlowResult:
+        errors = {}
         _LOGGER.debug(
             "Options flow step_init called (entry_id=%s). user_input=%s",
             getattr(self.config_entry, "entry_id", ""),
             user_input,
         )
         if user_input is not None:
-            # Normalize: accept both legacy single day and new multi-days selector
+            errors = {}
+            # Validate schedule_time format if present
+            import re
+            time_val = user_input.get(CONF_SCHEDULE_TIME, "")
+            if time_val and not re.match(r"^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$", time_val):
+                errors[CONF_SCHEDULE_TIME] = "invalid_time_format"
+            
+            if not errors:
+                # Normalize: accept both legacy single day and new multi-days selector
             normalized = dict(user_input)
             try:
                 if CONF_SCHEDULE_DAYS in normalized:
@@ -286,13 +295,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             except Exception as e:
                 _LOGGER.debug("Options normalization failed: %s", e)
 
-            _LOGGER.info(
-                "Options submitted for '%s' (id=%s): %s",
-                getattr(self.config_entry, "title", ""),
-                getattr(self.config_entry, "entry_id", ""),
-                normalized,
-            )
-            return self.async_create_entry(title="", data=normalized)
+            if not errors:
+                _LOGGER.info(
+                    "Options submitted for '%s' (id=%s): %s",
+                    getattr(self.config_entry, "title", ""),
+                    getattr(self.config_entry, "entry_id", ""),
+                    normalized,
+                )
+                return self.async_create_entry(title="", data=normalized)
 
         current_options = dict(self.config_entry.options or {})
         _LOGGER.debug("Building options schema from current options: %s", current_options)
@@ -356,7 +366,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             getattr(self.config_entry, "title", ""),
             getattr(self.config_entry, "entry_id", ""),
         )
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)
 
 
 # Backward/compatibility helper: expose options flow factory from this module as well
