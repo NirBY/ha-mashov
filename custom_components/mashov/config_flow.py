@@ -277,30 +277,29 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             
             if not errors:
                 # Normalize: accept both legacy single day and new multi-days selector
-            normalized = dict(user_input)
-            try:
-                if CONF_SCHEDULE_DAYS in normalized:
-                    raw_days = normalized.get(CONF_SCHEDULE_DAYS) or []
-                    casted = []
-                    for v in raw_days:
-                        with contextlib.suppress(Exception):
-                            casted.append(max(0, min(6, int(v))))
-                    if casted:
-                        normalized[CONF_SCHEDULE_DAYS] = sorted(set(casted))
-                # If missing multi-days but legacy exists, promote
-                if CONF_SCHEDULE_DAYS not in normalized and CONF_SCHEDULE_DAY in normalized:
-                    try:
-                        d = int(normalized.get(CONF_SCHEDULE_DAY))
-                    except Exception:
-                        d = DEFAULT_SCHEDULE_DAY
-                    normalized[CONF_SCHEDULE_DAYS] = [max(0, min(6, d))]
-                # Drop legacy key
-                if CONF_SCHEDULE_DAYS in normalized and CONF_SCHEDULE_DAY in normalized:
-                    normalized.pop(CONF_SCHEDULE_DAY, None)
-            except Exception as e:
-                _LOGGER.debug("Options normalization failed: %s", e)
+                normalized = dict(user_input)
+                try:
+                    if CONF_SCHEDULE_DAYS in normalized:
+                        raw_days = normalized.get(CONF_SCHEDULE_DAYS) or []
+                        casted = []
+                        for v in raw_days:
+                            with contextlib.suppress(Exception):
+                                casted.append(max(0, min(6, int(v))))
+                        if casted:
+                            normalized[CONF_SCHEDULE_DAYS] = sorted(set(casted))
+                    # If missing multi-days but legacy exists, promote
+                    if CONF_SCHEDULE_DAYS not in normalized and CONF_SCHEDULE_DAY in normalized:
+                        try:
+                            d = int(normalized.get(CONF_SCHEDULE_DAY))
+                        except Exception:
+                            d = DEFAULT_SCHEDULE_DAY
+                        normalized[CONF_SCHEDULE_DAYS] = [max(0, min(6, d))]
+                    # Drop legacy key
+                    if CONF_SCHEDULE_DAYS in normalized and CONF_SCHEDULE_DAY in normalized:
+                        normalized.pop(CONF_SCHEDULE_DAY, None)
+                except Exception as e:
+                    _LOGGER.debug("Options normalization failed: %s", e)
 
-            if not errors:
                 _LOGGER.info(
                     "Options submitted for '%s' (id=%s): %s",
                     getattr(self.config_entry, "title", ""),
