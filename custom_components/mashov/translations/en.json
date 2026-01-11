@@ -40,7 +40,8 @@
       }
     },
     "error": {
-      "invalid_time_format": "Invalid time format (HH:MM)"
+      "invalid_time_format": "Invalid time format (HH:MM)",
+      "invalid_api_url": "Invalid URL (must start with http/https)"
     }
   }
 }
