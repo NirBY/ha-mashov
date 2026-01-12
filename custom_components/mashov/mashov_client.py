@@ -548,6 +548,10 @@ class MashovClient:
                             txt = await resp.text()
                             _LOGGER.warning("HTTP 400 for %s (student %s): %s - skipping", url_key, sid, txt)
                             return []  # Return empty list for 400 errors
+                        if resp.status == 403:
+                            txt = await resp.text()
+                            _LOGGER.warning("HTTP 403 (Forbidden) for %s (student %s): %s - feature likely disabled", url_key, sid, txt)
+                            return []
                         if resp.status >= 400:
                             txt = await resp.text()
                             _LOGGER.error("HTTP %s for %s (student %s): %s", resp.status, url_key, sid, txt)
