@@ -342,14 +342,14 @@ class MashovClient:
             "devicePlatform": "chrome",
             "deviceManufacturer": "homeassistant",
             "deviceModel": "integration",
-            "deviceVersion": "1.0.0",
+            "deviceVersion": "1.0.5",
         }
         headers = {
             "Accept": "application/json, text/plain, */*",
             "Content-Type": "application/json;charset=UTF-8",
             "Origin": "https://web.mashov.info",
             "Referer": "https://web.mashov.info/students/login",
-            "User-Agent": "Mozilla/5.0 (HomeAssistant) Mashov/0.5",
+            "User-Agent": "Mozilla/5.0 (HomeAssistant) Mashov/1.0.5",
         }
         # Try login with retry mechanism
         for attempt in range(max_retries):

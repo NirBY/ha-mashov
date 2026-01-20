@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-01-20
+
+### Fixed
+- **Authentication Race Condition**: Fixed a critical issue where concurrent requests (e.g., initial load) would trigger multiple parallel login attempts. (Fixes #4, #5)
+- **Login Stabilization**: Added `asyncio.Lock` to ensure only one re-login attempt occurs at a time.
+- **Session Validation**: Implemented smart session validation to prevent redundant re-logins if a valid session was established recently (debounce).
+- **Log Spam**: Eliminated excessive "401 on ... attempting re-login..." warnings in logs.
+- **Performance**: Improved update speed by ~4x (from ~13s to ~3s) by eliminating wasted requests and redundant re-authentications.
+
 ## [1.0.4] - 2025-10-27
 
 ### Fixed
