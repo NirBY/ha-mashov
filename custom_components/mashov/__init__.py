@@ -77,6 +77,7 @@ def _async_show_error_notification(hass: HomeAssistant, entry: ConfigEntry, titl
 def _async_clear_issue_notification(hass: HomeAssistant, entry: ConfigEntry) -> None:
     persistent_notification.async_dismiss(hass, _issue_notification_id(entry))
 
+
 CONFIG_SCHEMA = vol.Schema(
     {
         DOMAIN: vol.Schema(

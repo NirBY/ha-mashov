@@ -158,8 +158,9 @@ async def test_options_flow(hass: HomeAssistant, mock_config_entry):
         result["flow_id"],
         user_input={
             "schedule_type": "daily",
-            "schedule_time": "14:00:00",
+            "schedule_time": "14:00",
         },
     )
 
     assert result2["type"] == FlowResultType.CREATE_ENTRY
+    assert result2["data"]["schedule_time"] == "14:00"

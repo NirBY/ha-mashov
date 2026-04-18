@@ -340,7 +340,9 @@ class MashovClient:
                             # We can skip login
                             await self._extract_students()
                             return
-                        _LOGGER.warning("Restored session invalid (Me endpoint returned %s) - proceeding to login", resp.status)
+                        _LOGGER.warning(
+                            "Restored session invalid (Me endpoint returned %s) - proceeding to login", resp.status
+                        )
                 except Exception as e:
                     _LOGGER.warning("Error verifying restored session: %s", e)
 
@@ -596,8 +598,12 @@ class MashovClient:
             sid = stu["id"]
 
             urls = {
-                "homework": self._endpoints["homework"].format(student_id=sid, start=from_dt, end=to_dt, year=self.year),
-                "behavior": self._endpoints["behavior"].format(student_id=sid, start=from_dt, end=to_dt, year=self.year),
+                "homework": self._endpoints["homework"].format(
+                    student_id=sid, start=from_dt, end=to_dt, year=self.year
+                ),
+                "behavior": self._endpoints["behavior"].format(
+                    student_id=sid, start=from_dt, end=to_dt, year=self.year
+                ),
                 "weekly_plan": self._endpoints["weekly_plan"].format(student_id=sid),
                 "timetable": self._endpoints["timetable"].format(student_id=sid),
                 "lessons_history": self._endpoints["lessons_history"].format(student_id=sid),
