@@ -10,6 +10,14 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from .const import TEST_STUDENT
 
 
+def _get_calendar_state(hass: HomeAssistant):
+    """Return the Mashov holidays calendar state across HA slug variants."""
+    for state in hass.states.async_all("calendar"):
+        if state.entity_id.endswith("_holidays_calendar"):
+            return state
+    return None
+
+
 async def test_holidays_calendar_setup(hass: HomeAssistant, mock_config_entry: MockConfigEntry):
     """Test holidays calendar entity setup."""
     mock_config_entry.add_to_hass(hass)
@@ -58,8 +66,7 @@ async def test_holidays_calendar_setup(hass: HomeAssistant, mock_config_entry: M
         assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
 
-    calendar_entity_id = "calendar.mashov_holidays_calendar"
-    state = hass.states.get(calendar_entity_id)
+    state = _get_calendar_state(hass)
 
     assert state is not None
     assert state.attributes.get("friendly_name") == "Mashov Holidays Calendar"
@@ -114,8 +121,7 @@ async def test_holidays_calendar_upcoming_event(hass: HomeAssistant, mock_config
         assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
 
-    calendar_entity_id = "calendar.mashov_holidays_calendar"
-    state = hass.states.get(calendar_entity_id)
+    state = _get_calendar_state(hass)
 
     assert state is not None
     assert state.state == "off"
@@ -172,8 +178,7 @@ async def test_holidays_calendar_active_event(hass: HomeAssistant, mock_config_e
         assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
 
-    calendar_entity_id = "calendar.mashov_holidays_calendar"
-    state = hass.states.get(calendar_entity_id)
+    state = _get_calendar_state(hass)
 
     assert state is not None
     assert state.state == "on"
@@ -220,8 +225,7 @@ async def test_holidays_calendar_no_events(hass: HomeAssistant, mock_config_entr
         assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
 
-    calendar_entity_id = "calendar.mashov_holidays_calendar"
-    state = hass.states.get(calendar_entity_id)
+    state = _get_calendar_state(hass)
 
     assert state is not None
     assert state.state == "off"
@@ -286,8 +290,7 @@ async def test_holidays_calendar_with_multiple_holidays(hass: HomeAssistant, moc
         assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
 
-    calendar_entity_id = "calendar.mashov_holidays_calendar"
-    state = hass.states.get(calendar_entity_id)
+    state = _get_calendar_state(hass)
 
     assert state is not None
     assert state.state == "off"
@@ -348,8 +351,7 @@ async def test_holidays_calendar_multiple_events_returns_next(hass: HomeAssistan
         assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
 
-    calendar_entity_id = "calendar.mashov_holidays_calendar"
-    state = hass.states.get(calendar_entity_id)
+    state = _get_calendar_state(hass)
 
     assert state is not None
     assert state.state == "off"
@@ -409,8 +411,7 @@ async def test_holidays_calendar_invalid_dates(hass: HomeAssistant, mock_config_
         assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
 
-    calendar_entity_id = "calendar.mashov_holidays_calendar"
-    state = hass.states.get(calendar_entity_id)
+    state = _get_calendar_state(hass)
 
     assert state is not None
     assert state.attributes.get("message") == "Valid Holiday"
