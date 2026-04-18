@@ -310,6 +310,23 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 except Exception as e:
                     _LOGGER.debug("Options normalization failed: %s", e)
 
+                updated_data = dict(self.config_entry.data)
+                new_username = str(normalized.pop(CONF_USERNAME, "")).strip()
+                if new_username:
+                    updated_data[CONF_USERNAME] = new_username
+
+                new_password = str(normalized.pop(CONF_PASSWORD, "")).strip()
+                if new_password:
+                    updated_data[CONF_PASSWORD] = new_password
+
+                if updated_data != dict(self.config_entry.data):
+                    self.hass.config_entries.async_update_entry(self.config_entry, data=updated_data)
+                    _LOGGER.info(
+                        "Credentials updated for '%s' (id=%s)",
+                        getattr(self.config_entry, "title", ""),
+                        getattr(self.config_entry, "entry_id", ""),
+                    )
+
                 _LOGGER.info(
                     "Options submitted for '%s' (id=%s): %s",
                     getattr(self.config_entry, "title", ""),
@@ -322,6 +339,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         _LOGGER.debug("Building options schema from current options: %s", current_options)
 
         options = {
+            CONF_USERNAME: self.config_entry.data.get(CONF_USERNAME, ""),
             CONF_HOMEWORK_DAYS_BACK: self.config_entry.options.get(CONF_HOMEWORK_DAYS_BACK, DEFAULT_HOMEWORK_DAYS_BACK),
             CONF_HOMEWORK_DAYS_FORWARD: self.config_entry.options.get(
                 CONF_HOMEWORK_DAYS_FORWARD, DEFAULT_HOMEWORK_DAYS_FORWARD
@@ -339,6 +357,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         _LOGGER.debug("Options defaults resolved: %s", options)
         schema = vol.Schema(
             {
+                vol.Optional(CONF_USERNAME, default=options[CONF_USERNAME]): str,
+                vol.Optional(CONF_PASSWORD, description={"suggested_value": ""}): str,
                 vol.Optional(CONF_HOMEWORK_DAYS_BACK, default=options[CONF_HOMEWORK_DAYS_BACK]): vol.All(
                     int, vol.Range(min=0, max=60)
                 ),
