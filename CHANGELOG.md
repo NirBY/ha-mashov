@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [1.0.6-beta.3] - 2026-04-18 (Pre-release)
+
+### Changed
+- Clarified in the README that updating credentials from the Configure flow only updates the specific Mashov hub entry you opened and does not automatically sync other hubs
+
+### Fixed
+- Keep the last successful Mashov data when a generic authentication failure occurs and cached data is already available
+- Added a clearer authentication notification with a Configure hint and Mashov login link for credential-related failures
+- Added regression coverage for generic authentication failures that should keep cached data
+
 ## [1.0.6-beta.2] - 2026-04-18 (Pre-release)
 
 ### Added

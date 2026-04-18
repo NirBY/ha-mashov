@@ -51,6 +51,8 @@ Unofficial integration for **משו"ב (Mashov)** that logs into the student por
 
 To configure options, go to: **Settings → Devices & Services → Mashov → Configure**
 
+Credential updates in **Configure** apply only to the specific Mashov hub entry you opened. If you have multiple Mashov hubs, updating one hub's username or password does **not** automatically update the others.
+
 - **Homework window**: days back (default 7), days forward (default 21)
 - **Daily refresh time**: default `02:30`
 - **API base**: default `https://web.mashov.info/api/` (override if your deployment differs)
