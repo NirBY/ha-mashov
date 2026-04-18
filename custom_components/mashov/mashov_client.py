@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-import time
+import contextlib
 from datetime import date, timedelta
+import json
 import logging
+import time
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import aiohttp  # type: ignore[import]
 
@@ -33,6 +35,14 @@ class MashovError(Exception):
 
 class MashovAuthError(MashovError):
     pass
+
+
+class MashovPasswordChangeRequiredError(MashovAuthError):
+    """Raised when Mashov requires a password change before login."""
+
+    def __init__(self, message: str, login_url: str) -> None:
+        super().__init__(message)
+        self.login_url = login_url
 
 
 def _slugify(text: str) -> str:
@@ -77,6 +87,7 @@ class MashovClient:
         self._headers: dict[str, str] = {}
         # Instance-level endpoints (fix race condition)
         self._login_endpoint = ""
+        self._login_page_url = ""
         self._me_endpoint = ""
         self._endpoints: dict[str, str] = {}
 
@@ -94,6 +105,7 @@ class MashovClient:
 
     def _resolve_endpoints(self):
         self._login_endpoint = self._api_base + "login"
+        self._login_page_url = self._build_login_page_url()
         self._me_endpoint = self._api_base + "me"
         self._endpoints = {
             "homework": self._api_base + "students/{student_id}/homework?from={start}&to={end}&year={year}",
@@ -104,6 +116,19 @@ class MashovClient:
             "lessons_history": self._api_base + "students/{student_id}/lessons/history",
             "grades": self._api_base + "students/{student_id}/grades",
         }
+
+    def _build_login_page_url(self) -> str:
+        """Return the browser login URL that matches the configured API base."""
+        parsed = urlsplit(self._api_base)
+        path = parsed.path.rstrip("/")
+        if path.endswith("/api"):
+            path = path[: -len("/api")]
+        return urlunsplit((parsed.scheme, parsed.netloc, f"{path}/students/login", "", ""))
+
+    @property
+    def login_page_url(self) -> str:
+        """Return the Mashov login page URL for user-facing notifications."""
+        return self._login_page_url
 
     @property
     def auth_data(self) -> dict[str, Any]:
@@ -117,7 +142,6 @@ class MashovClient:
         return {
             "local_auth": self._auth_data,
             "csrf_token": self._headers.get("X-Csrf-Token"),
-            "cookies": cookies,
             "cookies": cookies,
         }
 
@@ -316,8 +340,7 @@ class MashovClient:
                             # We can skip login
                             await self._extract_students()
                             return
-                        else:
-                            _LOGGER.warning("Restored session invalid (Me endpoint returned %s) - proceeding to login", resp.status)
+                        _LOGGER.warning("Restored session invalid (Me endpoint returned %s) - proceeding to login", resp.status)
                 except Exception as e:
                     _LOGGER.warning("Error verifying restored session: %s", e)
 
@@ -370,6 +393,21 @@ class MashovClient:
 
                     if resp.status in (401, 403):
                         txt = await resp.text()
+                        message = txt
+                        try:
+                            parsed = json.loads(txt)
+                            if isinstance(parsed, dict) and parsed.get("message"):
+                                message = str(parsed["message"])
+                        except Exception:
+                            pass
+                        reason = (resp.headers.get("reason") or "").strip().lower()
+                        if reason == "changepass" or "change password" in message.lower():
+                            _LOGGER.warning(
+                                "Mashov requires a password change before authenticating for school=%s, user=%s",
+                                self.school_id,
+                                self.username,
+                            )
+                            raise MashovPasswordChangeRequiredError(message, self.login_page_url)
                         _LOGGER.error(
                             "Authentication failed for school=%s, year=%s, user=%s. Response: %s",
                             self.school_id,
@@ -545,15 +583,13 @@ class MashovClient:
         # We perform a "dry run" check on the first student's minimal endpoint (e.g. grades or just ensure session)
         # to catch 401s early and refresh the session once.
         if self._students:
-            try:
+            with contextlib.suppress(Exception):
                 # We reuse _ensure_valid_session logic, but if we suspect it's stale,
                 # we might want to force a check? No, let's rely on the first 401 triggering it safely.
                 # Actually, the best way is to check date?
                 # For now, we'll let the lock handle it. If 10 requests go out, 10 return 401.
                 # The first one enters the lock and re-logs in. The others wait.
                 # When they wake up, they retry.
-                pass
-            except Exception:
                 pass
 
         async def fetch_for_student(stu):
@@ -587,7 +623,15 @@ class MashovClient:
                             return []  # Return empty list for 400 errors
                         if resp.status == 403:
                             txt = await resp.text()
-                            _LOGGER.warning("HTTP 403 (Forbidden) for %s (student %s): %s - feature likely disabled", url_key, sid, txt)
+                            reason = (resp.headers.get("reason") or "").strip().lower()
+                            if reason == "changepass" or "change password" in txt.lower():
+                                raise MashovPasswordChangeRequiredError(txt, self.login_page_url)
+                            _LOGGER.warning(
+                                "HTTP 403 (Forbidden) for %s (student %s): %s - feature likely disabled",
+                                url_key,
+                                sid,
+                                txt,
+                            )
                             return []
                         if resp.status >= 400:
                             txt = await resp.text()
@@ -605,6 +649,8 @@ class MashovClient:
                         except Exception as e:
                             _LOGGER.debug("Failed to parse %s as JSON for student %s: %s", url_key, sid, e)
                             return await resp.text()
+                except MashovPasswordChangeRequiredError:
+                    raise
                 except Exception as e:
                     _LOGGER.warning("Exception fetching %s for student %s: %s", url_key, sid, e)
                     return []  # Return empty list on exception

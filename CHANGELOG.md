@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [1.0.6-beta.1] - 2026-04-18 (Pre-release)
+
+### Fixed
+- Added persistent Home Assistant issue notifications for Mashov authentication and refresh failures
+- Added a dedicated password-change-required flow with a direct Mashov login link in the notification
+- Keep the last successful Mashov data available when the service requires a password change before login
+
+### Added
+- Regression tests covering password-change detection, notification content, and cached-data fallback
+
 ## [1.0.5] - 2026-01-20
 
 ### Fixed
