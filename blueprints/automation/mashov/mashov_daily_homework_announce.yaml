@@ -1,64 +1,118 @@
 blueprint:
   name: Mashov – Daily Homework & Behavior Announcement (Trace-friendly)
   description: >
-    Version v1.0.6. Announces today's behavior & homework at 15:00, skips nights & holidays,
+    Version v1.0.6 (patched). Announces today's behavior & homework at 15:00, skips nights & holidays,
     raises volume, speaks (Hebrew), then restores volume.
-    This version is TRACE-FRIENDLY: every decision path has an alias and a reason.
-    Fixed TTS timing: waits for speaker to start playing, then waits until idle before restoring volume.
+    Patch: replaces deprecated tts.google_translate_say with tts.speak and a selectable TTS engine entity.
+    Patch: more tolerant "finished" detection (idle/paused/off/standby) so volume restore works reliably.
   source_url: https://raw.githubusercontent.com/NirBY/ha-mashov/main/blueprints/automation/mashov/mashov_daily_homework_announce.yaml
   domain: automation
   input:
     holiday_sensor:
       name: Holiday sensor (Mashov)
       description: Entity with Items[] of date ranges (start/end ISO) – e.g. sensor.mashov_holidays
-      selector: { entity: { domain: sensor } }
+      selector:
+        entity:
+          domain:
+            - sensor
+          multiple: false
+          reorder: false
 
     homework_sensor:
       name: Homework sensor (Mashov)
       description: Entity with Items[] with lesson_date, subject_name, homework
-      selector: { entity: { domain: sensor } }
+      selector:
+        entity:
+          domain:
+            - sensor
+          multiple: false
+          reorder: false
 
     behavior_sensor:
       name: Behavior sensor (Mashov)
       description: Entity with Items[] with lesson_date, subject, achva_name
-      selector: { entity: { domain: sensor } }
+      selector:
+        entity:
+          domain:
+            - sensor
+          multiple: false
+          reorder: false
 
     media_player:
       name: Speaker media_player
-      selector: { entity: { domain: media_player } }
+      selector:
+        entity:
+          domain:
+            - media_player
+          multiple: false
+          reorder: false
 
     run_time:
       name: Daily run time
       description: "Default 15:00 (local time)"
       default: "15:00:00"
-      selector: { time: {} }
+      selector:
+        time: {}
 
     max_volume:
       name: Temporary max volume for announcement
       default: 1.0
-      selector: { number: { min: 0.1, max: 1.0, step: 0.05, mode: slider } }
+      selector:
+        number:
+          min: 0.1
+          max: 1.0
+          step: 0.05
+          mode: slider
+
+    tts_engine:
+      name: TTS engine entity
+      description: "Select your TTS entity (e.g. tts.google_translate_iw_com or tts.google_translate_en_com)"
+      selector:
+        entity:
+          domain:
+            - tts
+          multiple: false
+          reorder: false
 
     tts_language:
       name: TTS language
       description: Default Google Translate Hebrew is "iw" (also accepts "he")
       default: iw
-      selector: { text: {} }
+      selector:
+        text:
+          multiple: false
+          multiline: false
+
     tts_start_timeout:
       name: TTS start timeout (seconds)
       description: How long to wait for speaker to start playing after TTS call (default 10 seconds)
       default: 10
-      selector: { number: { min: 3, max: 30, step: 1, mode: slider } }
+      selector:
+        number:
+          min: 3
+          max: 30
+          step: 1
+          mode: slider
+
     tts_finish_timeout:
       name: TTS finish timeout (seconds)
       description: How long to wait for speaker to become idle after playing (default 120 seconds / 2 minutes)
       default: 120
-      selector: { number: { min: 30, max: 600, step: 10, mode: slider } }
+      selector:
+        number:
+          min: 30
+          max: 600
+          step: 10
+          mode: slider
 
     bp_version_info:
       name: Blueprint version
       description: Informational only; used in traces. Do not change.
-      default: "mashov_daily_homework_announce v1.0.6 (2025-10-18)"
-      selector: { text: {} }
+      default: "mashov_daily_homework_announce v1.0.6 (patched tts.speak)"
+      selector:
+        text:
+          multiple: false
+          multiline: false
 
 mode: restart
 
@@ -74,15 +128,15 @@ variables:
   behavior_sensor: !input behavior_sensor
   media_player: !input media_player
   max_volume: !input max_volume
+  tts_engine: !input tts_engine
   tts_language: !input tts_language
   tts_start_timeout: !input tts_start_timeout
   tts_finish_timeout: !input tts_finish_timeout
-  # Blueprint version for trace/debug (from form)
   blueprint_version: !input bp_version_info
 
   # Window for allowed hours (for traces & manual runs)
   allow_start: "07:00:00"
-  allow_end:   "22:00:00"
+  allow_end: "22:00:00"
   now_time: "{{ now().time() }}"
 
   student_name: >
@@ -209,9 +263,10 @@ action:
         conditions:
           - condition: template
             alias: "Proceed?"
-            value_template: "{{ has_data_today and (not in_holiday_today) and
-                               (now().time() >= strptime(allow_start, '%H:%M:%S').time()) and
-                               (now().time() <= strptime(allow_end,  '%H:%M:%S').time()) }}"
+            value_template: >
+              {{ has_data_today and (not in_holiday_today) and
+                 (now().time() >= strptime(allow_start, '%H:%M:%S').time()) and
+                 (now().time() <= strptime(allow_end,  '%H:%M:%S').time()) }}
         sequence:
           - alias: "Log start"
             service: logbook.log
@@ -226,7 +281,8 @@ action:
 
           - alias: "Set max volume"
             service: media_player.volume_set
-            target: { entity_id: !input media_player }
+            target:
+              entity_id: !input media_player
             data:
               volume_level: "{{ max_volume }}"
 
@@ -236,28 +292,23 @@ action:
             timeout: "00:00:05"
             continue_on_timeout: true
 
-          - alias: "Speak via Google Translate"
-            service: tts.google_translate_say
-            target: { entity_id: !input media_player }
+          - alias: "Speak via TTS (tts.speak)"
+            service: tts.speak
+            target:
+              entity_id: !input tts_engine
             data:
+              media_player_entity_id: !input media_player
               message: "{{ announcement_text }}"
               language: !input tts_language
-
-          # Legacy example if needed:
-          # - alias: "Speak via Google Translate (legacy)"
-          #   service: tts.google_translate_say
-          #   target: { entity_id: !input media_player }
-          #   data:
-          #     message: "{{ announcement_text }}"
-          #     language: he
 
           - alias: "Wait for speaker to start playing"
             wait_template: "{{ is_state(media_player, 'playing') }}"
             timeout: "{{ '00:00:' ~ '%02d' | format(tts_start_timeout | int) }}"
             continue_on_timeout: true
 
-          - alias: "Wait for speaker to become idle"
-            wait_template: "{{ is_state(media_player, 'idle') }}"
+          - alias: "Wait for speaker to become idle/finished"
+            wait_template: >
+              {{ states(media_player) in ['idle','paused','off','standby'] }}
             timeout: >
               {% set seconds = tts_finish_timeout | int %}
               {% set minutes = (seconds // 60) %}
@@ -273,7 +324,8 @@ action:
             then:
               - alias: "Restore"
                 service: media_player.volume_set
-                target: { entity_id: !input media_player }
+                target:
+                  entity_id: !input media_player
                 data:
                   volume_level: "{{ prev_vol }}"
 
