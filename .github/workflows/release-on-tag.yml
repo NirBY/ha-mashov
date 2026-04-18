@@ -39,13 +39,14 @@ jobs:
         run: |
           set -e
           TAG="${{ steps.vars.outputs.tag }}"
+          CHANGELOG_TAG="${TAG#v}"
           BODY_FILE="RELEASE_BODY.md"
           if [[ ! -f CHANGELOG.md ]]; then
             echo "CHANGELOG.md not found" >&2
             printf "Release %s\n\nNo changelog available.\n" "$TAG" > "$BODY_FILE"
           else
-            # Extract from line starting with '## [TAG]' until next '## ['
-            awk -v tag="$TAG" '
+            # Extract from line starting with '## [CHANGELOG_TAG]' until next '## ['
+            awk -v tag="$CHANGELOG_TAG" '
               $0 ~ "^## \\[" tag "\\]" {capture=1; next}
               capture && $0 ~ /^## \[/ {exit}
               capture {print}
@@ -91,6 +92,7 @@ jobs:
         run: |
           set -e
           TAG="${{ steps.vars.outputs.tag }}"
+          CHANGELOG_TAG="${TAG#v}"
           BODY_FILE="${{ steps.changelog.outputs.body_path }}"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" --prerelease --notes-file "$BODY_FILE" --title "Release $TAG"
