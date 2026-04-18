@@ -93,3 +93,15 @@ def enable_event_loop_debug_fixture():
     with suppress(RuntimeError):
         asyncio.get_event_loop().set_debug(True)
     yield
+
+
+@pytest.fixture(name="verify_cleanup", autouse=True)
+def verify_cleanup_fixture(
+    expected_lingering_tasks: bool,
+    expected_lingering_timers: bool,
+):
+    """Avoid upstream cleanup crashes when Python has no current event loop."""
+    yield
+    with suppress(RuntimeError):
+        event_loop = asyncio.get_event_loop()
+        event_loop.run_until_complete(event_loop.shutdown_default_executor())
