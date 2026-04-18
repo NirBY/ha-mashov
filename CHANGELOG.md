@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [1.0.6-beta.2] - 2026-04-18 (Pre-release)
+
+### Added
+- Added a privacy disclaimer to the README and GitHub bug-report template reminding reporters to redact personal and sensitive data before sharing logs, screenshots, or diagnostics
+
+### Changed
+- Updated the GitHub Actions workflow to newer action versions and expanded CI coverage to Python 3.11, 3.12, 3.13, and 3.14
+
+### Fixed
+- Added support for updating Mashov username and password directly from the integration Configure flow after a password-change-required error
+- Added regression coverage for updating credentials through the options flow
+
 ## [1.0.6-beta.1] - 2026-04-18 (Pre-release)
 
 ### Fixed

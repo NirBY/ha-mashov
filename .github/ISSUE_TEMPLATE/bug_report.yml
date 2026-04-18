@@ -9,6 +9,8 @@ body:
       value: |
         Before you open a new issue, please **search existing issues** to avoid duplicates.
 
+        Please **do not upload personal or sensitive data**. Before attaching logs, diagnostics, screenshots, or JSON payloads, review them and redact usernames, student names, IDs, grades, homework text, cookies, tokens, email addresses, phone numbers, and any other private account or school data.
+
   - type: input
     id: short_title
     attributes:
@@ -41,6 +43,8 @@ body:
           required: true
         - label: "This is **not** a duplicate of an existing issue."
           required: true
+        - label: "I reviewed all attached logs, diagnostics, screenshots, and pasted text and removed personal or sensitive data."
+          required: true
 
   - type: textarea
     id: description
@@ -68,7 +72,7 @@ body:
     id: debug_logs
     attributes:
       label: "Debug logs"
-      description: "Include logs from startup to the moment of the issue. See the Logger docs above."
+      description: "Include logs from startup to the moment of the issue. Redact personal or sensitive data before uploading. See the Logger docs above."
       render: shell
       placeholder: |
         <paste relevant logs enclosed in triple backticks>
@@ -82,7 +86,7 @@ body:
     id: diagnostics
     attributes:
       label: "Diagnostics dump"
-      description: "Drag-and-drop the generated diagnostics file into this comment box (GitHub will attach it). If not possible, paste relevant JSON here."
+      description: "Drag-and-drop the generated diagnostics file into this comment box (GitHub will attach it). If not possible, paste relevant JSON here. Review and redact any personal or sensitive data first."
       render: json
       placeholder: "{ … }"
     validations:
@@ -92,6 +96,4 @@ body:
     attributes:
       value: |
         _Remember, contributions should follow this repository’s contributing guidelines._
-
-
 

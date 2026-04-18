@@ -263,6 +263,8 @@ logger:
 ## 🔐 Privacy & Security
 - Credentials are stored by Home Assistant in the config entry store.
 - The integration mirrors the Mashov web client behavior (headers, cookies, API calls). Endpoints may change without notice.
+- Before sharing logs, screenshots, or diagnostics in GitHub issues, review them and remove personal data such as usernames, student names, IDs, grades, homework text, session cookies, tokens, phone numbers, email addresses, and any other sensitive school or account details.
+- If you are unsure whether something is safe to share, redact it first. Only upload the minimum data needed to reproduce the problem.
 
 ---
 
