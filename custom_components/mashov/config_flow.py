@@ -251,10 +251,19 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: config_entries.ConfigEntry):
-        return OptionsFlowHandler()
+        return OptionsFlowHandler(config_entry)
 
 
 class OptionsFlowHandler(config_entries.OptionsFlow):
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        self._config_entry = config_entry
+
+    @property
+    def config_entry(self) -> config_entries.ConfigEntry:
+        with contextlib.suppress(AttributeError, ValueError):
+            return super().config_entry
+        return self._config_entry
+
     async def async_step_init(self, user_input=None) -> FlowResult:
         errors = {}
         _LOGGER.debug(
@@ -266,6 +275,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             errors = {}
             # Validate schedule_time format if present
             import re
+
             time_val = user_input.get(CONF_SCHEDULE_TIME, "")
             if time_val and not re.match(r"^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$", time_val):
                 errors[CONF_SCHEDULE_TIME] = "invalid_time_format"
@@ -376,4 +386,4 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 # Backward/compatibility helper: expose options flow factory from this module as well
 @callback
 def async_get_options_flow(config_entry: config_entries.ConfigEntry):
-    return OptionsFlowHandler()
+    return OptionsFlowHandler(config_entry)
