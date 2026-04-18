@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import logging
 import time
 
+from homeassistant.components import persistent_notification  # type: ignore
 from homeassistant.config_entries import ConfigEntry  # type: ignore
 from homeassistant.core import HomeAssistant, ServiceCall, callback  # type: ignore
 from homeassistant.helpers.event import async_track_time_change  # type: ignore
@@ -37,9 +38,44 @@ from .const import (
     DOMAIN,
     PLATFORMS,
 )
-from .mashov_client import MashovAuthError, MashovClient, MashovError
+from .mashov_client import MashovAuthError, MashovClient, MashovError, MashovPasswordChangeRequiredError
 
 _LOGGER = logging.getLogger(__name__)
+
+_ISSUE_NOTIFICATION_KEY = "issue"
+
+
+def _issue_notification_id(entry: ConfigEntry) -> str:
+    return f"{DOMAIN}_{entry.entry_id}_{_ISSUE_NOTIFICATION_KEY}"
+
+
+def _async_show_issue_notification(hass: HomeAssistant, entry: ConfigEntry, title: str, message: str) -> None:
+    persistent_notification.async_create(
+        hass,
+        message,
+        title=title,
+        notification_id=_issue_notification_id(entry),
+    )
+
+
+def _async_show_password_change_notification(
+    hass: HomeAssistant, entry: ConfigEntry, exc: MashovPasswordChangeRequiredError
+) -> None:
+    message = (
+        f"Mashov requires a password change before it can log in for **{entry.title}**.\n\n"
+        "The integration will keep the last successful data until this is resolved.\n\n"
+        f"[Open Mashov login page]({exc.login_url})"
+    )
+    _async_show_issue_notification(hass, entry, "Mashov password change required", message)
+
+
+def _async_show_error_notification(hass: HomeAssistant, entry: ConfigEntry, title: str, error: Exception | str) -> None:
+    message = f"Mashov reported an error for **{entry.title}**.\n\nError: `{error}`"
+    _async_show_issue_notification(hass, entry, title, message)
+
+
+def _async_clear_issue_notification(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    persistent_notification.async_dismiss(hass, _issue_notification_id(entry))
 
 CONFIG_SCHEMA = vol.Schema(
     {
@@ -262,7 +298,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                 )
             except Exception as e:
                 _LOGGER.debug("Failed saving cache: %s", e)
+        except MashovPasswordChangeRequiredError as e:
+            _async_show_password_change_notification(hass, entry, e)
+            if coordinator.data:
+                _LOGGER.warning(
+                    "Mashov requires a password change for %s; keeping cached data until the issue is resolved",
+                    entry.title,
+                )
+            else:
+                _LOGGER.error("Failed to perform startup refresh: %s", e)
+                await client.async_close()
+                raise
         except Exception as e:
+            _async_show_error_notification(hass, entry, "Mashov startup refresh failed", e)
             _LOGGER.error("Failed to perform startup refresh: %s", e)
             await client.async_close()
             raise
@@ -521,14 +569,28 @@ class MashovCoordinator(DataUpdateCoordinator):
         _LOGGER.debug("Coordinator update started: %s", self.name)
         try:
             data = await asyncio.create_task(self.client.async_fetch_all())
+            _async_clear_issue_notification(self.hass, self.entry)
             _LOGGER.debug("Coordinator update completed; students=%d", len(data.get("students", [])))
             return data
+        except MashovPasswordChangeRequiredError as exc:
+            _async_show_password_change_notification(self.hass, self.entry, exc)
+            if self.data:
+                _LOGGER.warning(
+                    "Mashov requires a password change for %s; keeping the last successful data",
+                    self.entry.title,
+                )
+                return self.data
+            _LOGGER.error("Authentication error during data update: %s", exc)
+            raise UpdateFailed(f"Password change required: {exc}") from exc
         except MashovAuthError as exc:
+            _async_show_error_notification(self.hass, self.entry, "Mashov authentication failed", exc)
             _LOGGER.error("Authentication error during data update: %s", exc)
             raise UpdateFailed(f"Auth error: {exc}") from exc
         except MashovError as exc:
+            _async_show_error_notification(self.hass, self.entry, "Mashov refresh failed", exc)
             _LOGGER.error("Mashov error during data update: %s", exc)
             raise UpdateFailed(f"Mashov error: {exc}") from exc
         except Exception as exc:
+            _async_show_error_notification(self.hass, self.entry, "Mashov refresh failed", exc)
             _LOGGER.error("Unexpected error during data update: %s", exc)
             raise UpdateFailed(f"Unexpected error: {exc}") from exc
