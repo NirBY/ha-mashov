@@ -1,5 +1,8 @@
 """Global fixtures for Mashov integration tests."""
 
+import asyncio
+from contextlib import suppress
+
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -82,3 +85,11 @@ def mock_mashov_client_fixture():
         client.async_get_weekly_plan = AsyncMock(return_value=[])
         client.async_get_holidays = AsyncMock(return_value=[])
         yield client
+
+
+@pytest.fixture(name="enable_event_loop_debug", autouse=True)
+def enable_event_loop_debug_fixture():
+    """Safely enable loop debug mode when an event loop already exists."""
+    with suppress(RuntimeError):
+        asyncio.get_event_loop().set_debug(True)
+    yield
