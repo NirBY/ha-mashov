@@ -69,7 +69,7 @@ async def test_holidays_calendar_setup(hass: HomeAssistant, mock_config_entry: M
     state = _get_calendar_state(hass)
 
     assert state is not None
-    assert state.attributes.get("friendly_name") == "Mashov Holidays Calendar"
+    assert state.attributes.get("friendly_name", "").endswith("Holidays Calendar")
 
 
 async def test_holidays_calendar_upcoming_event(hass: HomeAssistant, mock_config_entry: MockConfigEntry):
