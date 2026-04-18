@@ -74,6 +74,23 @@ def _async_show_error_notification(hass: HomeAssistant, entry: ConfigEntry, titl
     _async_show_issue_notification(hass, entry, title, message)
 
 
+def _async_show_auth_notification(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    error: Exception | str,
+    login_url: str | None = None,
+) -> None:
+    message = (
+        f"Mashov could not authenticate for **{entry.title}**.\n\n"
+        "The integration will keep the last successful data until this is resolved, if cached data is available.\n\n"
+        f"Error: `{error}`\n\n"
+        "Update the hub credentials in **Settings -> Devices & Services -> Mashov -> Configure**."
+    )
+    if login_url:
+        message += f"\n\n[Open Mashov login page]({login_url})"
+    _async_show_issue_notification(hass, entry, "Mashov authentication failed", message)
+
+
 def _async_clear_issue_notification(hass: HomeAssistant, entry: ConfigEntry) -> None:
     persistent_notification.async_dismiss(hass, _issue_notification_id(entry))
 
@@ -584,7 +601,18 @@ class MashovCoordinator(DataUpdateCoordinator):
             _LOGGER.error("Authentication error during data update: %s", exc)
             raise UpdateFailed(f"Password change required: {exc}") from exc
         except MashovAuthError as exc:
-            _async_show_error_notification(self.hass, self.entry, "Mashov authentication failed", exc)
+            _async_show_auth_notification(
+                self.hass,
+                self.entry,
+                exc,
+                getattr(self.client, "login_page_url", None),
+            )
+            if self.data:
+                _LOGGER.warning(
+                    "Mashov authentication failed for %s; keeping the last successful data",
+                    self.entry.title,
+                )
+                return self.data
             _LOGGER.error("Authentication error during data update: %s", exc)
             raise UpdateFailed(f"Auth error: {exc}") from exc
         except MashovError as exc:
