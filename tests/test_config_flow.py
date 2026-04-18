@@ -157,6 +157,8 @@ async def test_options_flow(hass: HomeAssistant, mock_config_entry):
     result2 = await hass.config_entries.options.async_configure(
         result["flow_id"],
         user_input={
+            "username": "updated_user",
+            "password": "updated_password",
             "schedule_type": "daily",
             "schedule_time": "14:00",
         },
@@ -164,3 +166,9 @@ async def test_options_flow(hass: HomeAssistant, mock_config_entry):
 
     assert result2["type"] == FlowResultType.CREATE_ENTRY
     assert result2["data"]["schedule_time"] == "14:00"
+    assert "password" not in result2["data"]
+
+    updated_entry = hass.config_entries.async_get_entry(mock_config_entry.entry_id)
+    assert updated_entry is not None
+    assert updated_entry.data["username"] == "updated_user"
+    assert updated_entry.data["password"] == "updated_password"
