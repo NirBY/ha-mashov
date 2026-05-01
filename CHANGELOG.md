@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-05-01
+
+### Added
+- Added persistent Home Assistant issue notifications for Mashov authentication and refresh failures
+- Added a dedicated password-change-required flow with a direct Mashov login link in the notification
+- Added a privacy disclaimer to the README and GitHub bug-report template reminding reporters to redact personal and sensitive data before sharing logs, screenshots, or diagnostics
+- Added regression coverage for password-change handling, credential updates, cached-data fallback, and generic authentication failures
+
+### Changed
+- Updated the GitHub Actions workflow to newer action versions and expanded CI coverage to Python 3.11, 3.12, 3.13, and 3.14
+- Clarified in the README that updating credentials from the Configure flow only updates the specific Mashov hub entry you opened and does not automatically sync other hubs
+
+### Fixed
+- Added support for updating Mashov username and password directly from the integration Configure flow after a password-change-required error
+- Keep the last successful Mashov data available when authentication fails and cached data is already available
+- Added a clearer authentication notification with a Configure hint and Mashov login link for credential-related failures
+
 ## [1.0.6-beta.3] - 2026-04-18 (Pre-release)
 
 ### Changed
