@@ -113,7 +113,7 @@ If a release has issues:
 - **HACS Store** requires stable releases only
 
 
-## v1.0.7 release checks
+## Current release checks
 
 Keep VERSION, manifest.json and reporting.VERSION synchronized. Run `ruff check .`,
 `ruff format --check .` and the full test suite. Build mashov.zip from only

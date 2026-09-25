@@ -300,7 +300,7 @@ MIT © 2025
 See the full changelog in `CHANGELOG.md`.
 
 
-## v1.0.7: holidays, diagnostics and reporting
+## v1.0.8: holidays, diagnostics and reporting
 
 Requires Home Assistant **2025.3 or newer**. Restart HA after installing an update.
 The regular timetable remains a weekly template. Holiday marking is provided by the
@@ -330,3 +330,8 @@ pyOpenSSL/cryptography installation; SSL itself is not mocked.
 See [release notes](RELEASE_NOTES.md) and [changelog](CHANGELOG.md).
 
 The project uses the [MIT license](LICENSE); see also the [project notice](NOTICE.md).
+
+Sensor attributes are bounded as a complete JSON payload. If `formatting_truncated` is
+true, duplicate formatted groups/HTML may be empty so raw records can fit. If
+`items_truncated` is true, compare `stored_items` with `total_items`; the coordinator
+retains the full fetched dataset. A single oversized item may be omitted entirely.

@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [1.0.8] - 2026-09-25
+
+### Fixed
+- Enforce the recorder size budget on the complete sensor attribute payload, including formatted HTML and duplicated groups. Preserve raw items before duplicate presentation data; expose truncation flags.
+- Permit zero stored items when a single record exceeds the budget, while preserving total counts and coordinator data.
+- Restore cached sessions using the authenticated timetable endpoint instead of the obsolete /me route. Consume cached auth once and invalidate it when credentials change.
+
+### Verified
+- v1.0.7 live checks confirmed both school hubs, current holidays and all nine optional endpoints; periodic grades are denied by school permissions.
+- Added regression coverage for oversized Hebrew records, formatted fields and authenticated session restoration.
+
 ## [1.0.7] - 2026-09-25
 
 ### Added

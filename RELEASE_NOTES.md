@@ -1,6 +1,11 @@
-# Mashov v1.0.7
+# Mashov v1.0.8
 
-This release adds nine opt-in, read-only portal resources, privacy-safe GitHub bug
+This release includes the v1.0.7 changes and fixes found during live validation:
+
+- The complete sensor attribute payload is bounded, including formatted HTML and grouped copies. Oversized presentation fields are omitted before raw records. `items_truncated` and `formatting_truncated` explain any omissions.
+- Cached sessions are checked through the authenticated timetable route instead of the removed `/me` route. Changed credentials invalidate old cached authentication.
+
+The release also adds nine opt-in, read-only portal resources, privacy-safe GitHub bug
 report links in HA issue notifications, and safer diagnostics and refresh handling.
 
 - Choose additional resources per school in **Mashov → Configure**. Unavailable school

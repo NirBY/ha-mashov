@@ -7,7 +7,7 @@ import json
 import logging
 import time
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 
 import aiohttp  # type: ignore[import]
 
@@ -93,7 +93,6 @@ class MashovClient:
         # Instance-level endpoints (fix race condition)
         self._login_endpoint = ""
         self._login_page_url = ""
-        self._me_endpoint = ""
         self._endpoints: dict[str, str] = {}
 
         self._api_base = (api_base or API_BASE).rstrip("/") + "/"
@@ -111,7 +110,6 @@ class MashovClient:
     def _resolve_endpoints(self):
         self._login_endpoint = self._api_base + "login"
         self._login_page_url = self._build_login_page_url()
-        self._me_endpoint = self._api_base + "me"
         self._endpoints = {
             "homework": self._api_base + "students/{student_id}/homework?from={start}&to={end}&year={year}",
             "behavior": self._api_base + "students/{student_id}/behave?from={start}&to={end}&year={year}",
@@ -315,34 +313,40 @@ class MashovClient:
         # Attempt to restore session
         if self._saved_auth and not self._session.closed:
             _LOGGER.info("Attempting to restore session from cached auth data")
+            saved_auth = self._saved_auth
+            self._saved_auth = None  # Never restore the same stale session on later retries.
             try:
                 # Restore cookies
-                saved_cookies = self._saved_auth.get("cookies", {})
+                saved_cookies = saved_auth.get("cookies", {})
                 if saved_cookies:
                     self._session.cookie_jar.update_cookies(saved_cookies)
                     _LOGGER.debug("Restored %d cookies from cache", len(saved_cookies))
 
                 # Restore headers
-                csrf = self._saved_auth.get("csrf_token")
+                csrf = saved_auth.get("csrf_token")
                 if csrf:
                     self._headers["X-Csrf-Token"] = csrf
                     self._headers["Accept"] = "application/json"
                     _LOGGER.debug("Restored CSRF token from cache")
 
                 # Restore internal auth data
-                self._auth_data = self._saved_auth.get("local_auth", {})
+                self._auth_data = saved_auth.get("local_auth", {})
 
-                # Verify session validity with a lightweight call (ME endpoint)
+                # The old /me route returns 404. Probe a known authenticated,
+                # read-only student endpoint instead of forcing a new login.
                 try:
-                    async with self._session.get(self._me_endpoint, headers=self._headers) as resp:
+                    children = self._auth_data.get("accessToken", {}).get("children", [])
+                    if not children or not children[0].get("childGuid"):
+                        raise MashovError("Cached session has no student metadata")
+                    student_id = quote(str(children[0]["childGuid"]), safe="")
+                    probe_url = self._endpoints["timetable"].format(student_id=student_id)
+                    async with self._session.get(probe_url, headers=self._headers) as resp:
                         if resp.status == 200:
-                            _LOGGER.info("Session restored successfully (Me endpoint returned 200)")
+                            _LOGGER.info("Session restored successfully")
                             # We can skip login
                             await self._extract_students()
                             return
-                        _LOGGER.warning(
-                            "Restored session invalid (Me endpoint returned %s) - proceeding to login", resp.status
-                        )
+                        _LOGGER.warning("Restored session unavailable (HTTP %s) - proceeding to login", resp.status)
                 except Exception as e:
                     _LOGGER.warning("Error verifying restored session: %s", e)
 

@@ -180,8 +180,6 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
         group = data.get("by_slug", {}).get(self._student_slug, {})
         items = group.get(self._data_key) or []
 
-        # Format data for better readability
-        formatted_data = self._format_data_for_display(items)
         # Schedule info
         schedule_info = self._compute_schedule_info()
 
@@ -191,11 +189,12 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
         # Store only recent items to avoid DB size issues (Issue #2)
         # Full data is always available via coordinator.data for automations
         items_for_attributes = self._limit_items_for_storage(items, max_items)
+        formatted_data = self._format_data_for_display(items_for_attributes)
 
         total_count = len(items)
         stored_count = len(items_for_attributes)
 
-        return {
+        attributes = {
             "student_name": self._student_name,
             "student_id": self._student_id,
             "year": student_meta.get("year"),
@@ -220,6 +219,46 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
             "schedule_friendly": schedule_info.get("friendly"),
             "next_scheduled_refresh": schedule_info.get("next"),
         }
+        return self._bound_attributes(attributes)
+
+    @staticmethod
+    def _bound_attributes(attributes: dict) -> dict:
+        """Budget the complete payload, including duplicated formatted content."""
+        import json
+
+        budget = 14 * 1024  # Leave room for HA's icon/friendly_name attributes.
+
+        def size():
+            return len(json.dumps(attributes, ensure_ascii=True).encode("utf-8"))
+
+        attributes["items_truncated"] = attributes["stored_items"] < attributes["total_items"]
+        attributes["formatting_truncated"] = False
+        if size() <= budget:
+            return attributes
+        attributes["formatting_truncated"] = True
+        # Retain raw items for cards before retaining duplicate presentation fields.
+        for key in ("formatted_table_html", "formatted_by_subject", "formatted_by_date"):
+            if key in attributes:
+                attributes[key] = {} if key != "formatted_table_html" else ""
+            if size() <= budget:
+                return attributes
+        attributes["formatted_summary"] = str(attributes.get("formatted_summary", ""))[:256]
+        items = attributes["items"]
+        low, high, best = 0, len(items), 0
+        while low <= high:
+            count = (low + high) // 2
+            attributes["items"] = items[:count]
+            attributes["stored_items"] = count
+            attributes["items_truncated"] = count < attributes["total_items"]
+            if size() <= budget:
+                best = count
+                low = count + 1
+            else:
+                high = count - 1
+        attributes["items"] = items[:best]
+        attributes["stored_items"] = best
+        attributes["items_truncated"] = best < attributes["total_items"]
+        return attributes
 
     @property
     def device_info(self):
@@ -388,7 +427,7 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
             )
 
             left, right = 1, len(limited)
-            best_count = 1
+            best_count = 0
 
             while left <= right:
                 mid = (left + right) // 2

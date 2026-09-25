@@ -349,6 +349,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     async def _options_updated(hass: HomeAssistant, updated_entry: ConfigEntry):
         data = updated_entry.data
         options = updated_entry.options
+        credentials_changed = data.get(CONF_USERNAME) != client.username or data.get(CONF_PASSWORD) != client.password
         client_changed = (
             data.get(CONF_USERNAME) != client.username
             or data.get(CONF_PASSWORD) != client.password
@@ -358,6 +359,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             or (options.get(CONF_API_BASE, DEFAULT_API_BASE).rstrip("/") + "/") != client._api_base
         )
         if client_changed:
+            if credentials_changed:
+                # A valid old cookie must not bypass newly supplied credentials.
+                await coordinator.async_shutdown()
+                cached_entry = await store.async_load()
+                if isinstance(cached_entry, dict):
+                    cached_entry["auth"] = {}
+                    await store.async_save(cached_entry)
             _LOGGER.info("Configuration/options updated for entry %s requiring reload", updated_entry.title)
             await hass.config_entries.async_reload(updated_entry.entry_id)
             return
