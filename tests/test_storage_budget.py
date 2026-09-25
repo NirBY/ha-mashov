@@ -1,7 +1,8 @@
 """The recorder budget covers formatted fields as well as raw records."""
 
-import json
 from types import SimpleNamespace
+
+from homeassistant.helpers.json import json_bytes
 
 from custom_components.mashov.sensor import MashovListSensor
 
@@ -17,7 +18,7 @@ def test_large_formatted_fields_do_not_push_attributes_over_budget():
         "formatted_summary": "Example",
     }
     result = MashovListSensor._bound_attributes(attrs)
-    assert len(json.dumps(result, ensure_ascii=True).encode()) <= 14 * 1024
+    assert len(json_bytes(result)) <= 14 * 1024
     assert result["formatting_truncated"]
     assert result["stored_items"] == len(result["items"])
     assert result["total_items"] == 20

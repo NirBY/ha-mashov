@@ -7,6 +7,7 @@ from typing import Any
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.json import json_bytes
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -224,12 +225,10 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
     @staticmethod
     def _bound_attributes(attributes: dict) -> dict:
         """Budget the complete payload, including duplicated formatted content."""
-        import json
-
         budget = 14 * 1024  # Leave room for HA's icon/friendly_name attributes.
 
         def size():
-            return len(json.dumps(attributes, ensure_ascii=True).encode("utf-8"))
+            return len(json_bytes(attributes))
 
         attributes["items_truncated"] = attributes["stored_items"] < attributes["total_items"]
         attributes["formatting_truncated"] = False
