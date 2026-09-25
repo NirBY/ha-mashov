@@ -35,7 +35,7 @@ body:
     attributes:
       label: "Checklist"
       options:
-        - label: "I have enabled debug logging for my installation."
+        - label: "I have included the technical event summary or reviewed diagnostic information."
           required: true
         - label: "I have filled out the issue template to the best of my ability."
           required: true
@@ -72,7 +72,7 @@ body:
     id: debug_logs
     attributes:
       label: "Debug logs"
-      description: "Include logs from startup to the moment of the issue. Redact personal or sensitive data before uploading. See the Logger docs above."
+      description: "The HA notification pre-fills a safe event summary. Raw logs are optional and must be reviewed and redacted before uploading."
       render: shell
       placeholder: |
         <paste relevant logs enclosed in triple backticks>

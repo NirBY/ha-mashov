@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [1.0.7] - 2026-09-25
+
+### Added
+- Nine opt-in read-only portal resources with per-school permissions, bounded attributes and backoff.
+- GitHub report links in HA issue notifications, prefilled with a privacy-safe technical event summary and versions.
+- Allowlisted diagnostics and regression tests for privacy and failed refreshes.
+- Updated per-school holiday card examples and local HTML capture guidance.
+
+### Fixed
+- Explicit coordinator config entry, async scheduled callbacks, local weekdays, option reloads and cache persistence.
+- Disable coordinator polling for daily/weekly schedules instead of retaining a 24-hour fallback.
+- Bound 401 retries and propagate core server/network and holiday-fetch failures without erasing data.
+- Remove deliberate logging of authentication headers, tokens, full responses and usernames.
+- Correct stable release notes and replace the retired asset-upload action with GitHub CLI.
+
+### Changed
+- Minimum HA 2025.3; required CI coverage for Python 3.13 and 3.14.
+- Use synthetic test identities and ignore private local captures; preserve redacted screenshots.
+- Existing timetable entity IDs remain stable; dashboards must select their own school's holiday sensor.
+
 ## [1.0.6] - 2026-05-01
 
 ### Added

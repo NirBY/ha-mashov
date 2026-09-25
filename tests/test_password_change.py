@@ -59,7 +59,7 @@ def _make_coordinator(existing_data, side_effect):
 
 def test_client_raises_password_change_required_on_login_response() -> None:
     client = MashovClient(
-        school_id="413955",
+        school_id="123456",
         year=2026,
         username="test_user",
         password="secret",

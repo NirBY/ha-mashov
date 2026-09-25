@@ -145,3 +145,14 @@ Thumbs.db
 
 # Example data files
 dataExample/
+
+# Private portal captures and local diagnostic output
+/brands_temp/
+/test_log*.txt
+/.storage/
+/secrets.yaml
+/secrets.yml
+/.env.*
+!/.env.example
+!/.env.sample
+**/mashov*diagnostics*.json

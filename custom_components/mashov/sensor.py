@@ -11,6 +11,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 _LOGGER = logging.getLogger(__name__)
 
+from .additional_data import CONF_ADDITIONAL_DATA, STUDENT_RESOURCES
 from .const import (
     CONF_MAX_ITEMS_IN_ATTRIBUTES,
     CONF_SCHEDULE_DAY,
@@ -69,12 +70,85 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                 MashovListSensor(coord, sid, slug, name, SENSOR_KEY_GRADES, "Grades", "grades"),
             ]
         )
+        for key in entry.options.get(CONF_ADDITIONAL_DATA, []):
+            if key in STUDENT_RESOURCES:
+                entities.append(MashovAdditionalSensor(coord, sid, slug, name, key, entry.entry_id))
 
     # Global holidays sensor (per entry; ensure unique_id per entry)
     entities.append(MashovHolidaysSensor(coord, entry.entry_id))
 
     _LOGGER.info("Adding %d Mashov sensor entities", len(entities))
     async_add_entities(entities)
+
+
+class MashovAdditionalSensor(CoordinatorEntity, SensorEntity):
+    """Optional portal data; an inaccessible resource is not an empty list."""
+
+    _attr_icon = "mdi:school"
+
+    def __init__(self, coordinator, student_id, slug, name, key, entry_id):
+        super().__init__(coordinator)
+        self._student_id = student_id
+        self._slug = slug
+        self._student_name = name
+        self._key = key
+        self._attr_name = f"Mashov {name} {STUDENT_RESOURCES[key].name}"
+        self._attr_unique_id = f"mashov_{entry_id}_{student_id}_{key}"
+
+    @property
+    def _resource(self):
+        return (
+            (self.coordinator.data or {})
+            .get("by_slug", {})
+            .get(self._slug, {})
+            .get("additional_data", {})
+            .get(self._key, {"items": [], "status": "not_fetched"})
+        )
+
+    @property
+    def available(self):
+        return super().available and self._resource.get("status") == "ok"
+
+    @property
+    def native_value(self):
+        return len(self._resource.get("items", [])) if self.available else None
+
+    @property
+    def device_info(self):
+        return {
+            "identifiers": {(DOMAIN, str(self._student_id))},
+            "name": f"Mashov – {self._student_name}",
+            "manufacturer": DEVICE_MANUFACTURER,
+            "model": DEVICE_MODEL,
+        }
+
+    @property
+    def extra_state_attributes(self):
+        import json
+
+        resource = self._resource
+        items = resource.get("items", [])
+        entry = getattr(self.coordinator, "entry", None)
+        options = getattr(entry, "options", {})
+        raw_limit = options.get(CONF_MAX_ITEMS_IN_ATTRIBUTES, DEFAULT_MAX_ITEMS_IN_ATTRIBUTES)
+        try:
+            limit = max(10, min(500, int(raw_limit if raw_limit is not None else DEFAULT_MAX_ITEMS_IN_ATTRIBUTES)))
+        except (ValueError, TypeError):
+            limit = DEFAULT_MAX_ITEMS_IN_ATTRIBUTES
+        stored = []
+        # Bound the complete item array, even when one notice/document is enormous.
+        for item in items:
+            if len(stored) >= limit:
+                break
+            if len(json.dumps([*stored, item], ensure_ascii=True).encode("utf-8")) <= 12 * 1024:
+                stored.append(item)
+        return {
+            "student_name": self._student_name,
+            "source_status": resource.get("status", "not_fetched"),
+            "total_items": len(items),
+            "stored_items": len(stored),
+            "items": stored,
+        }
 
 
 class MashovListSensor(CoordinatorEntity, SensorEntity):

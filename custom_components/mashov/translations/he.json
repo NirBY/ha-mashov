@@ -28,6 +28,9 @@
         "title": "אפשרויות משו\"ב",
         "description": "הגדרת טווחי שיעורים ולו\"ז רענון נתונים.",
         "data": {
+          "username": "שם משתמש/תעודת זהות",
+          "password": "סיסמה (השאר ריק כדי לשמור על הקיימת)",
+          "additional_data": "נתוני תלמיד נוספים (לבחירה)",
           "homework_days_back": "כמה ימים אחורה לש\"ב",
           "homework_days_forward": "כמה ימים קדימה לש\"ב",
           "api_base": "כתובת API (מתקדם)",
@@ -35,13 +38,29 @@
           "schedule_time": "שעת רענון (HH:MM)",
           "schedule_day": "יום בשבוע (ישן, תאימות לאחור)",
           "schedule_days": "ימים בשבוע (0=שני ... 6=ראשון)",
-          "schedule_interval": "מרווח בדקות (במצב interval)"
+          "schedule_interval": "מרווח בדקות (במצב interval)",
+          "max_items_in_attributes": "מקסימום פריטים לשמירה במאפיינים"
         }
       }
     },
     "error": {
       "invalid_time_format": "פורמט זמן שגוי (HH:MM)",
       "invalid_api_url": "כתובת לא תקינה (חובה http/https)"
+    }
+  },
+  "selector": {
+    "additional_data": {
+      "options": {
+        "message_board": "לוח מודעות",
+        "daily_behavior": "אירועי התנהגות יומיים",
+        "outside_behavior": "התנהגות מחוץ לשיעור",
+        "follow_up": "הערות מעקב",
+        "periodic_grades": "ציונים תקופתיים",
+        "report_cards": "תעודות",
+        "study_materials": "חומרי לימוד",
+        "student_files": "מרחב קבצים",
+        "justification_requests": "בקשות הצדקה"
+      }
     }
   }
 }

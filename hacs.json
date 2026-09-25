@@ -2,6 +2,6 @@
   "name": "Mashov",
   "content_in_root": false,
   "country": "IL",
-  "homeassistant": "2025.1.0",
+  "homeassistant": "2025.3.0",
   "render_readme": true
 }

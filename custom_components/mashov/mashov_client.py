@@ -11,6 +11,8 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import aiohttp  # type: ignore[import]
 
+from .additional_data import STUDENT_RESOURCES
+
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant  # type: ignore[import]  # pyright: ignore[reportMissingImports]
 else:
@@ -72,6 +74,7 @@ class MashovClient:
         homework_days_forward: int = 21,
         api_base: str | None = None,
         saved_auth: dict[str, Any] | None = None,
+        additional_data: list[str] | None = None,
     ) -> None:
         # school may be semel int or name string (resolved in async_init)
         self.school_id = int(school_id) if str(school_id).isdigit() else None
@@ -82,6 +85,8 @@ class MashovClient:
         self.password = password
         self.homework_days_back = homework_days_back
         self.homework_days_forward = homework_days_forward
+        self.additional_data = tuple(key for key in STUDENT_RESOURCES if key in (additional_data or []))
+        self._resource_retry_after: dict[tuple[str, str], tuple[float, str]] = {}
 
         self._session: aiohttp.ClientSession | None = None
         self._headers: dict[str, str] = {}
@@ -289,12 +294,7 @@ class MashovClient:
 
     async def async_init(self, hass: HomeAssistant):
         _LOGGER.info("=== MASHOV CLIENT INIT START ===")
-        _LOGGER.info(
-            "Initializing Mashov client for school=%s, year=%s, user=%s",
-            self.school_id or self.school_name,
-            self.year,
-            self.username,
-        )
+        _LOGGER.info("Initializing Mashov client")
         _LOGGER.info("API Base URL: %s", self._api_base)
         await self.async_open_session()
 
@@ -379,19 +379,12 @@ class MashovClient:
         # Try login with retry mechanism
         for attempt in range(max_retries):
             _LOGGER.info("=== LOGIN ATTEMPT %d/%d ===", attempt + 1, max_retries)
-            _LOGGER.info(
-                "Login attempt %d/%d (semel=%s, year=%s, user=%s)",
-                attempt + 1,
-                max_retries,
-                self.school_id,
-                self.year,
-                self.username,
-            )
+            _LOGGER.info("Starting login request")
             _LOGGER.info("Login endpoint: %s", self._login_endpoint)
             try:
                 async with self._session.post(self._login_endpoint, json=payload, headers=headers) as resp:
                     _LOGGER.info("Login response status: %s", resp.status)
-                    _LOGGER.info("Login response headers: %s", dict(resp.headers))
+                    _LOGGER.info("Login response received")
 
                     if resp.status in (401, 403):
                         txt = await resp.text()
@@ -404,30 +397,22 @@ class MashovClient:
                             pass
                         reason = (resp.headers.get("reason") or "").strip().lower()
                         if reason == "changepass" or "change password" in message.lower():
-                            _LOGGER.warning(
-                                "Mashov requires a password change before authenticating for school=%s, user=%s",
-                                self.school_id,
-                                self.username,
+                            _LOGGER.warning("Mashov requires a password change")
+                            raise MashovPasswordChangeRequiredError(
+                                "Please change password before authenticating.", self.login_page_url
                             )
-                            raise MashovPasswordChangeRequiredError(message, self.login_page_url)
-                        _LOGGER.error(
-                            "Authentication failed for school=%s, year=%s, user=%s. Response: %s",
-                            self.school_id,
-                            self.year,
-                            self.username,
-                            txt,
-                        )
+                        _LOGGER.error("Authentication failed; check credentials, school and year")
                         raise MashovAuthError(
                             "Authentication failed. Please check your credentials, school ID, and year."
                         )
                     if resp.status >= 400:
                         txt = await resp.text()
-                        _LOGGER.error("Login failed HTTP %s: %s", resp.status, txt)
+                        _LOGGER.error("Login request failed")
                         if attempt < max_retries - 1:
                             _LOGGER.debug("Retrying login in %d seconds...", retry_delay)
                             await asyncio.sleep(retry_delay)
                             continue
-                        raise MashovError(f"Login failed HTTP {resp.status}: {txt}")
+                        raise MashovError(f"Login failed HTTP {resp.status}")
 
                     # Try to parse response
                     try:
@@ -436,11 +421,11 @@ class MashovClient:
                             "Login response data keys: %s",
                             list(data.keys()) if isinstance(data, dict) else "not a dict",
                         )
-                        _LOGGER.info("Login response data: %s", data)
+                        _LOGGER.info("Login response parsed")
                     except Exception as e:
                         _LOGGER.error("Failed to parse login response as JSON: %s", e)
                         txt = await resp.text()
-                        _LOGGER.error("Login response text: %s", txt)
+                        _LOGGER.error("Invalid login response")
                         data = {}
 
                     # Check if we have authentication data
@@ -450,7 +435,7 @@ class MashovClient:
                     # Extract CSRF token from response headers
                     csrf_token = resp.headers.get("x-csrf-token") or resp.headers.get("X-Csrf-Token")
                     if csrf_token:
-                        _LOGGER.debug("Found CSRF token: %s", csrf_token)
+                        _LOGGER.debug("CSRF token received")
                         self._headers["X-Csrf-Token"] = csrf_token
                     else:
                         _LOGGER.warning("No CSRF token found in response headers")
@@ -483,7 +468,7 @@ class MashovClient:
                         list(data.keys()) if isinstance(data, dict) else "not a dict",
                         list(resp.headers.keys()),
                     )
-                    _LOGGER.error("Full response data: %s", data)
+                    _LOGGER.error("Authentication data missing")
                     if attempt < max_retries - 1:
                         _LOGGER.info("Retrying login in %d seconds...", retry_delay)
                         await asyncio.sleep(retry_delay)
@@ -536,10 +521,10 @@ class MashovClient:
 
             # Use childGuid directly as the student ID
             if not child_guid:
-                _LOGGER.warning("Child without GUID found: %s", child)
+                _LOGGER.warning("Skipping student without an identifier")
                 continue
 
-            _LOGGER.info("Student %s has groups: %s", name, groups)
+            _LOGGER.info("Student group metadata loaded")
 
             students.append(
                 {
@@ -555,11 +540,55 @@ class MashovClient:
 
         self._students = students
         _LOGGER.info("=== STUDENTS PROCESSING COMPLETE ===")
-        _LOGGER.info("Mashov: found %d student(s): %s", len(students), ", ".join([s["name"] for s in students]))
+        _LOGGER.info("Student metadata loaded")
 
         # Keep session open for future use - don't close it here
         self._last_login_timestamp = time.time()
         _LOGGER.info("=== MASHOV CLIENT INIT COMPLETE ===")
+
+    async def _fetch_student_resource(self, sid: str, key: str, start: str, end: str) -> dict[str, Any]:
+        """Fetch metadata only; never download files, mark mail read, or submit forms."""
+        cache_key = (sid, key)
+        retry_after, previous_status = self._resource_retry_after.get(cache_key, (0, "not_fetched"))
+        if time.monotonic() < retry_after:
+            return {"items": [], "status": previous_status}
+        resource = STUDENT_RESOURCES[key]
+        url = f"{self._api_base}students/{sid}/{resource.path}"
+        if resource.dated:
+            url += "?" + urlencode({"start": start, "end": end})
+        try:
+            for attempt in range(2):
+                async with self._session.get(url, headers=self._headers) as response:
+                    if response.status == 401:
+                        if attempt == 0:
+                            await self._ensure_valid_session()
+                            continue
+                        return {"items": [], "status": "unauthorized"}
+                    if response.status == 403:
+                        body = await response.text()
+                        if (
+                            response.headers.get("reason") or ""
+                        ).lower() == "changepass" or "change password" in body.lower():
+                            raise MashovPasswordChangeRequiredError(
+                                "Please change password before authenticating.", self.login_page_url
+                            )
+                    if response.status in (403, 404):
+                        status = "forbidden" if response.status == 403 else "unsupported"
+                        # School permissions differ. Retry tomorrow, independently per student/resource.
+                        self._resource_retry_after[cache_key] = (time.monotonic() + 86400, status)
+                        return {"items": [], "status": status}
+                    if response.status >= 400:
+                        return {"items": [], "status": f"http_{response.status}"}
+                    payload = await response.json()
+                    if not isinstance(payload, list) or any(not isinstance(item, dict) for item in payload):
+                        return {"items": [], "status": "invalid_response"}
+                    self._resource_retry_after.pop(cache_key, None)
+                    return {"items": payload, "status": "ok"}
+        except MashovPasswordChangeRequiredError:
+            raise
+        except (aiohttp.ClientError, TimeoutError, ValueError):
+            _LOGGER.warning("Unable to fetch optional Mashov resource %s", key)
+            return {"items": [], "status": "fetch_failed"}
 
     async def async_fetch_all(self) -> dict[str, Any]:
         _LOGGER.info("=== FETCHING ALL DATA ===")
@@ -610,56 +639,47 @@ class MashovClient:
                 "grades": self._endpoints["grades"].format(student_id=sid),
             }
 
-            async def fetch(url_key: str):
+            async def fetch(url_key: str, attempt: int = 0):
                 url = urls[url_key]
-                _LOGGER.debug("Fetching %s for student %s from: %s", url_key, sid, url)
+                _LOGGER.debug("Fetching student resource")
                 try:
                     async with self._session.get(url, headers=self._headers) as resp:
-                        _LOGGER.debug("%s response status for student %s: %s", url_key, sid, resp.status)
+                        _LOGGER.debug("Student resource response received")
                         if resp.status == 401:
-                            _LOGGER.warning("401 on %s for student %s, attempting re-login...", url_key, sid)
-                            await self._ensure_valid_session()  # Thread-safe re-login
-                            return await fetch(url_key)
+                            if attempt == 0:
+                                _LOGGER.warning("Student resource unauthorized; retrying login")
+                                await self._ensure_valid_session()  # Thread-safe re-login
+                                return await fetch(url_key, attempt=1)
+                            _LOGGER.warning("Student resource unauthorized after retry")
+                            raise MashovAuthError("Authentication failed after one retry")
                         if resp.status == 404:
-                            _LOGGER.warning("HTTP 404 for %s (student %s) - endpoint not available", url_key, sid)
+                            _LOGGER.warning("Student resource not available (HTTP 404)")
                             return []  # Return empty list for 404 errors
                         if resp.status == 400:
                             txt = await resp.text()
-                            _LOGGER.warning("HTTP 400 for %s (student %s): %s - skipping", url_key, sid, txt)
+                            _LOGGER.warning("Student resource rejected (HTTP 400)")
                             return []  # Return empty list for 400 errors
                         if resp.status == 403:
                             txt = await resp.text()
                             reason = (resp.headers.get("reason") or "").strip().lower()
                             if reason == "changepass" or "change password" in txt.lower():
-                                raise MashovPasswordChangeRequiredError(txt, self.login_page_url)
-                            _LOGGER.warning(
-                                "HTTP 403 (Forbidden) for %s (student %s): %s - feature likely disabled",
-                                url_key,
-                                sid,
-                                txt,
-                            )
+                                raise MashovPasswordChangeRequiredError(
+                                    "Please change password before authenticating.", self.login_page_url
+                                )
+                            _LOGGER.warning("Student resource forbidden (HTTP 403); feature may be disabled")
                             return []
                         if resp.status >= 400:
-                            txt = await resp.text()
-                            _LOGGER.error("HTTP %s for %s (student %s): %s", resp.status, url_key, sid, txt)
-                            return []  # Return empty list for other errors instead of raising
+                            raise MashovError(f"HTTP {resp.status} fetching {url_key}")
                         try:
                             data = await resp.json()
-                            _LOGGER.debug(
-                                "%s returned %d items for student %s",
-                                url_key,
-                                len(data) if isinstance(data, list) else 1,
-                                sid,
-                            )
+                            _LOGGER.debug("Student resource loaded")
                             return data
-                        except Exception as e:
-                            _LOGGER.debug("Failed to parse %s as JSON for student %s: %s", url_key, sid, e)
-                            return await resp.text()
-                except MashovPasswordChangeRequiredError:
+                        except (ValueError, aiohttp.ClientError) as e:
+                            raise MashovError(f"Invalid JSON fetching {url_key}") from e
+                except MashovError:
                     raise
                 except Exception as e:
-                    _LOGGER.warning("Exception fetching %s for student %s: %s", url_key, sid, e)
-                    return []  # Return empty list on exception
+                    raise MashovError(f"Request failed fetching {url_key}") from e
 
             homework, behavior, weekly_plan, timetable, lessons_history, grades = await asyncio.gather(
                 fetch("homework"),
@@ -669,6 +689,10 @@ class MashovClient:
                 fetch("lessons_history"),
                 fetch("grades"),
             )
+            # Sequential optional requests bound the extra load for each student.
+            additional = {}
+            for key in self.additional_data:
+                additional[key] = await self._fetch_student_resource(sid, key, from_dt, to_dt)
             return {
                 "homework": self._normalize_homework(homework),
                 "behavior": self._normalize_behavior(behavior),
@@ -676,6 +700,7 @@ class MashovClient:
                 "timetable": self._normalize_timetable(timetable),
                 "lessons_history": self._normalize_lessons_history(lessons_history),
                 "grades": self._normalize_grades(grades),
+                "additional_data": additional,
             }
 
         _LOGGER.debug("Fetching data for all students in parallel")
@@ -690,13 +715,12 @@ class MashovClient:
                 _LOGGER.debug("Fetching holidays from: %s", url)
                 async with self._session.get(url, headers=self._headers) as resp:
                     if resp.status >= 400:
-                        _LOGGER.warning("Holidays endpoint returned %s", resp.status)
-                        holidays_raw = []
-                    else:
-                        holidays_raw = await resp.json(content_type=None)
+                        raise MashovError(f"Holidays endpoint returned HTTP {resp.status}")
+                    holidays_raw = await resp.json(content_type=None)
+        except MashovError:
+            raise
         except Exception as e:
-            _LOGGER.debug("Failed fetching holidays: %s", e)
-            holidays_raw = []
+            raise MashovError("Unable to fetch holidays") from e
 
         holidays = self._normalize_holidays(holidays_raw)
         by_slug = {self._students[i]["slug"]: results[i] for i in range(len(self._students))}

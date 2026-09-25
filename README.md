@@ -68,6 +68,26 @@ Credential updates in **Configure** apply only to the specific Mashov hub entry 
   - Use the Options screen or YAML to set `schedule_type` and `schedule_time` accordingly.
   - Avoid long-running `interval` mode during overnight hours.
 
+### Additional student data (optional)
+
+In **Mashov → Configure → Additional student data**, select resources separately
+for each school. Nothing extra is fetched by default. Changing this selection
+reloads that integration entry; data arrives at the next scheduled or manual refresh.
+
+Available sensors count noticeboard posts, daily behavior, behavior outside lessons,
+follow-up notes, term grades, report cards, study materials, student files, and
+absence justification requests. Their `items` attributes contain API records or
+file metadata, with the configured item limit and a 12 KB item-array limit.
+`total_items` and `stored_items` show when records were omitted for size.
+Files are not downloaded, messages are not marked read, and requests/forms are
+never submitted. Dated resources use the configured days-back/days-forward window.
+
+School permissions and published data vary. An empty successful result has state
+`0`; access failures are `unavailable` with a `source_status` attribute. Forbidden
+or unsupported resources are retried after 24 hours (or an integration reload),
+independently for each student and school. The external Shahaf exam calendar,
+mail, and parent approvals are not included in these sensors.
+
 ### Configuration via configuration.yaml (optional)
 You can also configure the refresh schedule via YAML. Values in YAML override the Options UI.
 
@@ -278,3 +298,33 @@ MIT © 2025
 
 ## 📜 Changelog
 See the full changelog in `CHANGELOG.md`.
+
+
+## v1.0.7: holidays, diagnostics and reporting
+
+Requires Home Assistant **2025.3 or newer**. Restart HA after installing an update.
+The regular timetable remains a weekly template. Holiday marking is provided by the
+card using the holiday sensor belonging to the student's school. Update both the card's
+`entities` list and `holId` / `HL` variable; see [updated examples](examples/lovelace/README.md).
+
+In the two-school example, Ahad Haam uses `sensor.mashov_holidays_2` and Naomi Shemer
+uses `sensor.mashov_holidays_mashov_holidays`. IDs depend on your entity registry.
+
+Authentication and full refresh failures create a persistent notification in HA.
+**Review a bug report on GitHub** opens a prefilled form with versions and a technical
+event summary. Review, describe the problem and submit on GitHub. This does not publish
+anything automatically or upload the HA log. Download integration diagnostics for
+additional counts/statuses; diagnostics exclude student records, credentials and entry data.
+School-denied optional resources expose `source_status` without repeated failure notifications.
+
+Debug logs can still contain operational context; review existing or manually attached logs.
+Never attach raw portal captures or a complete HA log without reviewing personal information.
+Raw HTML examples are stored locally under ignored `dataExample/html/`; checked-in examples
+use synthetic records. Redacted screenshots remain in the repository.
+
+Development: use Python 3.13/3.14 and the test requirements. On Windows run
+`python run_tests.py -q`; the wrapper supplies Unix-only test stubs and permits loopback
+for asyncio while keeping external socket connections blocked. Use a compatible
+pyOpenSSL/cryptography installation; SSL itself is not mocked.
+
+See [release notes](RELEASE_NOTES.md) and [changelog](CHANGELOG.md).

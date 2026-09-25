@@ -28,6 +28,9 @@
         "title": "Mashov Options",
         "description": "Configure homework ranges and refresh schedule.",
         "data": {
+          "username": "Username/ID",
+          "password": "Password (leave blank to keep current)",
+          "additional_data": "Additional student data (optional)",
           "homework_days_back": "Homework days back",
           "homework_days_forward": "Homework days forward",
           "api_base": "API base (advanced)",
@@ -35,13 +38,29 @@
           "schedule_time": "Refresh time (HH:MM)",
           "schedule_day": "Weekday (legacy, backward compat)",
           "schedule_days": "Weekdays (0=Mon ... 6=Sun)",
-          "schedule_interval": "Interval minutes (interval mode)"
+          "schedule_interval": "Interval minutes (interval mode)",
+          "max_items_in_attributes": "Max items stored in attributes"
         }
       }
     },
     "error": {
       "invalid_time_format": "Invalid time format (HH:MM)",
       "invalid_api_url": "Invalid URL (must start with http/https)"
+    }
+  },
+  "selector": {
+    "additional_data": {
+      "options": {
+        "message_board": "Noticeboard",
+        "daily_behavior": "Daily behavior",
+        "outside_behavior": "Outside lesson behavior",
+        "follow_up": "Follow-up notes",
+        "periodic_grades": "Term grades",
+        "report_cards": "Report cards",
+        "study_materials": "Study materials",
+        "student_files": "Student files",
+        "justification_requests": "Absence justification requests"
+      }
     }
   }
 }

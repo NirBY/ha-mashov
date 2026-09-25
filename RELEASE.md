@@ -111,3 +111,18 @@ If a release has issues:
 - **Stable releases** appear in HACS automatically
 - **Pre-releases** can be installed manually by selecting version
 - **HACS Store** requires stable releases only
+
+
+## v1.0.7 release checks
+
+Keep VERSION, manifest.json and reporting.VERSION synchronized. Run `ruff check .`,
+`ruff format --check .` and the full test suite. Build mashov.zip from only
+custom_components/mashov, excluding bytecode. The archive contains a mashov/ directory.
+Use RELEASE_NOTES.md as the release body; never include local logs or dataExample.
+CI requires both Python 3.13 and 3.14. Validate the installed release with HA diagnostics,
+a manual refresh for each school, holiday sensor checks and logs after restart.
+
+Privacy rewrites must update affected branches and tags with explicit force-with-lease.
+Do not merge pre-rewrite clones. GitHub cached commits, PR refs and third-party clones
+may require separate GitHub Support or owner action; rewriting published refs cannot
+remove every external copy.

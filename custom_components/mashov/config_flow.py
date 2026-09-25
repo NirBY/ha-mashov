@@ -16,6 +16,7 @@ _LOGGER = logging.getLogger(__name__)
 
 import contextlib
 
+from .additional_data import CONF_ADDITIONAL_DATA, STUDENT_RESOURCES
 from .const import (
     CONF_API_BASE,
     CONF_HOMEWORK_DAYS_BACK,
@@ -267,9 +268,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_init(self, user_input=None) -> FlowResult:
         errors = {}
         _LOGGER.debug(
-            "Options flow step_init called (entry_id=%s). user_input=%s",
+            "Options flow step_init called (entry_id=%s). submitted=%s",
             getattr(self.config_entry, "entry_id", ""),
-            user_input,
+            user_input is not None,
         )
         if user_input is not None:
             errors = {}
@@ -354,10 +355,20 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 CONF_MAX_ITEMS_IN_ATTRIBUTES, DEFAULT_MAX_ITEMS_IN_ATTRIBUTES
             ),
         }
-        _LOGGER.debug("Options defaults resolved: %s", options)
+        _LOGGER.debug("Options defaults resolved")
         schema = vol.Schema(
             {
                 vol.Optional(CONF_USERNAME, default=options[CONF_USERNAME]): str,
+                vol.Optional(
+                    CONF_ADDITIONAL_DATA, default=current_options.get(CONF_ADDITIONAL_DATA, [])
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=list(STUDENT_RESOURCES),
+                        multiple=True,
+                        mode=SelectSelectorMode.DROPDOWN,
+                        translation_key="additional_data",
+                    )
+                ),
                 vol.Optional(CONF_PASSWORD, description={"suggested_value": ""}): str,
                 vol.Optional(CONF_HOMEWORK_DAYS_BACK, default=options[CONF_HOMEWORK_DAYS_BACK]): vol.All(
                     int, vol.Range(min=0, max=60)
