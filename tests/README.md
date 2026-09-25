@@ -77,6 +77,7 @@ def test_something(hass, mock_config_entry, mock_mashov_client):
 ```python
 from pytest_homeassistant_custom_component.common import load_fixture
 
+
 async def test_with_fixture_data(hass):
     data = load_fixture("homework_data.json")
     # Use data in test
@@ -114,7 +115,9 @@ pytest --lf
 
 ### Debug with pdb:
 ```python
-import pdb; pdb.set_trace()
+import pdb
+
+pdb.set_trace()
 ```
 
 ## CI/CD

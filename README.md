@@ -328,3 +328,5 @@ for asyncio while keeping external socket connections blocked. Use a compatible
 pyOpenSSL/cryptography installation; SSL itself is not mocked.
 
 See [release notes](RELEASE_NOTES.md) and [changelog](CHANGELOG.md).
+
+The project uses the [MIT license](LICENSE); see also the [project notice](NOTICE.md).

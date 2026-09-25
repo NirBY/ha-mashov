@@ -75,6 +75,7 @@ Place tests in the `tests/` directory:
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.mashov.const import DOMAIN
 
+
 async def test_sensor_setup(hass):
     """Test sensor setup."""
     entry = MockConfigEntry(
@@ -82,10 +83,10 @@ async def test_sensor_setup(hass):
         data={"username": "test", "password": "test"},
     )
     entry.add_to_hass(hass)
-    
+
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    
+
     assert hass.states.get("sensor.mashov_test_homework") is not None
 ```
 
