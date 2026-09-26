@@ -7,9 +7,9 @@ Unofficial integration for **משו"ב (Mashov)** that logs into the student por
 - **Timetable** (weekly timetable per student)
 - **Lessons History** (historical lessons/logs per student)
 - **Grades**
-- **Holidays** (sensor and calendar per school hub)
+- **Holidays** (sensor and calendar per school hub, with the school name in the device and entity display names)
 
-Current release: **v1.0.12**. Requires **Home Assistant 2025.3 or newer**.
+Current release: **v1.0.13**. Requires **Home Assistant 2025.3 or newer**.
 See [release notes](RELEASE_NOTES.md) for fixes and upgrade compatibility.
 
 > This project is **community-made** and not affiliated with Mashov. Use at your own risk and follow your school's policies.

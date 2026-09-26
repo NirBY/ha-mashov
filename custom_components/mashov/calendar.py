@@ -156,4 +156,10 @@ class MashovHolidaysCalendar(MashovEntity, CalendarEntity):
     @property
     def device_info(self):
         """Return device information."""
-        return create_holidays_device_info(DOMAIN, self._entry_id, DEVICE_MANUFACTURER, DEVICE_MODEL)
+        return create_holidays_device_info(
+            DOMAIN,
+            self._entry_id,
+            DEVICE_MANUFACTURER,
+            DEVICE_MODEL,
+            getattr(getattr(self.coordinator, "entry", None), "title", ""),
+        )

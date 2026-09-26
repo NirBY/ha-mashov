@@ -27,11 +27,13 @@ def parse_iso_date_to_formatted(date_str: str) -> str:
         return date_str.split("T")[0]
 
 
-def create_holidays_device_info(domain: str, entry_id: str, manufacturer: str, model: str) -> dict:
+def create_holidays_device_info(
+    domain: str, entry_id: str, manufacturer: str, model: str, school_name: str = ""
+) -> dict:
     """Create device info for holidays entities."""
     return {
         "identifiers": {(domain, f"holidays_{entry_id}")},
-        "name": "Mashov – Holidays",
+        "name": f"Mashov – {school_name} – Holidays" if school_name else "Mashov – Holidays",
         "manufacturer": manufacturer,
         "model": model,
     }
