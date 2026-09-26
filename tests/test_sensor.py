@@ -231,7 +231,12 @@ async def test_holidays_sensor(hass: HomeAssistant, mock_config_entry: MockConfi
         assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
 
-    state = _get_sensor_state_by_suffix(hass, "_holidays")
+    from homeassistant.helpers import entity_registry as er
+
+    entity_id = er.async_get(hass).async_get_entity_id(
+        "sensor", "mashov", f"mashov_{mock_config_entry.entry_id}_holidays"
+    )
+    state = hass.states.get(entity_id)
 
     assert state is not None
     assert state.state == str(len(TEST_HOLIDAYS))
