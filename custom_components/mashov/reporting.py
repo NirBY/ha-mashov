@@ -12,7 +12,7 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 from .additional_data import STUDENT_RESOURCES
 from .mashov_client import MashovError
 
-VERSION = "1.0.11"
+VERSION = "1.0.12"
 _EVENTS = {
     "Mashov password change required": "password_change_required",
     "Mashov authentication failed": "authentication_failed",

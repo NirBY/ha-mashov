@@ -9,7 +9,7 @@ Unofficial integration for **משו"ב (Mashov)** that logs into the student por
 - **Grades**
 - **Holidays** (sensor and calendar per school hub)
 
-Current release: **v1.0.11**. Requires **Home Assistant 2025.3 or newer**.
+Current release: **v1.0.12**. Requires **Home Assistant 2025.3 or newer**.
 See [release notes](RELEASE_NOTES.md) for fixes and upgrade compatibility.
 
 > This project is **community-made** and not affiliated with Mashov. Use at your own risk and follow your school's policies.
@@ -472,3 +472,37 @@ reviewing and redacting them. Nothing is posted to GitHub automatically.
 Internal errors notify immediately, once per failure sequence. A successful refresh
 resets this suppression. The three-failure threshold for transient errors with cached
 data is unchanged, and those operational alerts contain no reporting links.
+
+
+## Removing a departed student and old data (v1.0.12)
+
+Open **Settings → Devices & services → Mashov → the old student device → ⋮ → Delete**.
+Removal is allowed when the student is absent from that hub's latest known roster.
+A cached roster can be used for this explicit action. If no roster is available,
+restore connectivity and refresh first. Active students and holiday devices cannot
+be deleted individually because they would be recreated by the integration.
+
+If the hub is pinned to a previous school year, enable **Automatic school year** in
+Configure, then refresh. If the old school hub is no longer needed by any student,
+delete that hub instead. Moving schools creates a different student identifier;
+removing the old card does not remove the new-school student.
+
+Automatic cleanup requires a successful refresh after a fresh login, a nonempty
+roster and fresh data. It removes departed students' sensor registrations and empty
+device cards for that hub. Restoring an authenticated cached session does not prove
+that the roster is current; explicit deletion remains available for absent students.
+Devices shared with another hub keep that other association.
+
+| Data | Removal / retention behavior |
+| --- | --- |
+| Student device and entities | Removed from HA's registries for the selected hub. Data on Mashov's servers is untouched. |
+| Local data cache | Each successful refresh replaces the hub snapshot. Failed refreshes keep the last successful data; holiday failures can retain earlier holiday data. No age-based cache purge runs. |
+| Saved authentication | Stored with the hub cache. Removing an individual orphan card does not reset the hub's session. Deleting the hub removes its entire cache and saved authentication. |
+| Homework and behavior | Requests use the configured date window, by default 7 days back and 21 forward. This is not a Recorder deletion policy. |
+| Other student resources | Follow the data returned by Mashov for the selected year/session; there is no global age-based purge of grades or lesson records. |
+| Entity attributes | `max_items_in_attributes` and byte limits restrict the displayed payload, not the full cache or recorded history. |
+| HA history | Governed independently by your Recorder configuration. Deleting devices, entities or hubs does not invoke a history purge. Back up HA before any intentional Recorder purge. |
+
+The integration does not silently erase historical records when a child changes
+class or school. Recorder retention must be checked in the user's HA configuration;
+the integration does not override it.

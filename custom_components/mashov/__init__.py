@@ -10,7 +10,10 @@ from homeassistant.components import persistent_notification  # type: ignore
 from homeassistant.config_entries import ConfigEntry  # type: ignore
 from homeassistant.core import HomeAssistant, ServiceCall, callback  # type: ignore
 from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady, ServiceValidationError  # type: ignore
-from homeassistant.helpers import config_validation as cv  # type: ignore
+from homeassistant.helpers import (
+    config_validation as cv,  # type: ignore
+    device_registry as dr,
+)
 from homeassistant.helpers.event import async_track_time_change  # type: ignore
 from homeassistant.helpers.storage import Store  # type: ignore
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed  # type: ignore
@@ -514,6 +517,28 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry):
     await Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.cache").async_remove()
     hass.data.get(DOMAIN, {}).get("report_logs", {}).pop(entry.entry_id, None)
     _async_clear_issue_notification(hass, entry)
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, config_entry: ConfigEntry, device_entry: dr.DeviceEntry
+) -> bool:
+    """Allow explicit removal of a departed student, including after a cached startup.
+
+    HA detaches only this config entry and its entities. Recorder history is not
+    purged. A student still in the roster would be recreated on the next refresh.
+    """
+    identifiers = {value for domain, value in device_entry.identifiers if domain == DOMAIN}
+    if not identifiers or any(value.startswith("holidays_") for value in identifiers):
+        return False
+    coordinator = hass.data.get(DOMAIN, {}).get(config_entry.entry_id, {}).get("coordinator")
+    data = coordinator.data if coordinator else None
+    if data is None:
+        cached = await Store(hass, 1, f"{DOMAIN}.{config_entry.entry_id}.cache").async_load()
+        data = (cached or {}).get("data")
+    if not isinstance(data, dict) or not isinstance(data.get("students"), list):
+        return False
+    active = {str(student["id"]) for student in data["students"]}
+    return identifiers.isdisjoint(active)
 
 
 def async_get_options_flow(config_entry: ConfigEntry):

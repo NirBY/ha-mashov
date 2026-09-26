@@ -8,7 +8,7 @@ from typing import Any
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.json import json_bytes
 from homeassistant.util import dt as dt_util
 
@@ -124,6 +124,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                         if tail[: -len(suffix)] not in active:
                             registry.async_remove(registered.entity_id)
                         break
+            # Entity cleanup alone leaves an undeletable student card behind.
+            # Detach only this hub, preserving devices shared with another hub.
+            devices = dr.async_get(hass)
+            for device in dr.async_entries_for_config_entry(devices, entry.entry_id):
+                identifiers = {value for domain, value in device.identifiers if domain == DOMAIN}
+                if (
+                    identifiers
+                    and not any(value.startswith("holidays_") for value in identifiers)
+                    and identifiers.isdisjoint(active)
+                    and not any(
+                        entity.config_entry_id == entry.entry_id
+                        for entity in er.async_entries_for_device(registry, device.id)
+                    )
+                ):
+                    devices.async_update_device(device.id, remove_config_entry_id=entry.entry_id)
             known.intersection_update({stu["id"] for stu in students})
         entities = []
         for stu in students:
