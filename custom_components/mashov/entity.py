@@ -12,16 +12,34 @@ class MashovEntity(CoordinatorEntity):
 
     @property
     def available(self):
+        """Available whenever any data exists (fresh or cached).
+
+        Unlike the CoordinatorEntity default, a failed refresh does not make the
+        entity unavailable; staleness is reported via data_stale instead.
+        """
         return bool(self.coordinator.data)
 
     @property
     def data_stale(self):
+        """True when the shown data did not come from the latest refresh attempt.
+
+        The coordinator sets data_stale when it keeps serving cached data (e.g. auth
+        failure or password change required); last_update_success covers refreshes
+        that raised UpdateFailed.
+        """
         return bool(getattr(self.coordinator, "data_stale", False)) or not self.coordinator.last_update_success
 
 
 class MashovStudentEntity(MashovEntity):
+    """Base for per-student entities; subclasses set _student_id and _student_name."""
+
     @property
     def available(self):
+        """Unavailable once the student disappears from a loaded roster.
+
+        Data without a "students" key (e.g. partial/legacy payloads) does not
+        hide the entity.
+        """
         data = self.coordinator.data or {}
         return super().available and (
             "students" not in data or any(student.get("id") == self._student_id for student in data["students"])
@@ -29,6 +47,7 @@ class MashovStudentEntity(MashovEntity):
 
     @property
     def student_name(self):
+        """Current name from the roster, falling back to the name known at creation."""
         return next(
             (
                 s.get("name", self._student_name)
@@ -40,6 +59,11 @@ class MashovStudentEntity(MashovEntity):
 
     @callback
     def _handle_coordinator_update(self):
+        """Keep the student's device name in sync with the roster before updating state.
+
+        Only writes to the registry when the name actually changed. A rename made
+        in the UI is stored in name_by_user and is therefore preserved.
+        """
         registry = dr.async_get(self.hass)
         registered = self.registry_entry
         device = registry.async_get(registered.device_id) if registered and registered.device_id else None

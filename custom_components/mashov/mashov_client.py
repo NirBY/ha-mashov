@@ -1,3 +1,15 @@
+"""Async HTTP client for the Mashov student portal (unofficial API).
+
+Handles login (with a cached-session fast path), school lookup, per-student data
+fetching and normalization of the raw API payloads into the snake_case dicts the
+sensors consume. The client is strictly read-only: it never submits forms, marks
+messages read or downloads attachments.
+
+Failure isolation is deliberate: a school that disables a feature (HTTP 403/404)
+only blanks that one resource for that one student, with a cooldown so we do not
+hammer the endpoint, and a holidays failure never discards student data.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -12,6 +24,7 @@ from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 import aiohttp  # type: ignore[import]
 
 from .additional_data import STUDENT_RESOURCES
+from .const import CONF_YEAR
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant  # type: ignore[import]  # pyright: ignore[reportMissingImports]
@@ -33,10 +46,14 @@ CORE_RESOURCE_BACKOFF_STEPS = (3600, 21600, 86400)  # 1h -> 6h -> 24h
 
 
 class MashovError(Exception):
+    """Base error for Mashov API, network and data problems."""
+
     pass
 
 
 class MashovAuthError(MashovError):
+    """Raised when Mashov rejects the credentials (re-auth is required)."""
+
     pass
 
 
@@ -49,6 +66,7 @@ class MashovPasswordChangeRequiredError(MashovAuthError):
 
 
 def _slugify(text: str) -> str:
+    """Build an entity-safe slug; non-Latin letters (Hebrew) are kept, punctuation dropped."""
     out = []
     for ch in text.lower():
         if ch.isalnum():
@@ -60,11 +78,33 @@ def _slugify(text: str) -> str:
 
 
 def _default_mashov_year(today: date | None = None) -> int:
+    """Return the Mashov school year, named after the calendar year it ends in.
+
+    The year rolls over on September 1st, e.g. 2025-09-01 .. 2026-08-31 is year 2026.
+    """
     d = today or date.today()
     return d.year + 1 if d.month >= 9 else d.year
 
 
+def configured_school_year(data: dict, options: dict | None) -> int | None:
+    """Return None while the automatic year is on. Otherwise keep the stored year, or freeze today's."""
+    options = options or {}
+    # Legacy entries without the option are automatic unless a year was stored at setup.
+    if options.get("automatic_school_year", not data.get(CONF_YEAR)):
+        return None
+    stored = data.get(CONF_YEAR)
+    return int(stored) if stored else _default_mashov_year()
+
+
 class MashovClient:
+    """Client for one Mashov parent/student account, covering all of its children.
+
+    One login returns every child on the account; data is then fetched per child
+    and keyed by the child's slug. Session state (cookies + CSRF token) can be
+    exported via ``auth_data`` and passed back as ``saved_auth`` to skip a login
+    on the next Home Assistant start.
+    """
+
     def __init__(
         self,
         school_id: int | str,
@@ -88,9 +128,11 @@ class MashovClient:
         self.password = password
         self.homework_days_back = homework_days_back
         self.homework_days_forward = homework_days_forward
+        # Keep STUDENT_RESOURCES order and silently drop unknown keys from old options.
         self.additional_data = tuple(key for key in STUDENT_RESOURCES if key in (additional_data or []))
+        # Optional resources: (student_id, resource_key) -> (retry_after_monotonic, last_status)
         self._resource_retry_after: dict[tuple[str, str], tuple[float, str]] = {}
-        # (student_id, url_key) -> (retry_after_monotonic, consecutive_403_count)
+        # Core resources: (student_id, url_key) -> (retry_after_monotonic, consecutive_403_count)
         self._endpoint_cooldown: dict[tuple[str, str], tuple[float, int]] = {}
 
         self._session: aiohttp.ClientSession | None = None
@@ -106,9 +148,11 @@ class MashovClient:
         # store all students
         self._students: list[dict[str, Any]] = []  # [{id, name, slug}]
         self._auth_data: dict[str, Any] = {}  # Store authentication response data
+        # Only keep cached auth that can actually authenticate; it is consumed once in async_init.
         self._saved_auth = (
             saved_auth if saved_auth and (saved_auth.get("csrf_token") or saved_auth.get("cookies")) else None
         )
+        # Set once a real login (not a session restore) has reloaded the children list.
         self.roster_refreshed = False
 
         # Concurrency control
@@ -121,6 +165,7 @@ class MashovClient:
         return self._configured_year or _default_mashov_year()
 
     def _resolve_endpoints(self):
+        """Build the login and core resource URL templates from the API base."""
         self._login_endpoint = self._api_base + "login"
         self._login_page_url = self._build_login_page_url()
         self._endpoints = {
@@ -163,7 +208,12 @@ class MashovClient:
         }
 
     async def _ensure_valid_session(self):
-        """Ensure session is valid, re-logging in if necessary, with concurrency protection."""
+        """Ensure session is valid, re-logging in if necessary, with concurrency protection.
+
+        Called after an HTTP 401. Parallel requests that all hit 401 share one
+        re-login: the first takes the lock and logs in, the rest see a login
+        younger than 10 seconds and return immediately to retry their request.
+        """
         # Fast check without lock first
         if time.time() - self._last_login_timestamp < 10:
             return
@@ -178,6 +228,7 @@ class MashovClient:
             self._last_login_timestamp = time.time()
 
     async def async_open_session(self) -> None:
+        """Create the aiohttp session if missing or closed (e.g. after a reload)."""
         if self._session is None or self._session.closed:
             _trace("Opening new Mashov client session")
             self._session = aiohttp.ClientSession(
@@ -186,6 +237,7 @@ class MashovClient:
             )
 
     async def async_close(self):
+        """Close the session; errors are swallowed so unload never fails."""
         if self._session and not self._session.closed:
             _LOGGER.debug("Closing Mashov client session")
             try:
@@ -204,6 +256,7 @@ class MashovClient:
         yr = year or self.year
         _LOGGER.debug("Fetching schools catalog for year %s", yr)
 
+        # Deployments expose the list under different routes; merge whatever answers.
         candidates = [
             (self._api_base + f"schools?{urlencode({'year': yr})}", None),
             (self._api_base + "schools", None),
@@ -237,6 +290,11 @@ class MashovClient:
         return result
 
     async def async_search_schools(self, query: str, year: int | None = None) -> list[dict[str, Any]]:
+        """Search schools by name or city.
+
+        Tries server-side search routes first, then full lists filtered locally;
+        returns the first non-empty result.
+        """
         if not self._session:
             await self.async_open_session()
         q = query.strip()
@@ -268,6 +326,12 @@ class MashovClient:
         return []
 
     def _normalize_schools_list(self, raw, query: str | None = None) -> list[dict[str, Any]]:
+        """Map any known school-list shape to ``{semel, name, city}`` dicts, deduplicated by semel.
+
+        Accepts a bare list or a dict wrapping it; field names vary between
+        deployments (semel/id/schoolCode, name/schoolName/institutionName).
+        Entries without a numeric semel or a name are skipped.
+        """
         items: list[dict[str, Any]] = []
 
         def add(semel, name, city=None):
@@ -305,15 +369,27 @@ class MashovClient:
         return list(dedup.values())
 
     async def async_init(self, hass: HomeAssistant):
+        """Authenticate and load the account's children.
+
+        Steps: resolve a school name to its semel if needed, try to restore the
+        cached session, and otherwise perform a full login with retries.
+        ``hass`` is unused; callers pass ``None`` for re-logins.
+
+        Raises:
+            MashovPasswordChangeRequiredError: Mashov demands a password change.
+            MashovAuthError: credentials, school or year were rejected (no retry).
+            MashovError: network/server failure after all retries.
+        """
         _LOGGER.info("=== MASHOV CLIENT INIT START ===")
         _LOGGER.info("Initializing Mashov client")
         _LOGGER.info("API Base URL: %s", self._api_base)
         await self.async_open_session()
 
-        # Add retry mechanism for login
+        # Login retries cover transient server/network failures only; 401/403 fail fast.
         max_retries = 3
         retry_delay = 2
 
+        # --- School resolution: legacy configs may store a school name instead of a semel.
         if self.school_id is None and self.school_name:
             _LOGGER.debug("Resolving school name '%s' to semel", self.school_name)
             matches = await self.async_search_schools(self.school_name, self.year)
@@ -324,7 +400,9 @@ class MashovClient:
             self.school_id = int(best.get("semel") or best.get("id"))
             _LOGGER.info("Resolved school '%s' to semel %s", best.get("name"), self.school_id)
 
-        # Attempt to restore session
+        # --- Session restore: reuse cached cookies/CSRF token to avoid a login on every
+        # HA start. A session is bound to the school year it was opened for, so a
+        # cache from before the September rollover is discarded.
         if (
             self._saved_auth
             and self._saved_auth.get("session_year") is not None
@@ -364,7 +442,8 @@ class MashovClient:
                     async with self._session.get(probe_url, headers=self._headers) as resp:
                         if resp.status == 200:
                             _LOGGER.info("Session restored successfully")
-                            # We can skip login
+                            # We can skip login. roster_refreshed is not set here: the
+                            # children list comes from the cache, not a fresh login.
                             await self._extract_students()
                             return
                         _LOGGER.warning("Restored session unavailable (HTTP %s) - proceeding to login", resp.status)
@@ -381,7 +460,8 @@ class MashovClient:
                 self._headers = {}
                 self._session.cookie_jar.clear()
 
-        # Login
+        # --- Full login. The payload and headers mimic the official web client
+        # (app name/version and device fields), as the portal expects.
         payload = {
             "semel": int(self.school_id),
             "year": int(self.year),
@@ -416,6 +496,10 @@ class MashovClient:
                     _LOGGER.info("Login response received")
 
                     if resp.status in (401, 403):
+                        # Rejected credentials are final; retrying cannot fix them.
+                        # A forced password change is signalled by a "reason: changepass"
+                        # header or by the message text, and gets its own error so the
+                        # user can be sent to the Mashov login page.
                         txt = await resp.text()
                         message = txt
                         try:
@@ -457,8 +541,8 @@ class MashovClient:
                         _LOGGER.error("Invalid login response")
                         data = {}
 
-                    # Check if we have authentication data
-
+                    # Fresh headers for this session; data requests are authorized by the
+                    # session cookies plus the CSRF token echoed in a header.
                     self._headers = {"Accept": "application/json"}
 
                     # Extract CSRF token from response headers
@@ -519,11 +603,19 @@ class MashovClient:
                 _LOGGER.error("Network error during login: %s", e)
                 raise MashovError(f"Network error during login: {e}") from e
 
-        # Extract students from authentication response
+        # --- Students. Reaching here means the loop hit `break`; every failure path
+        # above either retries or raises.
         await self._extract_students()
         self.roster_refreshed = True
 
     async def _extract_students(self):
+        """Build ``self._students`` from ``accessToken.children`` in the login response.
+
+        The childGuid is the stable student ID used in every student URL and in
+        device/entity identifiers. Also records the school year the session
+        belongs to and stamps the login time used by ``_ensure_valid_session``.
+        Student names and IDs are deliberately not logged (privacy).
+        """
         _LOGGER.info("=== EXTRACTING STUDENTS FROM AUTH RESPONSE ===")
 
         # Get children from the authentication response
@@ -578,7 +670,12 @@ class MashovClient:
         _LOGGER.info("=== MASHOV CLIENT INIT COMPLETE ===")
 
     def _register_endpoint_forbidden(self, cooldown_key: tuple[str, str]) -> None:
-        """Back off a core endpoint that answered HTTP 403, escalating per consecutive failure."""
+        """Back off a core endpoint that answered HTTP 403, escalating per consecutive failure.
+
+        The key is (student_id, resource), so one child's disabled feature does not
+        affect siblings. Delays follow CORE_RESOURCE_BACKOFF_STEPS and stay at the
+        last step; the counter resets on the next successful fetch.
+        """
         _retry_after, count = self._endpoint_cooldown.get(cooldown_key, (0.0, 0))
         count += 1
         delay = CORE_RESOURCE_BACKOFF_STEPS[min(count, len(CORE_RESOURCE_BACKOFF_STEPS)) - 1]
@@ -590,7 +687,14 @@ class MashovClient:
         )
 
     async def _fetch_student_resource(self, sid: str, key: str, start: str, end: str) -> dict[str, Any]:
-        """Fetch metadata only; never download files, mark mail read, or submit forms."""
+        """Fetch metadata only; never download files, mark mail read, or submit forms.
+
+        Used for the opt-in ``additional_data`` resources. Never raises for API
+        errors (except a required password change): the result is always
+        ``{"items": [...], "status": ...}`` so one failing resource cannot break
+        the refresh. HTTP 403/404 park the resource for 24 hours per student;
+        while parked, the last status is returned without a request.
+        """
         cache_key = (sid, key)
         retry_after, previous_status = self._resource_retry_after.get(cache_key, (0, "not_fetched"))
         if time.monotonic() < retry_after:
@@ -600,6 +704,7 @@ class MashovClient:
         if resource.dated:
             url += "?" + urlencode({"start": start, "end": end})
         try:
+            # One re-login retry on 401, then give up for this cycle.
             for attempt in range(2):
                 async with self._session.get(url, headers=self._headers) as response:
                     if response.status == 401:
@@ -608,6 +713,7 @@ class MashovClient:
                             continue
                         return {"items": [], "status": "unauthorized"}
                     if response.status == 403:
+                        # A forced password change also surfaces as 403 on data routes.
                         body = await response.text()
                         if (
                             response.headers.get("reason") or ""
@@ -640,14 +746,27 @@ class MashovClient:
             return {"items": [], "status": "fetch_failed"}
 
     async def async_fetch_all(self) -> dict[str, Any]:
+        """Fetch and normalize data for every student plus school holidays.
+
+        Returns ``{"students", "by_slug", "holidays", "holidays_status"}``.
+        ``by_slug[slug]`` holds the normalized core resources, the optional
+        ``additional_data`` and a ``source_status`` map (ok/forbidden/unsupported/
+        http_400) so the UI can explain empty sensors.
+
+        Auth errors and password-change errors propagate; per-resource 400/403/404
+        and holiday failures are absorbed so partial data is still returned.
+        """
         _LOGGER.info("=== FETCHING ALL DATA ===")
-        # Ensure session and authentication are available (lazy login)
+        # --- Session / login. Ensure session and authentication are available (lazy login)
         if not self._session or self._session.closed:
             await self.async_open_session()
         if not self._students or "X-Csrf-Token" not in self._headers:
             _LOGGER.debug("No students/csrf in memory – performing lazy login")
             await self.async_init(None)
         elif self._session_year is not None and self._session_year != self.year:
+            # School-year rollover (automatic year crossed September 1st): the old
+            # session is bound to the previous year, and 403/404 cooldowns earned
+            # last year may not apply to the new one.
             _LOGGER.info("Mashov school year changed to %s - logging in again", self.year)
             self._endpoint_cooldown.clear()
             self._resource_retry_after.clear()
@@ -657,26 +776,23 @@ class MashovClient:
         if "X-Csrf-Token" not in self._headers:
             _LOGGER.warning("No CSRF token found in headers for data fetching")
 
+        # --- Date window for the dated resources (homework, behavior, optional resources).
         today = date.today()
         from_dt = (today - timedelta(days=self.homework_days_back)).isoformat()
         to_dt = (today + timedelta(days=self.homework_days_forward)).isoformat()
-        today.isoformat()
+        today.isoformat()  # Result unused (leftover); harmless.
 
         _LOGGER.info("Fetching data for %d students from %s to %s", len(self._students), from_dt, to_dt)
 
-        # Validate session before launching parallel requests
-        # We perform a "dry run" check on the first student's minimal endpoint (e.g. grades or just ensure session)
-        # to catch 401s early and refresh the session once.
+        # No pre-flight session check (this block is intentionally a no-op).
+        # A stale session is handled reactively: if parallel requests all get 401,
+        # the first one re-logs in under _login_lock, the others wait on the lock,
+        # see the fresh login and retry once.
         if self._students:
             with contextlib.suppress(Exception):
-                # We reuse _ensure_valid_session logic, but if we suspect it's stale,
-                # we might want to force a check? No, let's rely on the first 401 triggering it safely.
-                # Actually, the best way is to check date?
-                # For now, we'll let the lock handle it. If 10 requests go out, 10 return 401.
-                # The first one enters the lock and re-logs in. The others wait.
-                # When they wake up, they retry.
                 pass
 
+        # --- Per-student fetch: the six core resources in parallel, then optional ones.
         async def fetch_for_student(stu):
             sid = stu["id"]
             source_status = {}
@@ -695,6 +811,12 @@ class MashovClient:
             }
 
             async def fetch(url_key: str, attempt: int = 0):
+                """Fetch one core resource, recording its outcome in ``source_status``.
+
+                401 -> one shared re-login and retry; 400/404 -> empty result;
+                403 -> password-change check, else escalating cooldown; other
+                errors raise MashovError and fail the whole refresh.
+                """
                 url = urls[url_key]
                 cooldown_key = (sid, url_key)
                 retry_after, _count = self._endpoint_cooldown.get(cooldown_key, (0.0, 0))
@@ -738,6 +860,7 @@ class MashovClient:
                             data = await resp.json()
                             _LOGGER.debug("Student resource loaded")
                             source_status[url_key] = "ok"
+                            # Success resets the 403 escalation for this student/resource.
                             self._endpoint_cooldown.pop(cooldown_key, None)
                             return data
                         except (ValueError, aiohttp.ClientError) as e:
@@ -746,6 +869,11 @@ class MashovClient:
                     raise
                 except (aiohttp.ClientError, OSError) as e:
                     raise MashovError(f"Request failed fetching {url_key}") from e
+                except RuntimeError as e:
+                    # aiohttp raises this when the session was closed during a reload. It is not a code defect.
+                    if getattr(self._session, "closed", False):
+                        raise MashovError(f"Request failed fetching {url_key}") from e
+                    raise
 
             homework, behavior, weekly_plan, timetable, lessons_history, grades = await asyncio.gather(
                 fetch("homework"),
@@ -774,7 +902,8 @@ class MashovClient:
         # Use asyncio.gather for parallel execution
         results = await asyncio.gather(*(fetch_for_student(s) for s in self._students))
 
-        # A holiday failure must not discard successfully fetched student data.
+        # --- Holidays (school-wide, not per student). A holiday failure must not
+        # discard successfully fetched student data; only auth errors propagate.
         holidays_raw = []
         holidays_status = "not_fetched"
         try:
@@ -795,6 +924,8 @@ class MashovClient:
                         else:
                             holidays_status = "ok"
                         break
+        except (MashovAuthError, MashovPasswordChangeRequiredError):
+            raise
         except Exception:
             holidays_status = "fetch_failed"
         if holidays_status != "ok":
@@ -822,8 +953,11 @@ class MashovClient:
         _LOGGER.debug("Data fetch completed for %d students", len(self._students))
         return result
 
-    # Normalizers
+    # Normalizers: map Mashov's camelCase (sometimes lowercase) API fields to the
+    # snake_case keys the sensors use. They never raise; a malformed payload
+    # yields whatever was parsed before the error (logged at debug level).
     def _normalize_weekly_plan(self, raw):
+        """Weekly plan items; note this API uses all-lowercase keys (groupid, lessondate)."""
         items = []
         try:
             for plan in raw or []:
@@ -867,6 +1001,7 @@ class MashovClient:
         return items
 
     def _normalize_homework(self, raw):
+        """Homework assignments within the configured days-back/forward window."""
         items = []
         try:
             for hw in raw or []:
@@ -887,6 +1022,11 @@ class MashovClient:
         return items
 
     def _normalize_behavior(self, raw):
+        """Behavior events (absences, lateness, praise...).
+
+        ``achva*`` fields describe Mashov's event type (code, display name and
+        ``achvaAval``) and are passed through unchanged.
+        """
         items = []
         try:
             for ev in raw or []:
@@ -917,6 +1057,7 @@ class MashovClient:
         return items
 
     def _normalize_holidays(self, raw):
+        """School holidays; the API spells the name field ``hollyDayName`` (typo kept upstream)."""
         items = []
         try:
             for h in raw or []:
@@ -933,6 +1074,7 @@ class MashovClient:
         return items
 
     def _normalize_lessons_history(self, raw):
+        """Past lessons: lesson fields live under ``lessonLog``; group/subject names on the outer item."""
         items = []
         try:
             for r in raw or []:

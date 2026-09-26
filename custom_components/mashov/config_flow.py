@@ -1,3 +1,19 @@
+"""Config and options flows for the Mashov integration.
+
+Setup ("user" step) asks for the parent's username, password and school. The
+school field accepts a semel (Israeli school id), an autocomplete label ending
+in "(semel)", or free text that is searched in the public school catalog. When
+the search matches several schools, the "pick_school" step shows a dropdown and
+then re-enters the user step with the chosen semel.
+
+One config entry represents one parent account at one school (all of that
+account's children are discovered after login). Its unique_id is
+"<semel>_<lowercased username>".
+
+The options flow edits polling/schedule options and can also change the
+username/password, which live in entry.data rather than entry.options.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -46,15 +62,22 @@ from .mashov_client import MashovAuthError, MashovClient, MashovError
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Initial setup flow: credentials + school, validated by a real login."""
+
     VERSION = 1
 
     def __init__(self):
+        # User input carried across the pick_school step (plus the resolved school name).
         self._cached_user = None
+        # label -> semel for the pick_school dropdown when a name search is ambiguous.
         self._school_choices = None
         self._catalog_options = None  # list of {"value": semel, "label": display}
 
     async def _load_schools_catalog(self):
-        """Load schools catalog in a separate task to avoid blocking MainThread"""
+        """Fetch the public school catalog; no login is needed.
+
+        Uses a throwaway client with placeholder credentials that is always closed.
+        """
         tmp = MashovClient(
             school_id="placeholder",
             year=None,
@@ -69,9 +92,15 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             await tmp.async_close()
 
     async def async_step_user(self, user_input=None) -> FlowResult:
+        """Collect credentials and school, resolve the semel, log in and create the entry.
+
+        Also called by async_step_pick_school with the cached input, which then
+        already contains CONF_SCHOOL_ID.
+        """
         errors = {}
 
-        # Try to load catalog for dropdown (no login required)
+        # Try to load catalog for dropdown (no login required). Loaded once per flow;
+        # a failure leaves an empty list so the form falls back to plain text input.
         if self._catalog_options is None:
             try:
                 # Load catalog directly
@@ -85,7 +114,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         if it.get("semel") and it.get("name"):
                             name = it.get("name", "?")
                             semel = int(it["semel"])
-                            # Do not separate city; show the exact name
+                            # Do not separate city; show the exact name. The trailing
+                            # "(semel)" is what the submit handler parses back out.
                             label = f"{name} ({semel})"
                             self._catalog_options.append({"value": semel, "label": label})
                     # Limit to first 50 schools for better dropdown performance
@@ -134,7 +164,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 user_input[CONF_SCHOOL_ID] = int(school_raw)
                 _LOGGER.debug("Using direct semel: %s", user_input[CONF_SCHOOL_ID])
             else:
-                # Try to extract semel from autocomplete format: "School Name – City (123456)"
+                # Try to extract semel from autocomplete format: "School Name (123456)"
                 import re
 
                 semel_match = re.search(r"\((\d+)\)$", school_raw)
@@ -162,6 +192,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
 
                         if len(results) > 1:
+                            # Ambiguous name: remember the input and let the user choose.
                             self._cached_user = user_input
                             # Create choices with school name and semel
                             self._school_choices = {}
@@ -187,7 +218,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         errors["base"] = "cannot_connect"
                         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
 
-            # Validate login; client will fetch all kids
+            # Validate login; client will fetch all kids. The client is only used for
+            # validation and is closed right away; the coordinator creates its own.
             client = MashovClient(
                 school_id=user_input[CONF_SCHOOL_ID],
                 year=None,
@@ -209,8 +241,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             finally:
                 await client.async_close()
             if not errors:
-                # Legacy entries have no account-based unique_id; credentials may also
-                # have changed since a newer entry received its unique_id.
+                # Duplicate detection. Legacy entries have no account-based unique_id;
+                # credentials may also have changed since a newer entry received its
+                # unique_id. So compare the stored school + username (case-insensitive)
+                # first, then fall back to the unique_id check below.
                 for existing in self._async_current_entries():
                     if (
                         str(existing.data.get(CONF_SCHOOL_ID)) == str(user_input[CONF_SCHOOL_ID])
@@ -236,6 +270,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
 
     async def async_step_pick_school(self, user_input=None) -> FlowResult:
+        """Let the user choose among several schools matching the typed name.
+
+        The choice is stored as CONF_SCHOOL_ID in the cached input, so the user
+        step skips its name search instead of re-running it.
+        """
         errors = {}
         if user_input is not None:
             # Convert string value back to int
@@ -246,7 +285,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             school_name = None
             for label, semel in self._school_choices.items():
                 if semel == selected_semel:
-                    # label format: "Name – City (Semel)"
+                    # Label format is "Name (Semel)"; the " – " split also strips a
+                    # city suffix in case a label ever includes one.
                     school_name = label.split(" – ")[0].split(" (")[0]
                     break
 
@@ -277,16 +317,28 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class OptionsFlowHandler(config_entries.OptionsFlow):
+    """Options flow: schedule/fetch options plus optional credential changes."""
+
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         self._config_entry = config_entry
 
     @property
     def config_entry(self) -> config_entries.ConfigEntry:
+        """Return the entry, working on both older and newer HA cores.
+
+        Newer cores provide config_entry on the base class (and raise if it isn't
+        set up yet); older ones don't, so fall back to the entry passed in.
+        """
         with contextlib.suppress(AttributeError, ValueError):
             return super().config_entry
         return self._config_entry
 
     async def async_step_init(self, user_input=None) -> FlowResult:
+        """Show the options form, or validate and save a submission.
+
+        Username/password are moved out of the options into entry.data; an empty
+        password field means "keep the current password".
+        """
         errors = {}
         _LOGGER.debug(
             "Options flow step_init called (entry_id=%s). submitted=%s",
@@ -307,6 +359,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             if api_val and not (api_val.startswith("http://") or api_val.startswith("https://")):
                 errors[CONF_API_BASE] = "invalid_api_url"
 
+            # Refuse a username change that would duplicate another entry for the same school.
             proposed_username = str(user_input.get(CONF_USERNAME, "")).strip()
             if (
                 proposed_username
@@ -321,10 +374,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 errors["base"] = "already_configured"
 
             if not errors:
-                # Normalize: accept both legacy single day and new multi-days selector
+                # Normalize: accept both legacy single day and new multi-days selector.
+                # Start from the existing options so keys not on the form are kept.
                 normalized = {**self.config_entry.options, **user_input}
                 try:
                     if CONF_SCHEDULE_DAYS in normalized:
+                        # The selector returns strings; store sorted unique ints clamped to 0-6.
                         raw_days = normalized.get(CONF_SCHEDULE_DAYS) or []
                         casted = []
                         for v in raw_days:
@@ -345,6 +400,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 except Exception as e:
                     _LOGGER.debug("Options normalization failed: %s", e)
 
+                # Credentials belong in entry.data; pop them so they never end up in options.
                 updated_data = dict(self.config_entry.data)
                 new_username = str(normalized.pop(CONF_USERNAME, "")).strip()
                 if new_username:
@@ -354,6 +410,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 if new_password:
                     updated_data[CONF_PASSWORD] = new_password
 
+                # Move the entry to the unique_id matching the new username, unless another
+                # entry (by unique_id or, for legacy entries, by school + username) already
+                # represents that account; then keep the current unique_id to avoid a clash.
                 candidate_id = f"{updated_data[CONF_SCHOOL_ID]}_{updated_data[CONF_USERNAME].strip().lower()}"
                 duplicate = any(
                     other.entry_id != self.config_entry.entry_id
@@ -413,6 +472,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         schema = vol.Schema(
             {
                 vol.Optional(CONF_USERNAME, default=options[CONF_USERNAME]): str,
+                # Follow the current school year automatically. Defaults to on unless the
+                # entry was set up with a fixed year in its data.
                 vol.Optional(
                     "automatic_school_year",
                     default=current_options.get("automatic_school_year", not self.config_entry.data.get(CONF_YEAR)),
@@ -427,6 +488,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         translation_key="additional_data",
                     )
                 ),
+                # Never prefilled with the stored password; leave empty to keep it.
                 vol.Optional(CONF_PASSWORD, description={"suggested_value": ""}): str,
                 vol.Optional(CONF_HOMEWORK_DAYS_BACK, default=options[CONF_HOMEWORK_DAYS_BACK]): vol.All(
                     int, vol.Range(min=0, max=60)

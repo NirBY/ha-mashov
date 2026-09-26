@@ -1,4 +1,8 @@
-"""Core student endpoints answering HTTP 403 back off per student and per resource."""
+"""Core student endpoints answering HTTP 403 back off per student and per resource.
+
+Protects the 1h/6h/24h escalation, its reset after a successful fetch, isolation
+between students/resources, and that password-change 403s are raised, not cooled down.
+"""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -18,6 +22,8 @@ STUDENTS = [
 
 
 class FakeClock:
+    """Controllable stand-in for ``time.monotonic``; tests advance ``now`` manually."""
+
     def __init__(self) -> None:
         self.now = 1000.0
 
@@ -26,6 +32,10 @@ class FakeClock:
 
 
 def _response(status: int, payload=None, reason: str | None = None, text: str = ""):
+    """Return an async-context-manager mock yielding a response with the given status/payload.
+
+    ``reason`` is sent as the ``reason`` header (e.g. ``ChangePass``); ``text`` is the raw body.
+    """
     response = MagicMock(status=status, headers={"reason": reason} if reason else {})
     response.text = AsyncMock(return_value=text)
     response.json = AsyncMock(return_value=[] if payload is None else payload)
@@ -56,6 +66,7 @@ def _client(forbidden: dict[tuple[str, str], object]) -> MashovClient:
 
 
 def _calls(client: MashovClient, sid: str, suffix: str) -> int:
+    """Count GET requests made for ``sid`` whose URL path ends with ``suffix``."""
     return sum(
         1
         for call in client._session.get.call_args_list
@@ -65,15 +76,18 @@ def _calls(client: MashovClient, sid: str, suffix: str) -> int:
 
 @pytest.fixture
 def clock():
+    """Patch ``mashov_client.time.monotonic`` with a FakeClock and yield it."""
     fake = FakeClock()
     with patch.object(mashov_client.time, "monotonic", fake):
         yield fake
 
 
 async def test_403_escalates_1h_6h_24h_and_skips_requests(clock):
+    """Repeated 403s escalate the cooldown 1h -> 6h -> 24h (capped) with no requests while cooling down."""
     client = _client({("student-a", "/lessons/plans"): 403})
     key = ("student-a", "weekly_plan")
 
+    # One extra iteration past the last step checks that the delay stays capped at 24h.
     for step, delay in enumerate((*CORE_RESOURCE_BACKOFF_STEPS, CORE_RESOURCE_BACKOFF_STEPS[-1]), start=1):
         data = await client.async_fetch_all()
         assert data["by_slug"]["a"]["weekly_plan"] == []
@@ -84,12 +98,14 @@ async def test_403_escalates_1h_6h_24h_and_skips_requests(clock):
         clock.now += delay - 1
         await client.async_fetch_all()
         assert _calls(client, "student-a", "/lessons/plans") == step
+        # Cooldown expired: the next loop iteration re-probes the endpoint.
         clock.now += 1
 
     assert CORE_RESOURCE_BACKOFF_STEPS == (3600, 21600, 86400)
 
 
 async def test_recovery_resets_cooldown(clock):
+    """A successful fetch clears the cooldown, so a later 403 restarts at the first step."""
     forbidden = {("student-a", "/lessons/plans"): 403}
     client = _client(forbidden)
     forbidden_get = client._session.get.side_effect
@@ -114,11 +130,13 @@ async def test_recovery_resets_cooldown(clock):
 
 
 async def test_student_and_resource_isolation(clock):
+    """A 403 cools down only that student's resource; other students and resources keep fetching."""
     plan = [{"groupid": 1, "lessondate": "2027-01-01", "lesson": 1, "plan": "Synthetic"}]
     client = _client({("student-a", "/lessons/plans"): 403})
     base_get = client._session.get.side_effect
 
     def get(url, headers=None):
+        # Student B's weekly plan succeeds; everything else falls back to the student-A-forbidden handler.
         if "/students/student-b/" in url and url.endswith("/lessons/plans"):
             return _response(200, plan)
         return base_get(url, headers)
@@ -141,6 +159,7 @@ async def test_student_and_resource_isolation(clock):
     [("ChangePass", ""), (None, '{"message": "Please change password"}')],
 )
 async def test_password_change_403_is_raised_not_cooled_down(clock, reason, text):
+    """A password-change 403 (header or body) raises every refresh and never enters a cooldown."""
     client = _client({("student-a", "/lessons/plans"): lambda: _response(403, reason=reason, text=text)})
     with pytest.raises(MashovPasswordChangeRequiredError):
         await client.async_fetch_all()

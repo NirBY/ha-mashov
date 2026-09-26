@@ -1,4 +1,8 @@
-"""Test Mashov config flow."""
+"""Config and options flows: entry creation from user input and credential updates via options.
+
+The user-step tests patch the config flow's MashovClient and the integration's
+setup functions so creating the entry never triggers a real login or setup.
+"""
 
 from unittest.mock import AsyncMock, patch
 
@@ -12,7 +16,7 @@ from .const import TEST_PASSWORD, TEST_SCHOOL_ID, TEST_STUDENT, TEST_USERNAME
 
 
 async def test_user_flow_success(hass: HomeAssistant):
-    """Test successful user flow."""
+    """Submitting credentials and a numeric school ID creates an entry with that school ID."""
     # Prevent actual setup and network calls - patch BEFORE async_init
     with (
         patch("custom_components.mashov.config_flow.MashovClient") as mock_client,
@@ -72,7 +76,7 @@ async def test_user_flow_success(hass: HomeAssistant):
 
 
 async def test_user_flow_auth_failed(hass: HomeAssistant):
-    """Test user flow with authentication failure."""
+    """A failing authenticate mock still creates the entry; credentials are verified at setup."""
     # Prevent actual setup and network calls - patch BEFORE async_init
     with (
         patch("custom_components.mashov.config_flow.MashovClient") as mock_client,
@@ -110,7 +114,7 @@ async def test_user_flow_auth_failed(hass: HomeAssistant):
 
 
 async def test_user_flow_cannot_connect(hass: HomeAssistant):
-    """Test user flow with connection failure.
+    """A connection error in the client mocks still creates the entry.
 
     Note: Config flow creates the entry successfully. Connection is validated
     during setup, not during config flow.
@@ -146,7 +150,7 @@ async def test_user_flow_cannot_connect(hass: HomeAssistant):
 
 
 async def test_options_flow(hass: HomeAssistant, mock_config_entry):
-    """Test options flow."""
+    """Options update the schedule, while new credentials are moved into entry data (not options)."""
     mock_config_entry.add_to_hass(hass)
 
     result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)

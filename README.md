@@ -9,7 +9,7 @@ Unofficial integration for **משו"ב (Mashov)** that logs into the student por
 - **Grades**
 - **Holidays** (sensor and calendar per school hub, with the school name in the device and entity display names)
 
-Current release: **v1.0.13**. Requires **Home Assistant 2025.3 or newer**.
+Current release: **v1.0.14**. Requires **Home Assistant 2025.3 or newer**.
 See [release notes](RELEASE_NOTES.md) for fixes and upgrade compatibility.
 
 > This project is **community-made** and not affiliated with Mashov. Use at your own risk and follow your school's policies.
@@ -26,6 +26,7 @@ See [release notes](RELEASE_NOTES.md) for fixes and upgrade compatibility.
 - **Sensors** expose compact **state** (count) + rich **attributes** (lists you can use in automations / dashboards).
 - **Calendar entity** for school holidays - integrates with Home Assistant calendar view 📅
 - **Diagnostics** endpoint for safe issue reporting (redacts credentials).
+- **Mashov Live dashboard** (Bubble Card) built by a script blueprint, with person photos and per-person card visibility.
 
 ---
 
@@ -128,10 +129,10 @@ are scoped to each hub automatically.
 - **Homework** – `sensor.mashov_<student_id>_homework`
 - **Behavior** – `sensor.mashov_<student_id>_behavior`
 - **Timetable** – `sensor.mashov_<student_id>_timetable`
-- **Lessons History** – `sensor.mashov_<student_id>_lessons_history`
+- **Lessons History** – `sensor.mashov_<student_id>_lessons_history` (`…_lesson_history` on new installations)
 - **Grades** – `sensor.mashov_<student_id>_grades`
 
-**State** = number of items.  
+**State** = number of items.
 **Attributes** (common): `items`, `formatted_summary`, `formatted_by_date`, `formatted_by_subject` (and for timetable: also table helpers).
 
 Weekly-plan subjects and teachers are filled from timetable groups where available,
@@ -139,7 +140,7 @@ and grouped views include the plan text. Dated plans render a date-labelled HTML
 instead of combining different weeks into one grid. Students continue updating after
 a class-name change because data lookup follows their stable student ID. Schedule
 timestamps use Home Assistant's configured timezone. `last_update` is the
-actual last successful refresh time in UTC, or null for legacy caches without a timestamp.
+actual last successful refresh time in Home Assistant's timezone, or null for legacy caches without a timestamp.
 
 > **Tip**: Use `{{ state_attr('sensor.mashov_<id>_homework', 'items') }}` to access raw lists.
 >
@@ -152,11 +153,11 @@ actual last successful refresh time in UTC, or null for legacy caches without a 
 
 Each hub has its own holiday sensor and calendar. Select the matching school's
 entities in cards and automations; IDs can have suffixes on installations with multiple hubs.
-- **Holidays Sensor** – `sensor.mashov_holidays`  
+- **Holidays Sensor** – `sensor.mashov_<school>_holidays_count` on new installations (older: `sensor.mashov_holidays`, `sensor.mashov_holidays_2`, …)
   State = number of holidays. Attributes: `items`, `formatted_summary`, `formatted_by_date`.
 
-- **Holidays Calendar** – `calendar.mashov_holidays_calendar`
-  Full calendar integration for school holidays. Shows events in Home Assistant calendar view with start/end dates.  
+- **Holidays Calendar** – `calendar.mashov_<school>_holidays_calendar` on new installations (older: `calendar.mashov_holidays_calendar`, …)
+  Full calendar integration for school holidays. Shows events in Home Assistant calendar view with start/end dates.
   _Contributed by [@aviadlevy](https://github.com/aviadlevy)_
 
 ---
@@ -215,6 +216,45 @@ How to use
 
 ---
 
+## ✨ Script Blueprint: Mashov Live dashboard (Bubble Card)
+
+One‑click import (My Home Assistant):
+
+[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint URL.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FNirBY%2Fha-mashov%2Fmain%2Fblueprints%2Fscript%2Fmashov%2Fmashov_live_dashboard.yaml)
+
+![Mashov Live dashboard on desktop](docs/images/mashov_live_desktop.png)
+
+<img src="docs/images/mashov_live_mobile.png" alt="Mashov Live dashboard on mobile" width="320">
+
+What does it build?
+- A greeting card with the current holiday countdown (or days until the next holiday) and a refresh button.
+- One quiet card per student, showing the linked person's photo, a live "tomorrow" line (holiday, Saturday, or the number of lessons and first subjects), behavior, grades and notice counts, and a homework bar.
+- A pop-up per student with tomorrow's lessons (teacher and room), recent homework, behavior, grades, notices and the school calendar.
+- Hebrew right‑to‑left layout, with English words and numbers kept left‑to‑right.
+
+Who sees which card?
+- **Family** (people selected in the General section) see every card.
+- Each student card is also visible to the **linked person** and any **extra viewers**, so a child who logs in sees only their own card.
+- A child found automatically, with no linked person and no extra viewers, is visible only to the family. Choose at least one family member, or link that child to a person who has a Home Assistant user.
+- Only people linked to a Home Assistant user can be used for visibility. This hides cards in the dashboard; it does not restrict access to the underlying entities.
+
+Requirements
+- Bubble Card 3.4 or newer (HACS → Frontend).
+- An empty UI dashboard: **Settings → Dashboards → Add dashboard → New dashboard from scratch**. Note its URL (for example `mashov-live`).
+
+How to use
+1. Click the import button above and create a script from the blueprint.
+2. Enter the dashboard URL and the family members. Every child on every Mashov hub is included, with the name, class and sensors the integration already created. The four student sections are optional: type a child's name to set an emoji, color, linked person or extra viewers. Empty sections are skipped.
+3. Save and run the script. Run it again after a new child is added; you do not need to edit the script.
+
+The script only writes into a dashboard that is empty or that it built itself. To replace a dashboard
+that has other content, or a built-in one such as the Overview (`lovelace`), turn on **Replace existing
+content**; the previous content is lost. Only administrators can run the service.
+
+Blueprint file location: `blueprints/script/mashov/mashov_live_dashboard.yaml`.
+
+---
+
 ## 🛠️ Services
 
 ### `mashov.refresh_now`
@@ -245,68 +285,69 @@ Specify it when selecting a particular hub. The legacy `schedule_day` field rema
 supported; supplying it without `schedule_days` replaces the selected days with
 that one day. Invalid service inputs are rejected. YAML scheduling overrides still apply.
 
+### `mashov.create_live_dashboard`
+
+Build the Mashov Live dashboard into an existing UI dashboard. With no `students` list it includes every child from every hub. The script blueprint above calls this service; you can also call it directly:
+
+```yaml
+action: mashov.create_live_dashboard
+data:
+  dashboard: mashov-live          # URL of an existing, empty UI dashboard
+  title: משוב לייב
+  family: [person.parent_1, person.parent_2]
+  overwrite: false                # true replaces other content or a built-in dashboard
+  students:                       # optional tweaks; omitted children still appear
+    - name: נועה                  # full name, or a unique first name
+      emoji: "🚀"
+      person: person.noa          # photo + this user sees the card
+      viewers: [person.grandma]   # optional extra viewers
+      accent: [155, 176, 201]     # RGB list or "#9bb0c9"
+response_variable: result
+```
+
+The response reports the dashboard, the number of students and whether the Bubble Card resource was found. There is no limit on the number of children.
+
 ---
 
 ## 🧱 Lovelace Cards (Examples)
-You can quickly add cards to display Mashov data. Use `!include` to import ready-made cards.
+Ready-made cards live in [`examples/lovelace/cards/`](examples/lovelace/cards/). HACS installs only
+`custom_components/`, so copy the cards from GitHub. Full instructions and the placeholder table are in
+[examples/lovelace/README.md](examples/lovelace/README.md).
 
-Files:
-- `examples/lovelace/cards/weekly_plan_table_advanced.yaml`
-- `examples/lovelace/cards/behavior_list_by_date.yaml`
-- `examples/lovelace/cards/homework_list_by_date.yaml`
-- `examples/lovelace/cards/refresh_all_button.yaml`
+| Card | Shows | Needs |
+| --- | --- | --- |
+| [`homework_list_by_date.yaml`](examples/lovelace/cards/homework_list_by_date.yaml) | Homework grouped by date | config-template-card, html-card |
+| [`behavior_list_by_date.yaml`](examples/lovelace/cards/behavior_list_by_date.yaml) | Behavior events grouped by date | config-template-card, html-card |
+| [`weekly_plan_table_advanced.yaml`](examples/lovelace/cards/weekly_plan_table_advanced.yaml) | This week's timetable with plans and holidays | config-template-card, html-card |
+| [`weekly_plan_table_dynamic.yaml`](examples/lovelace/cards/weekly_plan_table_dynamic.yaml) | The same, two days at a time with paging (mobile) | config-template-card, html-card |
+| [`refresh_all_button.yaml`](examples/lovelace/cards/refresh_all_button.yaml) | Refresh all hubs | nothing |
 
-Copy these files into your Home Assistant config at `/config/lovelace/cards/examples/`, then reference them like this:
+**How to add a card**
+- **UI dashboard (the default):** edit the dashboard → **Add card** → **Manual**, and paste the whole file.
+  `!include` does not work in UI dashboards.
+- **YAML dashboard:** copy the files to `/config/lovelace/cards/examples/` and include them:
+  ```yaml
+  views:
+    - title: Mashov
+      cards:
+        - !include lovelace/cards/examples/homework_list_by_date.yaml
+  ```
 
-Note: HACS installs only `custom_components/`. Copy the example card files to your `/config/examples/` (or paste the YAML into UI cards) if you want to use `!include`.
+Then replace every placeholder (for example `sensor.mashov_<studentID>_homework`) with your own entity ID.
+Each placeholder appears twice in a card: once under `entities` and once inside the JavaScript.
+For the weekly cards, use the holiday sensor of the student's own school hub.
 
-Advanced weekly plan (table) via include:
-```yaml
-views:
-  - title: Mashov
-    cards:
-      - !include lovelace/cards/examples/weekly_plan_table_advanced.yaml
-```
-Example preview:
+Example previews:
 
 <p align="left"><img src="examples/screenshots/weekly_plan_table_advanced.png" alt="Weekly timetable + plan + holidays" width="50%" style="max-width:50%; height:auto;" /></p>
-
-Behavior events grouped by date:
-```yaml
-views:
-  - title: Mashov
-    cards:
-      - !include lovelace/cards/examples/behavior_list_by_date.yaml
-```
-Example preview:
-
-<p align="left"><img src="examples/screenshots/behavior_list_by_date.png" alt="Behavior grouped by date" width="30%" style="max-width:30%; height:auto;" /></p>
-
-Homework grouped by date:
-```yaml
-views:
-  - title: Mashov
-    cards:
-      - !include lovelace/cards/examples/homework_list_by_date.yaml
-```
-Example preview:
-
-<p align="left"><img src="examples/screenshots/homework_list_by_date.png" alt="Homework grouped by date" width="30%" style="max-width:30%; height:auto;" /></p>
-
-Refresh all hubs button:
-```yaml
-views:
-  - title: Mashov
-    cards:
-      - !include lovelace/cards/examples/refresh_all_button.yaml
-```
+<p align="left"><img src="examples/screenshots/behavior_list_by_date.png" alt="Behavior grouped by date" width="30%" style="max-width:30%; height:auto;" /> <img src="examples/screenshots/homework_list_by_date.png" alt="Homework grouped by date" width="30%" style="max-width:30%; height:auto;" /></p>
 
 ## 🔍 Troubleshooting
 
 - **401 / authentication failures**: check credentials and school choice, and update credentials through **Configure**. Password-change responses display a link to the Mashov login page.
 - **403 / school-disabled resources**: core resources such as weekly plan retry after 1 hour, then 6 hours, then 24 hours. Each student's resource has its own cooldown, which resets after success. Optional resources use a separate 24-hour cooldown. A school permission denial does not necessarily mean the password is wrong.
 - **Startup connection failures**: HA retries transient setup failures when no cached data is available. When cached data exists, the integration retains it until a refresh succeeds.
-- **Different host**: open **Options → API base** and paste the base prefix you see in your browser DevTools Network tab (up to `/api/`).  
+- **Different host**: open **Options → API base** and paste the base prefix you see in your browser DevTools Network tab (up to `/api/`).
   Common defaults: `https://web.mashov.info/api/`, sometimes `https://mobileapi.mashov.info/api/`.
 - **No schools in dropdown**: temporary catalog issue — the flow falls back to text; enter the name or Semel to resolve.
 - **Autocomplete not working**: suggestions are limited to 50 schools; type the school name or Semel to search beyond those suggestions.
@@ -363,8 +404,8 @@ The regular timetable remains a weekly template. Holiday marking is provided by 
 card using the holiday sensor belonging to the student's school. Update both the card's
 `entities` list and `holId` / `HL` variable; see [updated examples](examples/lovelace/README.md).
 
-In the two-school example, Ahad Haam uses `sensor.mashov_holidays_2` and Naomi Shemer
-uses `sensor.mashov_holidays_mashov_holidays`. IDs depend on your entity registry.
+With two school hubs, each has its own holiday sensor (for example `sensor.mashov_holidays` and
+`sensor.mashov_holidays_2`). IDs depend on your entity registry.
 
 Authentication failures create a persistent notification immediately. With cached data,
 transient refresh failures create a notification after three consecutive failures;
@@ -506,3 +547,5 @@ Devices shared with another hub keep that other association.
 The integration does not silently erase historical records when a child changes
 class or school. Recorder retention must be checked in the user's HA configuration;
 the integration does not override it.
+
+Regenerating a Mashov-generated dashboard replaces its saved configuration, including manual edits made after generation. Selected family persons must include at least one linked Home Assistant user. Student popup links are scoped to their hub as well as student ID.

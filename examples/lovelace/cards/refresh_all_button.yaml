@@ -1,10 +1,12 @@
 # Mashov – Refresh all hubs button
+# No custom cards needed. Paste into a "Manual" card, or !include it from a YAML dashboard.
+# To refresh a single hub, add its config entry ID under data: entry_id: <id>.
 show_name: true
 show_icon: true
 type: button
 name: 🔃 עדכן מידע
 icon: mdi:cast-education
 tap_action:
-  action: call-service
-  service: mashov.refresh_now
+  action: perform-action
+  perform_action: mashov.refresh_now
   data: {}

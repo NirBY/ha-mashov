@@ -1,4 +1,11 @@
-"""Regression tests for config flow, sensor lookup, holidays parsing and school-year rollover."""
+"""Regression tests for config flow, sensor lookup, holidays parsing and school-year rollover.
+
+Protects: no repeated school search after picking, closing the validation session on
+failed login, duplicate-account detection (including legacy unique IDs), a single reload
+on options changes, sensors following a student across class changes, weekly-plan
+formatting, entry-scoped unique ID migration, offset-aware holiday dates and re-login
+when the school year rolls over.
+"""
 
 from datetime import date
 from types import SimpleNamespace
@@ -19,6 +26,7 @@ from custom_components.mashov.sensor import MashovListSensor, _async_migrate_lis
 
 
 def _mock_flow_client(mock_client, *, init_side_effect=None, schools=None):
+    """Configure the patched config-flow MashovClient with async no-ops and a school search result."""
     client = mock_client.return_value
     client.async_init = AsyncMock(side_effect=init_side_effect)
     client.async_close = AsyncMock()
@@ -29,6 +37,7 @@ def _mock_flow_client(mock_client, *, init_side_effect=None, schools=None):
 
 
 async def test_picked_school_is_not_searched_again(hass: HomeAssistant):
+    """Choosing a school from the pick list creates the entry without searching schools again."""
     schools = [{"semel": 111111, "name": "Herzl"}, {"semel": 222222, "name": "Herzl Tel Aviv"}]
     with (
         patch("custom_components.mashov.config_flow.MashovClient") as mock_client,
@@ -50,6 +59,7 @@ async def test_picked_school_is_not_searched_again(hass: HomeAssistant):
 
 
 async def test_failed_login_closes_validation_session(hass: HomeAssistant):
+    """An auth failure shows the ``auth`` error and closes the temporary client session."""
     with patch("custom_components.mashov.config_flow.MashovClient") as mock_client:
         client = _mock_flow_client(mock_client, init_side_effect=MashovAuthError("bad"))
         result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
@@ -61,6 +71,7 @@ async def test_failed_login_closes_validation_session(hass: HomeAssistant):
 
 
 async def test_same_account_cannot_be_added_twice(hass: HomeAssistant):
+    """Adding the same school/username (case-insensitive) aborts with ``already_configured``."""
     MockConfigEntry(domain=DOMAIN, unique_id="123456_user", data={}).add_to_hass(hass)
     with patch("custom_components.mashov.config_flow.MashovClient") as mock_client:
         _mock_flow_client(mock_client)
@@ -74,6 +85,7 @@ async def test_same_account_cannot_be_added_twice(hass: HomeAssistant):
 
 @pytest.mark.parametrize("unique_id", [None, "123456", "123456_olduser"])
 async def test_legacy_or_renamed_account_cannot_be_added_twice(hass: HomeAssistant, unique_id):
+    """Entries with legacy or outdated unique IDs are still detected as the same account."""
     MockConfigEntry(domain=DOMAIN, unique_id=unique_id, data={"school_id": "123456", "username": "User"}).add_to_hass(
         hass
     )
@@ -88,6 +100,7 @@ async def test_legacy_or_renamed_account_cannot_be_added_twice(hass: HomeAssista
 
 
 async def test_credentials_and_options_change_reloads_once(hass: HomeAssistant, mock_config_entry):
+    """Changing credentials and options together triggers one reload and updates the unique ID."""
     mock_config_entry.add_to_hass(hass)
     listener = AsyncMock()
     mock_config_entry.add_update_listener(listener)
@@ -104,6 +117,7 @@ async def test_credentials_and_options_change_reloads_once(hass: HomeAssistant, 
 
 
 def _coordinator(data):
+    """Return a minimal coordinator stand-in holding ``data`` for sensor property tests."""
     return SimpleNamespace(
         data=data, entry=SimpleNamespace(options={}), hass=SimpleNamespace(data={}), last_update_success=True
     )
@@ -123,6 +137,7 @@ def test_sensor_follows_student_after_class_change():
 
 
 def test_weekly_plan_shows_subject_and_plan_text():
+    """Weekly plan items are enriched with the timetable subject and formatted by date and subject."""
     data = {
         "students": [{"id": "guid-1", "slug": "dana", "name": "Dana"}],
         "by_slug": {
@@ -156,6 +171,7 @@ def test_weekly_plan_shows_subject_and_plan_text():
 
 
 async def test_legacy_list_sensor_unique_ids_are_scoped_to_entry(hass: HomeAssistant, mock_config_entry):
+    """Legacy unique IDs gain the entry ID (keeping entity IDs); migration is idempotent."""
     mock_config_entry.add_to_hass(hass)
     registry = er.async_get(hass)
     legacy = registry.async_get_or_create(
@@ -173,20 +189,25 @@ async def test_legacy_list_sensor_unique_ids_are_scoped_to_entry(hass: HomeAssis
 
 
 def test_holiday_dates_with_offset_are_parsed():
+    """ISO dates with a UTC offset or ``Z`` suffix parse to the local calendar date."""
     assert parse_iso_date_to_date("2025-09-22T00:00:00+03:00") == date(2025, 9, 22)
     assert parse_iso_date_to_date("2025-09-22T00:00:00Z") == date(2025, 9, 22)
     assert parse_iso_date_to_formatted("2025-09-22T00:00:00+03:00") == "22/09/2025"
 
 
 async def test_school_year_rollover_logs_in_again():
+    """With an automatic year, a session from the previous school year forces a fresh login."""
     client = MashovClient("123", None, "u", "p")
+    # Establish a session that belongs to school year 2026.
     with patch.object(mashov_client, "_default_mashov_year", return_value=2026):
         assert client.year == 2026
         client._session_year = 2026
     client._students = [{"id": "s", "slug": "s", "name": "S"}]
     client._headers["X-Csrf-Token"] = "synthetic"
     client._session = SimpleNamespace(closed=False)
+    # Abort at re-login; the test only checks that a new login is attempted.
     client.async_init = AsyncMock(side_effect=RuntimeError("stop after login decision"))
+    # The calendar has moved on to the next school year.
     with patch.object(mashov_client, "_default_mashov_year", return_value=2027), pytest.raises(RuntimeError):
         await client.async_fetch_all()
     client.async_init.assert_awaited_once()

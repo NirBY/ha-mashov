@@ -1,4 +1,8 @@
-"""Test Mashov calendar."""
+"""Holidays calendar entity: setup, current/next event selection and robustness to bad dates.
+
+Each test sets up the full integration with a patched MashovClient whose
+``async_fetch_all`` returns one student plus the holidays under test.
+"""
 
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, patch
@@ -19,7 +23,7 @@ def _get_calendar_state(hass: HomeAssistant):
 
 
 async def test_holidays_calendar_setup(hass: HomeAssistant, mock_config_entry: MockConfigEntry):
-    """Test holidays calendar entity setup."""
+    """Setting up the integration creates the holidays calendar entity with a Holidays name."""
     mock_config_entry.add_to_hass(hass)
 
     holidays = [
@@ -30,6 +34,7 @@ async def test_holidays_calendar_setup(hass: HomeAssistant, mock_config_entry: M
         }
     ]
 
+    # Patch the client at its import site in the package so setup never touches the network.
     with patch("custom_components.mashov.MashovClient") as mock_client:
         client = mock_client.return_value
         client.async_init = AsyncMock(return_value=None)
@@ -73,7 +78,7 @@ async def test_holidays_calendar_setup(hass: HomeAssistant, mock_config_entry: M
 
 
 async def test_holidays_calendar_upcoming_event(hass: HomeAssistant, mock_config_entry: MockConfigEntry):
-    """Test calendar returns upcoming event."""
+    """A future holiday leaves the calendar off and exposes it as the upcoming event."""
     mock_config_entry.add_to_hass(hass)
 
     future_date = (dt_util.now() + timedelta(days=10)).date()
@@ -130,7 +135,7 @@ async def test_holidays_calendar_upcoming_event(hass: HomeAssistant, mock_config
 
 
 async def test_holidays_calendar_active_event(hass: HomeAssistant, mock_config_entry: MockConfigEntry):
-    """Test calendar shows active event."""
+    """A holiday spanning today turns the calendar on with that holiday as the message."""
     mock_config_entry.add_to_hass(hass)
 
     today = dt_util.now().date()
@@ -186,7 +191,7 @@ async def test_holidays_calendar_active_event(hass: HomeAssistant, mock_config_e
 
 
 async def test_holidays_calendar_no_events(hass: HomeAssistant, mock_config_entry: MockConfigEntry):
-    """Test calendar with no holidays."""
+    """With no holidays the calendar entity still exists and is off."""
     mock_config_entry.add_to_hass(hass)
 
     with patch("custom_components.mashov.MashovClient") as mock_client:
@@ -232,7 +237,7 @@ async def test_holidays_calendar_no_events(hass: HomeAssistant, mock_config_entr
 
 
 async def test_holidays_calendar_with_multiple_holidays(hass: HomeAssistant, mock_config_entry: MockConfigEntry):
-    """Test calendar handles multiple holidays correctly."""
+    """A list of past-only holidays (2024) is accepted and the calendar stays off."""
     mock_config_entry.add_to_hass(hass)
 
     base_date = datetime(2024, 6, 1).date()
@@ -297,7 +302,7 @@ async def test_holidays_calendar_with_multiple_holidays(hass: HomeAssistant, moc
 
 
 async def test_holidays_calendar_multiple_events_returns_next(hass: HomeAssistant, mock_config_entry: MockConfigEntry):
-    """Test calendar returns next upcoming event when multiple exist."""
+    """With unsorted future holidays the calendar reports the earliest one as next."""
     mock_config_entry.add_to_hass(hass)
 
     future_date1 = (dt_util.now() + timedelta(days=5)).date()
@@ -359,7 +364,7 @@ async def test_holidays_calendar_multiple_events_returns_next(hass: HomeAssistan
 
 
 async def test_holidays_calendar_invalid_dates(hass: HomeAssistant, mock_config_entry: MockConfigEntry):
-    """Test calendar handles invalid date formats gracefully."""
+    """Holidays with unparseable dates are skipped and the next valid holiday is still shown."""
     mock_config_entry.add_to_hass(hass)
 
     holidays = [

@@ -197,6 +197,30 @@
           "name": "Automatic school year (changes on September 1)"
         }
       }
+    },
+    "create_live_dashboard": {
+      "name": "Create Mashov Live dashboard",
+      "description": "Build the Mashov Live Bubble Card dashboard into an existing UI dashboard.",
+      "fields": {
+        "dashboard": {
+          "name": "Dashboard URL"
+        },
+        "title": {
+          "name": "Title"
+        },
+        "family": {
+          "name": "Family (sees every card)",
+          "description": "People who see every card. Required for children who have no linked person."
+        },
+        "students": {
+          "name": "Students",
+          "description": "Optional tweaks per child (emoji, color, linked person, viewers). Omit to include every child."
+        },
+        "overwrite": {
+          "name": "Replace existing content",
+          "description": "Replace a dashboard that already has other content, or a built-in dashboard such as the Overview. The previous content is lost."
+        }
+      }
     }
   }
 }

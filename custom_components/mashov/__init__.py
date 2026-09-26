@@ -1,3 +1,10 @@
+"""Mashov (Israeli school portal) integration: setup, services, scheduling and coordinator.
+
+Each config entry is a "hub" (one Mashov login at one school) that may expose several
+students. Data is cached on disk so entities come back immediately after a restart,
+and refreshes run on a user-chosen schedule (daily, weekly or fixed interval).
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -8,13 +15,14 @@ import time
 
 from homeassistant.components import persistent_notification  # type: ignore
 from homeassistant.config_entries import ConfigEntry  # type: ignore
-from homeassistant.core import HomeAssistant, ServiceCall, callback  # type: ignore
+from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse, callback  # type: ignore
 from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady, ServiceValidationError  # type: ignore
 from homeassistant.helpers import (
     config_validation as cv,  # type: ignore
     device_registry as dr,
 )
 from homeassistant.helpers.event import async_track_time_change  # type: ignore
+from homeassistant.helpers.service import async_register_admin_service  # type: ignore
 from homeassistant.helpers.storage import Store  # type: ignore
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed  # type: ignore
 from homeassistant.loader import async_get_integration  # type: ignore
@@ -47,25 +55,45 @@ from .const import (
     DOMAIN,
     PLATFORMS,
 )
-from .mashov_client import MashovAuthError, MashovClient, MashovError, MashovPasswordChangeRequiredError
+from .live_dashboard import DEFAULT_DASHBOARD, STUDENT_ENTITY_KEYS, async_save_live_dashboard
+from .mashov_client import (
+    MashovAuthError,
+    MashovClient,
+    MashovError,
+    MashovPasswordChangeRequiredError,
+    configured_school_year,
+)
 from .reporting import is_internal_error, issue_report_url, technical_log
 
 _LOGGER = logging.getLogger(__name__)
 
+# Notification policy
+# -------------------
+# Every hub has a single persistent notification slot (same notification_id), so a
+# newer problem replaces the older one and a successful refresh dismisses it.
+# Bug-report links are only offered for internal (programming) errors, never for
+# normal account, network or Mashov API failures (see reporting.is_internal_error).
 _ISSUE_NOTIFICATION_KEY = "issue"
 
 
 def _issue_notification_id(entry: ConfigEntry) -> str:
+    """Return the per-hub notification id shared by all issue notifications."""
     return f"{DOMAIN}_{entry.entry_id}_{_ISSUE_NOTIFICATION_KEY}"
 
 
 def _async_show_issue_notification(
     hass: HomeAssistant, entry: ConfigEntry, title: str, message: str, *, error=None
 ) -> None:
+    """Create/replace the hub's notification; append report links for internal errors.
+
+    For internal errors a sanitized technical log is recorded (last 20 per hub, kept
+    in memory and exported via diagnostics) and embedded in a prefilled GitHub issue
+    link. The user must review and submit manually; nothing is sent automatically.
+    """
     if is_internal_error(error):
         logs = hass.data.setdefault(DOMAIN, {}).setdefault("report_logs", {}).setdefault(entry.entry_id, [])
         logs.append(technical_log(error, title))
-        del logs[:-20]
+        del logs[:-20]  # bound memory and URL length: keep only the 20 most recent entries
         message += (
             "\n\nAn unexpected internal error was detected."
             f"\n\n[Review a bug report on GitHub]({issue_report_url(title)})"
@@ -87,6 +115,7 @@ def _async_show_issue_notification(
 def _async_show_password_change_notification(
     hass: HomeAssistant, entry: ConfigEntry, exc: MashovPasswordChangeRequiredError
 ) -> None:
+    """Tell the user to change the password on the Mashov site (not a bug; no report links)."""
     message = (
         f"Mashov requires a password change before it can log in for **{entry.title}**.\n\n"
         "The integration will keep the last successful data until this is resolved.\n\n"
@@ -96,6 +125,11 @@ def _async_show_password_change_notification(
 
 
 def _async_show_error_notification(hass: HomeAssistant, entry: ConfigEntry, title: str, error: Exception | str) -> None:
+    """Show a refresh failure: internal errors get report links, transient ones a retry hint.
+
+    Callers decide *when* to notify (first failure without cache, third consecutive
+    failure, or once per internal error); this only chooses the wording.
+    """
     if is_internal_error(error):
         message = "Mashov encountered an unexpected internal error while processing data. Cached data is retained when available."
     else:
@@ -109,6 +143,7 @@ def _async_show_auth_notification(
     error: Exception | str,
     login_url: str | None = None,
 ) -> None:
+    """Ask the user to fix the hub credentials; shown on every auth failure (not a bug)."""
     message = (
         f"Mashov could not authenticate for **{entry.title}**.\n\n"
         "The integration will keep the last successful data until this is resolved, if cached data is available.\n\n"
@@ -121,9 +156,13 @@ def _async_show_auth_notification(
 
 
 def _async_clear_issue_notification(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Dismiss the hub's issue notification (after a successful refresh or hub removal)."""
     persistent_notification.async_dismiss(hass, _issue_notification_id(entry))
 
 
+# Optional YAML block (`mashov:` in configuration.yaml). Values here override the UI
+# options for every hub (see _async_setup_scheduler); ALLOW_EXTRA lets HA's full
+# config pass through this top-level schema.
 CONFIG_SCHEMA = vol.Schema(
     {
         DOMAIN: vol.Schema(
@@ -144,7 +183,11 @@ CONFIG_SCHEMA = vol.Schema(
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Set up from YAML (optional)."""
+    """Store optional YAML options and register domain-wide services.
+
+    Services are registered here (once per HA start), not per entry, so they exist
+    even when no hub has loaded yet.
+    """
     hass.data.setdefault(DOMAIN, {})
     yaml_conf = config.get(DOMAIN) or {}
     hass.data[DOMAIN]["yaml_options"] = yaml_conf
@@ -157,10 +200,16 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 
 def _int_in(lo: int, hi: int):
+    """Validator: coerce to int (service UIs may send strings) and check the range."""
     return vol.All(vol.Coerce(int), vol.Range(min=lo, max=hi))
 
 
+# --- Service schemas ---
+# refresh_now: without entry_id every loaded hub is refreshed.
 REFRESH_NOW_SCHEMA = vol.Schema({vol.Optional("entry_id"): cv.string})
+# set_options: same ranges as the Configure UI. REMOVE_EXTRA silently drops unknown
+# keys (e.g. from older automations) instead of failing the call or storing them.
+# schedule_days is deduplicated and sorted; legacy schedule_day is still accepted.
 SET_OPTIONS_SCHEMA = vol.Schema(
     {
         vol.Optional("entry_id"): cv.string,
@@ -181,11 +230,39 @@ SET_OPTIONS_SCHEMA = vol.Schema(
     extra=vol.REMOVE_EXTRA,
 )
 
+# create_live_dashboard: per-student overrides. Empty/None values mean "use the
+# auto-detected entity"; unknown keys are dropped. Entity slots come from
+# live_dashboard.STUDENT_ENTITY_KEYS so both stay in sync.
+_OPTIONAL_ENTITY = vol.Any(None, "", cv.entity_id)
+LIVE_STUDENT_SCHEMA = vol.Schema(
+    {
+        vol.Optional("name"): vol.Any(None, cv.string),
+        vol.Optional("emoji"): vol.Any(None, cv.string),
+        vol.Optional("label"): vol.Any(None, cv.string),
+        vol.Optional("person"): _OPTIONAL_ENTITY,
+        vol.Optional("viewers"): vol.Any(None, vol.All(cv.ensure_list, [cv.entity_id])),
+        # "#RRGGBB" or [r, g, b]; values are fully validated later in live_dashboard._accent.
+        vol.Optional("accent"): vol.Any(None, cv.string, vol.All(list, vol.Length(min=3, max=3))),
+        **{vol.Optional(key): _OPTIONAL_ENTITY for key in STUDENT_ENTITY_KEYS},
+    },
+    extra=vol.REMOVE_EXTRA,
+)
+CREATE_LIVE_DASHBOARD_SCHEMA = vol.Schema(
+    {
+        vol.Optional("dashboard", default=DEFAULT_DASHBOARD): cv.string,
+        vol.Optional("title"): vol.Any(None, cv.string),
+        vol.Optional("family"): vol.Any(None, vol.All(cv.ensure_list, [cv.entity_id])),
+        vol.Optional("overwrite", default=False): cv.boolean,
+        vol.Optional("students"): vol.Any(None, vol.All(cv.ensure_list, [LIVE_STUDENT_SCHEMA])),
+    }
+)
+
 
 def _async_register_services(hass: HomeAssistant) -> None:
     """Register domain services once; handlers resolve entries at call time."""
 
     async def _handle_refresh(call: ServiceCall):
+        """Refresh one hub or all loaded hubs; an unknown/unloaded entry_id is a no-op."""
         entry_id = call.data.get("entry_id")
         tasks = []
         if entry_id:
@@ -193,6 +270,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
             if isinstance(ce, dict) and "coordinator" in ce:
                 tasks.append(ce["coordinator"].async_request_refresh())
         else:
+            # hass.data[DOMAIN] also holds non-entry keys (yaml_options, report_logs).
             for maybe_entry in hass.data.get(DOMAIN, {}).values():
                 if isinstance(maybe_entry, dict) and "coordinator" in maybe_entry:
                     tasks.append(maybe_entry["coordinator"].async_request_refresh())
@@ -201,6 +279,10 @@ def _async_register_services(hass: HomeAssistant) -> None:
 
     # Service: set_options - allows updating options without Configure UI
     async def _handle_set_options(call: ServiceCall):
+        """Merge the given options into a hub; the update listener then reloads or reschedules.
+
+        Unlike refresh_now, the entry does not need to be loaded when entry_id is given.
+        """
         payload = dict(call.data or {})
         entry_id = payload.pop("entry_id", None)
         if entry_id:
@@ -216,12 +298,16 @@ def _async_register_services(hass: HomeAssistant) -> None:
                     "set_options without entry_id targets the first loaded hub; specify entry_id with multiple hubs"
                 )
             # Legacy calls target the first loaded hub. Explicit entry_id selects any hub.
+            # Iterating hass.data[DOMAIN] keys (insertion order = load order) picks the
+            # first *loaded* entry; fall back to the first configured one if none loaded.
             entry = next(
                 (candidate for key in hass.data.get(DOMAIN, {}) for candidate in entries if candidate.entry_id == key),
                 entries[0],
             )
         opts = dict(entry.options)
         opts.update(payload)
+        # Legacy schedule_day is promoted to a one-element schedule_days, and the old
+        # key is never stored alongside the list (mirrors the setup-time migration).
         if CONF_SCHEDULE_DAY in payload and CONF_SCHEDULE_DAYS not in payload:
             opts[CONF_SCHEDULE_DAYS] = [payload[CONF_SCHEDULE_DAY]]
         if CONF_SCHEDULE_DAYS in opts:
@@ -229,11 +315,50 @@ def _async_register_services(hass: HomeAssistant) -> None:
         hass.config_entries.async_update_entry(entry, options=opts)
         _LOGGER.info("Options updated via service for entry %s: %s", entry.title, list(payload.keys()))
 
+    async def _handle_create_live_dashboard(call: ServiceCall) -> ServiceResponse:
+        """Write the generated Lovelace dashboard; returns a summary when a response is requested."""
+        return await async_save_live_dashboard(hass, dict(call.data))
+
     hass.services.async_register(DOMAIN, "refresh_now", _handle_refresh, schema=REFRESH_NOW_SCHEMA)
     hass.services.async_register(DOMAIN, "set_options", _handle_set_options, schema=SET_OPTIONS_SCHEMA)
+    # Admin-only: it creates/overwrites a dashboard in HA's Lovelace storage, which
+    # non-admin users must not be able to do. Response is optional so it also works
+    # from automations/scripts that do not ask for one.
+    async_register_admin_service(
+        hass,
+        DOMAIN,
+        "create_live_dashboard",
+        _handle_create_live_dashboard,
+        schema=CREATE_LIVE_DASHBOARD_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+
+
+def _frozen_school_year(hass: HomeAssistant, entry: ConfigEntry):
+    """Keep a turned-off automatic year from following the calendar on hubs that never stored one.
+
+    Returns None while the automatic school year is on (the client then picks the
+    current Mashov year). When it is off and no year was stored, today's year is
+    persisted once so the hub stays on it after the calendar rolls over.
+    """
+    data = dict(entry.data)
+    year = configured_school_year(data, entry.options)
+    if year is not None and not data.get(CONF_YEAR):
+        data[CONF_YEAR] = year
+        hass.config_entries.async_update_entry(entry, data=data)
+    return year
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
+    """Set up one hub: restore cache, build client/coordinator, maybe refresh, schedule.
+
+    Setup error mapping (only when there is no cached data to fall back on):
+    - auth / password-change errors raised by the login (client.async_init)
+      -> ConfigEntryError (no retry loop; the user must act)
+    - anything else, including coordinator UpdateFailed (which HA already turns into
+      ConfigEntryNotReady) -> ConfigEntryNotReady (HA retries setup with backoff)
+    With cached data, setup always succeeds and entities show the cache marked stale.
+    """
     # Use the manifest metadata Home Assistant already loaded; no file I/O in the event loop.
     try:
         version = (await async_get_integration(hass, DOMAIN)).version
@@ -282,7 +407,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         _LOGGER.info("Updating hub title: '%s' -> '%s'", entry.title, expected_title)
         hass.config_entries.async_update_entry(entry, title=expected_title)
 
-    # Set up simple cache store per entry to avoid immediate API calls on startup
+    # Set up simple cache store per entry to avoid immediate API calls on startup.
+    # Layout: {"last_refresh_ts": epoch seconds, "data": coordinator data,
+    #          "auth": client session (cookies/CSRF token/session_year)}.
+    # Removed in async_remove_entry since it holds session cookies and student data.
     store: Store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.cache")
     cached: dict | None = None
     try:
@@ -292,20 +420,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     except Exception as e:
         _LOGGER.debug("No cache available for entry %s: %s", entry.entry_id, e)
 
+    # Restore the saved Mashov session so a restart does not force a new login.
+    # The client needs to know which school year a session was opened for, so it
+    # does not reuse a session from a different year.
     saved_auth = cached.get("auth") if isinstance(cached, dict) else None
     if (
         isinstance(saved_auth, dict)
         and (saved_auth.get("csrf_token") or saved_auth.get("cookies"))
         and "session_year" not in saved_auth
     ):
-        # Older caches stored the school year alongside students, not in auth.
+        # Back-compat: older caches stored the school year alongside students, not in auth.
         cached_students = (cached.get("data") or {}).get("students") or []
         if cached_students and cached_students[0].get("year"):
             saved_auth = {**saved_auth, "session_year": cached_students[0]["year"]}
 
     client = MashovClient(
         school_id=data[CONF_SCHOOL_ID],
-        year=None if entry.options.get("automatic_school_year", not data.get(CONF_YEAR)) else data.get(CONF_YEAR),
+        year=_frozen_school_year(hass, entry),
         username=data[CONF_USERNAME],
         password=data[CONF_PASSWORD],
         homework_days_back=entry.options.get(CONF_HOMEWORK_DAYS_BACK, DEFAULT_HOMEWORK_DAYS_BACK),
@@ -317,7 +448,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     coordinator = MashovCoordinator(hass, client, entry)
 
-    # Inject cached data into coordinator if available
+    # Inject cached data into coordinator if available, so platforms create entities
+    # from the cache even when no startup refresh runs.
     if isinstance(cached, dict) and cached.get("data"):
         coordinator.data = cached.get("data")
         coordinator.last_successful_update = cached.get("last_refresh_ts")
@@ -325,7 +457,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     hass.data[DOMAIN][entry.entry_id] = {
         "client": client,
         "coordinator": coordinator,
-        "unsub_daily": None,
+        "unsub_daily": None,  # list of time-trigger unsubscribers set by _async_setup_scheduler
     }
 
     # Decide whether to perform initial refresh now
@@ -333,7 +465,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     yaml_opts = hass.data.get(DOMAIN, {}).get("yaml_options", {}) or {}
     merged_opts = dict(entry.options)
 
-    # Migration: normalize schedule_days and drop legacy schedule_day
+    # Migration: normalize schedule_days and drop legacy schedule_day.
+    # Runs on UI options only (before YAML is merged) so YAML values are never persisted.
     try:
         migrated = False
         # If only legacy single day exists, promote to list
@@ -371,9 +504,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     if schedule_type not in ("daily", "weekly", "interval"):
         schedule_type = DEFAULT_SCHEDULE_TYPE
 
-    # Determine if to perform startup refresh at all
-    # For daily/weekly schedules we avoid any startup refresh (defer to timers or manual service)
-    # For interval we do a startup refresh to warm up data
+    # Determine if to perform startup refresh at all:
+    # - no cached students (first boot / empty cache): always refresh, any schedule type
+    # - daily/weekly with cache: skip; the next timer or refresh_now updates the data
+    # - interval with cache: refresh, unless the cache is younger than the cooldown,
+    #   so frequent HA restarts do not hammer the Mashov servers
     cooldown_seconds = 6 * 60 * 60  # used only for interval
     last_ts = None
     try:
@@ -405,6 +540,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                 "Startup refresh disabled for schedule_type=%s (defer to timers or manual service)", schedule_type
             )
 
+    # Failure handling below: always mark data stale and notify; keep the cache when
+    # there is one, otherwise close the client and fail setup (see docstring).
     if do_startup_refresh:
         try:
             await asyncio.create_task(client.async_init(hass))
@@ -433,6 +570,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                 raise ConfigEntryError(str(e)) from e
         except Exception as e:
             coordinator.data_stale = True
+            # Notify when setup is about to fail (no cache) or for an internal error, but
+            # at most once per internal error streak (the flag is reset on success).
+            # Transient failures with a cache stay silent here; the coordinator's
+            # third-consecutive-failure rule handles them later.
             if (not coordinator.data or is_internal_error(e)) and not coordinator._internal_error_notified:
                 _async_show_error_notification(hass, entry, "Mashov startup refresh failed", e)
                 coordinator._internal_error_notified = is_internal_error(e)
@@ -452,12 +593,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     # Reconfigure when options change
     async def _options_updated(hass: HomeAssistant, updated_entry: ConfigEntry):
+        """Reload only when the client must be rebuilt; otherwise just reschedule.
+
+        Anything baked into MashovClient (year, credentials, extra resources,
+        homework window, API base) needs a full reload. Schedule-only changes (and
+        attribute limits, read live by sensors) are applied without a reload.
+        Title/data updates made by this module also trigger the listener; they
+        compare equal here and only cause a harmless reschedule.
+        """
         data = updated_entry.data
         options = updated_entry.options
         credentials_changed = data.get(CONF_USERNAME) != client.username or data.get(CONF_PASSWORD) != client.password
         client_changed = (
-            str(None if options.get("automatic_school_year", not data.get(CONF_YEAR)) else data.get(CONF_YEAR))
-            != str(client._configured_year)
+            str(configured_school_year(data, options)) != str(client._configured_year)
             or data.get(CONF_USERNAME) != client.username
             or data.get(CONF_PASSWORD) != client.password
             or set(options.get(CONF_ADDITIONAL_DATA, [])) != set(client.additional_data)
@@ -468,6 +616,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         if client_changed:
             if credentials_changed:
                 # A valid old cookie must not bypass newly supplied credentials.
+                # Stop scheduled coordinator refreshes first, then clear the cached
+                # session so the reloaded client logs in with the new credentials.
                 await coordinator.async_shutdown()
                 cached_entry = await store.async_load()
                 if isinstance(cached_entry, dict):
@@ -487,6 +637,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
+    """Unload platforms, cancel schedule timers and close the HTTP session.
+
+    The on-disk cache is kept so the next load (or a reload) starts from it.
+    """
     _LOGGER.info("Unloading Mashov integration: %s", entry.title)
     # Check if DOMAIN exists in hass.data (it won't if setup failed or was mocked)
     if DOMAIN not in hass.data:
@@ -514,6 +668,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Remove credentials and cached school data when a hub is deleted."""
+    # The cache holds session cookies and student data; the entry itself (with the
+    # password) is deleted by HA.
     await Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.cache").async_remove()
     hass.data.get(DOMAIN, {}).get("report_logs", {}).pop(entry.entry_id, None)
     _async_clear_issue_notification(hass, entry)
@@ -526,6 +682,11 @@ async def async_remove_config_entry_device(
 
     HA detaches only this config entry and its entities. Recorder history is not
     purged. A student still in the roster would be recreated on the next refresh.
+
+    Rules: the per-school holidays device can never be removed; a student device can
+    be removed only if none of its identifiers is in the current roster. The roster
+    comes from the coordinator, or from the disk cache when the hub is not loaded.
+    Without any roster data removal is refused, to avoid deleting active students.
     """
     identifiers = {value for domain, value in device_entry.identifiers if domain == DOMAIN}
     if not identifiers or any(value.startswith("holidays_") for value in identifiers):
@@ -542,6 +703,7 @@ async def async_remove_config_entry_device(
 
 
 def async_get_options_flow(config_entry: ConfigEntry):
+    """Return the options flow (Configure button); imported lazily to keep startup light."""
     with contextlib.suppress(Exception):
         _LOGGER.debug(
             "async_get_options_flow requested (entry_id=%s, title='%s')",
@@ -554,7 +716,14 @@ def async_get_options_flow(config_entry: ConfigEntry):
 
 
 async def _async_setup_scheduler(hass: HomeAssistant, entry: ConfigEntry):
-    """Apply merged (YAML-overriding-UI) options and configure polling/timers."""
+    """Apply merged (YAML-overriding-UI) options and configure polling/timers.
+
+    - interval: coordinator polling only (update_interval), no time triggers
+    - daily: polling off, one time trigger per day at schedule_time
+    - weekly: polling off, a daily trigger that only refreshes on schedule_days
+    Invalid values fall back to defaults instead of failing. Safe to call repeatedly:
+    previous triggers are cancelled first.
+    """
     from .const import (
         CONF_SCHEDULE_DAY,
         CONF_SCHEDULE_DAYS,
@@ -586,6 +755,7 @@ async def _async_setup_scheduler(hass: HomeAssistant, entry: ConfigEntry):
         merged.update({k: v for k, v in yaml_opts.items() if v is not None})
 
     def _as_int(val, default, lo=None, hi=None):
+        """Parse an int within [lo, hi], or return default."""
         try:
             v = int(val)
             if lo is not None and v < lo:
@@ -597,6 +767,7 @@ async def _async_setup_scheduler(hass: HomeAssistant, entry: ConfigEntry):
             return default
 
     def _as_hhmm(val, default):
+        """Normalize "HH:MM" or "HH:MM:SS" to "HH:MM:SS", or return default."""
         try:
             s = str(val)
             parts = s.split(":")
@@ -626,6 +797,7 @@ async def _async_setup_scheduler(hass: HomeAssistant, entry: ConfigEntry):
             if v is not None:
                 days.append(v)
     if not days:
+        # Fall back to the legacy single-day option (or its default).
         days = [schedule_day_single]
     interval_minutes = _as_int(
         merged.get(CONF_SCHEDULE_INTERVAL, DEFAULT_SCHEDULE_INTERVAL), DEFAULT_SCHEDULE_INTERVAL, 5, 1440
@@ -652,6 +824,7 @@ async def _async_setup_scheduler(hass: HomeAssistant, entry: ConfigEntry):
             hh, mm = parts[:2]
             ss = parts[2] if len(parts) > 2 else 0
         except Exception:
+            # Unreachable in practice (_as_hhmm already normalized the value); last-resort fallback.
             hh, mm, ss = 2, 30, 0
 
         if schedule_type == "daily":
@@ -663,6 +836,7 @@ async def _async_setup_scheduler(hass: HomeAssistant, entry: ConfigEntry):
 
             async def _maybe_refresh_weekly(now=None):
                 try:
+                    # HA local time; weekday() uses 0=Monday, matching schedule_days.
                     today_idx = dt_util.now().weekday()
                 except Exception:
                     today_idx = -1
@@ -678,7 +852,13 @@ async def _async_setup_scheduler(hass: HomeAssistant, entry: ConfigEntry):
 
 
 class MashovCoordinator(DataUpdateCoordinator):
-    """Coordinator for Mashov, supporting dynamic interval changes."""
+    """Coordinator for Mashov, supporting dynamic interval changes.
+
+    Stale-data model: on auth / password-change failures the last good data is
+    returned (entities stay available, data_stale=True). Other failures raise
+    UpdateFailed; HA then keeps the previous data but last_update_success is False,
+    which entities also report as stale.
+    """
 
     def __init__(self, hass: HomeAssistant, client: MashovClient, entry: ConfigEntry):
         super().__init__(
@@ -691,12 +871,18 @@ class MashovCoordinator(DataUpdateCoordinator):
         self.client = client
         self.entry = entry
         self.data_stale = False
-        self.last_successful_update = None
+        self.last_successful_update = None  # epoch seconds; restored from the cache on setup
+        # Transient failures notify only on the 3rd in a row (when cached data exists).
         self._consecutive_failures = 0
+        # Internal errors notify once per failure streak; reset on the next success.
         self._internal_error_notified = False
 
     def set_interval_minutes(self, minutes: int | None):
-        """Set/clear periodic polling interval."""
+        """Set/clear periodic polling interval.
+
+        The pending refresh is cancelled and only rescheduled when entities already
+        listen; otherwise HA schedules it when the first listener subscribes.
+        """
         self._async_unsub_refresh()
         if minutes is None:
             self.update_interval = None
@@ -708,6 +894,7 @@ class MashovCoordinator(DataUpdateCoordinator):
                 self._schedule_refresh()
 
     async def _async_update_data(self):
+        """Fetch everything, merge cached holidays if needed, persist the cache, notify on failure."""
         _LOGGER.debug("Coordinator update started: %s", self.name)
         try:
             data = await asyncio.create_task(self.client.async_fetch_all())
@@ -716,6 +903,9 @@ class MashovCoordinator(DataUpdateCoordinator):
             self._internal_error_notified = False
             previous_update = self.last_successful_update
             self.last_successful_update = time.time()
+            # Holidays come from a separate endpoint that may fail on its own. If it
+            # failed, keep the previous holidays (fresh or already cached) and flag
+            # them as cached, preserving when they were last actually fetched.
             if data.get("holidays_status", "ok") == "ok":
                 data["holidays_last_update"] = self.last_successful_update
             elif (
@@ -741,6 +931,8 @@ class MashovCoordinator(DataUpdateCoordinator):
             except Exception as e:
                 _LOGGER.debug("Failed saving cache after coordinator update: %s", e)
             return data
+        # Auth problems need user action, so they notify every time and, with cached
+        # data, return it instead of failing (entities stay available, marked stale).
         except MashovPasswordChangeRequiredError as exc:
             self.data_stale = True
             _async_show_password_change_notification(self.hass, self.entry, exc)
@@ -769,6 +961,9 @@ class MashovCoordinator(DataUpdateCoordinator):
             _LOGGER.error("Authentication error during data update: %s", exc)
             raise UpdateFailed(f"Auth error: {exc}") from exc
         except MashovError as exc:
+            # Portal/API errors are usually transient: notify immediately only when
+            # there is nothing cached, otherwise on exactly the 3rd consecutive failure
+            # (not on every later one) to avoid notification spam.
             self.data_stale = True
             self._consecutive_failures += 1
             if not self.data or self._consecutive_failures == 3:
@@ -778,6 +973,8 @@ class MashovCoordinator(DataUpdateCoordinator):
         except Exception as exc:
             self.data_stale = True
             self._consecutive_failures += 1
+            # Internal (programming) errors: notify once with report links.
+            # Other unexpected errors (network, timeouts): same rule as MashovError.
             reportable = is_internal_error(exc)
             if (reportable and not self._internal_error_notified) or (
                 not reportable and (not self.data or self._consecutive_failures == 3)

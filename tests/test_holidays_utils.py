@@ -1,4 +1,4 @@
-"""Test Mashov holidays utilities."""
+"""Holiday helpers: ISO date parsing/formatting fallbacks and the shared holidays device info."""
 
 from datetime import date
 
@@ -61,6 +61,7 @@ def test_parse_iso_date_to_formatted_with_timestamp():
 
 def test_parse_iso_date_to_formatted_invalid_fallback():
     """Test formatting truly invalid date string falls back to split."""
+    # Unparseable input falls back to the text before the 'T' separator.
     result = parse_iso_date_to_formatted("invalid-dateT00:00:00")
     assert result == "invalid-date"
 

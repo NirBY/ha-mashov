@@ -1,3 +1,13 @@
+"""Holidays calendar for a Mashov config entry.
+
+Exposes the school's holiday/vacation list (fetched by the coordinator) as
+all-day calendar events. One calendar per config entry, attached to the shared
+per-school holidays device.
+
+Portal holidays have an inclusive end date, while Home Assistant all-day events
+use an exclusive end date, so every event's end is shifted by one day.
+"""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -50,6 +60,7 @@ class MashovHolidaysCalendar(MashovEntity, CalendarEntity):
 
     @property
     def extra_state_attributes(self):
+        """Expose the holidays fetch status; stale if the refresh or that fetch failed."""
         data = self.coordinator.data or {}
         return {
             "source_status": data.get("holidays_status", "ok"),
@@ -58,11 +69,16 @@ class MashovHolidaysCalendar(MashovEntity, CalendarEntity):
 
     @property
     def event(self) -> CalendarEvent | None:
-        """Return the current or next upcoming event."""
+        """Return the holiday in progress, otherwise the nearest upcoming one.
+
+        A holiday in progress is returned immediately; for future ones the
+        earliest start wins regardless of the order the portal lists them in.
+        """
         data = self.coordinator.data or {}
         items = data.get("holidays") or []
 
         now = dt_util.now()
+        # (start_dt, start_date, end_date, name) of the earliest future holiday seen so far.
         current_or_next = None
 
         for holiday in items:
@@ -80,10 +96,12 @@ class MashovHolidaysCalendar(MashovEntity, CalendarEntity):
                 if not start_date or not end_date:
                     continue
 
+                # Local-midnight bounds; end_dt is midnight after the last holiday day (exclusive).
                 start_dt = dt_util.start_of_local_day(datetime.combine(start_date, datetime.min.time()))
                 end_dt = dt_util.start_of_local_day(datetime.combine(end_date, datetime.min.time())) + timedelta(days=1)
 
                 if start_dt <= now < end_dt:
+                    # Passing dates (not datetimes) makes HA treat these as all-day events.
                     return CalendarEvent(
                         start=start_date,
                         end=end_date + timedelta(days=1),
@@ -113,7 +131,11 @@ class MashovHolidaysCalendar(MashovEntity, CalendarEntity):
         start_date: datetime,
         end_date: datetime,
     ) -> list[CalendarEvent]:
-        """Return calendar events within a datetime range."""
+        """Return holidays overlapping the requested range, sorted by start date.
+
+        A holiday is included when any part of it falls inside [start_date, end_date),
+        so multi-day vacations that began before the visible range still show up.
+        """
         data = self.coordinator.data or {}
         items = data.get("holidays") or []
 
@@ -137,6 +159,7 @@ class MashovHolidaysCalendar(MashovEntity, CalendarEntity):
                 h_start_dt = dt_util.start_of_local_day(datetime.combine(h_start, datetime.min.time()))
                 h_end_dt = dt_util.start_of_local_day(datetime.combine(h_end, datetime.min.time())) + timedelta(days=1)
 
+                # Standard interval-overlap test on half-open ranges.
                 if h_end_dt > start_date and h_start_dt < end_date:
                     events.append(
                         CalendarEvent(
@@ -155,7 +178,7 @@ class MashovHolidaysCalendar(MashovEntity, CalendarEntity):
 
     @property
     def device_info(self):
-        """Return device information."""
+        """Attach to the per-entry holidays device, named after the school (entry title)."""
         return create_holidays_device_info(
             DOMAIN,
             self._entry_id,

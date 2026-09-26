@@ -1,3 +1,21 @@
+"""Sensor platform for the Mashov integration.
+
+Per student (one HA device per student id) the platform creates:
+- ``MashovListSensor`` for the core lists (homework, behavior, weekly plan,
+  timetable, lessons history, grades). State = item count; attributes carry a
+  size-bounded copy of the items plus Hebrew formatted views for cards/TTS.
+- ``MashovAdditionalSensor`` for optional portal resources the user enabled
+  in the options flow (``CONF_ADDITIONAL_DATA``).
+
+Per hub (config entry) it also creates one ``MashovHolidaysSensor``.
+
+Students are added dynamically when the coordinator reports new ones, and
+departed students' entities/devices are cleaned up only after a verified
+successful login (see ``async_setup_entry``). Whenever the portal reports a
+resource as not ``ok`` (``source_status``), the state is ``None`` (unknown)
+rather than 0, so a failed fetch is never mistaken for an empty list.
+"""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -14,6 +32,15 @@ from homeassistant.util import dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
 
+
+def _local_timestamp(value: float | None) -> str | None:
+    """Format a coordinator timestamp in the Home Assistant timezone."""
+    if not value:
+        return None
+    return dt_util.as_local(datetime.fromtimestamp(value, tz=dt_util.UTC)).isoformat(timespec="seconds")
+
+
+# NOTE: these package imports sit below the helper above for historical reasons; order is harmless.
 from .additional_data import CONF_ADDITIONAL_DATA, STUDENT_RESOURCES
 from .const import (
     CONF_MAX_ITEMS_IN_ATTRIBUTES,
@@ -51,6 +78,9 @@ def _async_migrate_list_sensor_unique_ids(hass: HomeAssistant, entry: ConfigEntr
     """Scope legacy `mashov_<student>_<key>` ids to the entry, keeping entity ids and history.
 
     Two hubs that see the same child (e.g. both parents) otherwise collide on the same unique id.
+
+    Only list-sensor ids of this entry are touched, and an id is rewritten only if the
+    target id is free, so the migration is idempotent and never clobbers another entity.
     """
     registry = er.async_get(hass)
     new_prefix = f"mashov_{entry.entry_id}_"
@@ -80,16 +110,25 @@ def _async_migrate_list_sensor_unique_ids(hass: HomeAssistant, entry: ConfigEntr
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
+    """Set up Mashov sensors and keep them in sync with the student roster.
+
+    ``sync_students`` runs once now and again after every coordinator update, so
+    students who join later get sensors without reloading the entry.
+    """
     _LOGGER.debug("Setting up sensors for entry: %s", entry.title)
+    # Must run before entities are created so they pick up the migrated registry entries.
     _async_migrate_list_sensor_unique_ids(hass, entry)
     data = hass.data[DOMAIN][entry.entry_id]
     coord = data["coordinator"]
 
+    # Student ids that already have entities in this session.
     known = set()
 
     @callback
     def sync_students():
+        """Remove departed students' entities/devices, then add entities for new students."""
         students = (coord.data or {}).get("students", [])
+        # --- Cleanup of departed students / disabled optional resources ---
         # Only a real, successful login can prove that a student left this hub.
         # Cached session metadata, failed refreshes and empty rosters cannot delete entries.
         if (
@@ -117,15 +156,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                     or not registered.unique_id.startswith(prefix)
                 ):
                     continue
+                # unique_id = mashov_<entry>_<student_id>_<key>. Keys can contain "_" and one key
+                # may be a suffix of another, so try the longest keys first.
                 tail = registered.unique_id[len(prefix) :]
                 for key in sorted(keys, key=len, reverse=True):
                     suffix = f"_{key}"
                     if tail.endswith(suffix):
-                        if tail[: -len(suffix)] not in active:
+                        student_id = tail[: -len(suffix)]
+                        enabled_additional = set(entry.options.get(CONF_ADDITIONAL_DATA) or [])
+                        # Remove sensors of students no longer on the roster, and optional
+                        # resource sensors the user has since disabled in options.
+                        if student_id not in active or (key in STUDENT_RESOURCES and key not in enabled_additional):
                             registry.async_remove(registered.entity_id)
                         break
             # Entity cleanup alone leaves an undeletable student card behind.
             # Detach only this hub, preserving devices shared with another hub.
+            # A device is removed only if: it is a student device of ours (not the holidays
+            # device), none of its ids is an active student, and no entity of this entry remains.
             devices = dr.async_get(hass)
             for device in dr.async_entries_for_config_entry(devices, entry.entry_id):
                 identifiers = {value for domain, value in device.identifiers if domain == DOMAIN}
@@ -142,8 +189,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                         # New HA registries scope each device to one config entry.
                         devices.async_remove_device(device.id)
                     else:
+                        # Older registries: unlink this entry; HA deletes the device once orphaned.
                         devices.async_update_device(device.id, remove_config_entry_id=entry.entry_id)
+            # Forget departed students so their sensors are recreated if they return.
             known.intersection_update({stu["id"] for stu in students})
+        # --- Create entities for students not seen before ---
         entities = []
         for stu in students:
             if stu["id"] in known:
@@ -189,12 +239,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             async_add_entities(entities)
 
     sync_students()
+    # One holidays sensor per hub (holidays are per school, not per student).
     async_add_entities([MashovHolidaysSensor(coord, entry.entry_id)])
     entry.async_on_unload(coord.async_add_listener(sync_students))
 
 
 def _student_meta(data: dict, student_id, fallback_slug: str) -> dict:
-    """Find a student by stable id; the slug embeds the class name and changes every school year."""
+    """Find a student by stable id; the slug embeds the class name and changes every school year.
+
+    Falls back to the slug captured at entity creation, then to an empty dict.
+    """
     return next(
         (s for s in data.get("students", []) if s.get("id") == student_id),
         next((s for s in data.get("students", []) if s.get("slug") == fallback_slug), {}),
@@ -202,12 +256,17 @@ def _student_meta(data: dict, student_id, fallback_slug: str) -> dict:
 
 
 def _student_group(data: dict, student_id, fallback_slug: str) -> dict:
+    """Return the student's data bucket; coordinator data is keyed by the *current* slug."""
     slug = _student_meta(data, student_id, fallback_slug).get("slug", fallback_slug)
     return data.get("by_slug", {}).get(slug, {})
 
 
 class MashovAdditionalSensor(MashovStudentEntity, SensorEntity):
-    """Optional portal data; an inaccessible resource is not an empty list."""
+    """Optional portal data; an inaccessible resource is not an empty list.
+
+    State is the item count only when the resource status is ``ok``; otherwise
+    (``not_fetched``, forbidden, error, ...) the state is unknown.
+    """
 
     _attr_icon = "mdi:school"
 
@@ -222,6 +281,7 @@ class MashovAdditionalSensor(MashovStudentEntity, SensorEntity):
 
     @property
     def _resource(self):
+        """The ``{"items": [...], "status": ...}`` record for this resource, looked up by student id."""
         return (
             _student_group(self.coordinator.data or {}, self._student_id, self._slug)
             .get("additional_data", {})
@@ -260,6 +320,8 @@ class MashovAdditionalSensor(MashovStudentEntity, SensorEntity):
             limit = DEFAULT_MAX_ITEMS_IN_ATTRIBUTES
         stored = []
         # Bound the complete item array, even when one notice/document is enormous.
+        # Oversized items are skipped (not truncated) so later small items can still fit;
+        # 12KB leaves headroom for the other attributes under HA's 16KB recorder limit.
         for item in items:
             if len(stored) >= limit:
                 break
@@ -272,10 +334,18 @@ class MashovAdditionalSensor(MashovStudentEntity, SensorEntity):
             "total_items": len(items),
             "stored_items": len(stored),
             "items": stored,
+            "last_update": _local_timestamp(getattr(self.coordinator, "last_successful_update", None)),
         }
 
 
 class MashovListSensor(MashovStudentEntity, SensorEntity):
+    """Count of one core per-student list (homework, grades, timetable, ...).
+
+    ``data_key`` selects the list inside the student's coordinator bucket. The
+    attributes expose a recent, cleaned, size-bounded subset of the items plus
+    Hebrew formatted views, all kept under the recorder's attribute size limit.
+    """
+
     _attr_icon = "mdi:school"
 
     def __init__(
@@ -303,6 +373,8 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
     def native_value(self):
         group = _student_group(self.coordinator.data or {}, self._student_id, self._student_slug)
         items = group.get(self._data_key) or []
+        # A failed/forbidden fetch reports unknown instead of a misleading 0. Missing status means ok
+        # (older coordinator data had no source_status).
         return len(items) if group.get("source_status", {}).get(self._data_key, "ok") == "ok" else None
 
     @property
@@ -312,6 +384,7 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
         group = _student_group(data, self._student_id, self._student_slug)
         items = group.get(self._data_key) or []
         if self._data_key == "weekly_plan":
+            # Weekly plan items only carry a group id; borrow subject/teacher from the timetable.
             items = self._with_plan_subjects(items, group.get("timetable") or [])
 
         # Schedule info
@@ -320,8 +393,9 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
         # Get max items config (from options or default)
         max_items = self._get_max_items_config()
 
-        # Store only recent items to avoid DB size issues (Issue #2)
-        # Full data is always available via coordinator.data for automations
+        # Store only recent items to avoid DB size issues (Issue #2).
+        # Full data is always available via coordinator.data for automations.
+        # Formatting is done on the limited subset so the formatted views stay small too.
         items_for_attributes = self._limit_items_for_storage(items, max_items)
         formatted_data = self._format_data_for_display(items_for_attributes)
 
@@ -335,9 +409,7 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
             "student_id": self._student_id,
             "year": student_meta.get("year"),
             "school_id": student_meta.get("school_id"),
-            "last_update": datetime.fromtimestamp(self.coordinator.last_successful_update, tz=dt_util.UTC).isoformat()
-            if getattr(self.coordinator, "last_successful_update", None)
-            else None,
+            "last_update": _local_timestamp(getattr(self.coordinator, "last_successful_update", None)),
             "total_items": total_count,  # Total number of items available
             "stored_items": stored_count,  # Number of items in attributes
             "items": items_for_attributes,  # Limited items (most recent)
@@ -357,11 +429,17 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
             "schedule_friendly": schedule_info.get("friendly"),
             "next_scheduled_refresh": schedule_info.get("next"),
         }
+        # Final pass: the per-item limit ignores the formatted fields, which duplicate the items.
         return self._bound_attributes(attributes)
 
     @staticmethod
     def _with_plan_subjects(items: list, timetable: list) -> list:
-        """Name weekly-plan lessons from the timetable groups; plans only carry a group id."""
+        """Name weekly-plan lessons from the timetable groups; plans only carry a group id.
+
+        Items that already have a subject are left untouched; items are copied, never mutated,
+        so the coordinator's data is not altered.
+        """
+        # group_id -> (subject name or group name, first teacher's name)
         lookup = {}
         for entry in timetable:
             details = (entry or {}).get("groupDetails") or {}
@@ -380,7 +458,14 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
 
     @staticmethod
     def _bound_attributes(attributes: dict) -> dict:
-        """Budget the complete payload, including duplicated formatted content."""
+        """Budget the complete payload, including duplicated formatted content.
+
+        HA's recorder refuses to store state attributes over 16KB. Degrade in order of
+        least value: drop the formatted views (table, by-subject, by-date), shorten the
+        summary, then binary-search the largest item prefix that fits. The
+        ``items_truncated`` / ``formatting_truncated`` flags tell cards what was cut.
+        Mutates and returns ``attributes``.
+        """
         budget = 14 * 1024  # Leave room for HA's icon/friendly_name attributes.
 
         def size():
@@ -398,6 +483,7 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
             if size() <= budget:
                 return attributes
         attributes["formatted_summary"] = str(attributes.get("formatted_summary", ""))[:256]
+        # Still too big: keep the largest prefix of items (already most-recent-first) that fits.
         items = attributes["items"]
         low, high, best = 0, len(items), 0
         while low <= high:
@@ -515,6 +601,10 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
         Uses intelligent size-based limiting with a 14KB target (16KB limit with 2KB safety margin).
         Keeps the most recent items based on date fields.
         Full data remains available via coordinator.data.
+
+        Order of operations: sort newest first, cut to the user's ``max_items``, strip technical
+        fields, then (if still over budget) binary-search the largest count that fits.
+        ``_bound_attributes`` later re-checks the whole attribute payload.
         """
         if not items:
             return items
@@ -525,7 +615,12 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
         date_fields = ["lesson_date", "timestamp", "lessonDate"]
 
         def get_sort_key(item):
-            """Extract sortable date/time from item."""
+            """Extract sortable date/time from item.
+
+            Returns an ISO date string, a ``(day, lesson)`` tuple for timetable entries, or "".
+            Mixing tuples and strings raises TypeError, which the caller catches and falls
+            back to the original order.
+            """
             # For nested structures (timetable, weekly_plan)
             if isinstance(item, dict):
                 # Check nested structures first
@@ -614,7 +709,11 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
             return [self._clean_item_for_storage(item) for item in sorted_items[:safe_count]]
 
     def _format_data_for_display(self, items: list) -> dict[str, Any]:
-        """Format data for better readability and text-to-speech"""
+        """Format data for better readability and text-to-speech.
+
+        Returns Hebrew ``summary``, ``by_date`` and ``by_subject`` views; the weekly plan and
+        timetable formatters may also return ``table_html``.
+        """
         if not items:
             return {"summary": "אין נתונים זמינים", "by_date": {}, "by_subject": {}}
 
@@ -633,7 +732,13 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
         return {"summary": f"יש {len(items)} פריטים", "by_date": {}, "by_subject": {}}
 
     def _compute_schedule_info(self) -> dict[str, Any]:
-        """Return current refresh schedule configuration and friendly description."""
+        """Return current refresh schedule configuration and friendly description.
+
+        Display-only: mirrors the coordinator's schedule (entry options overlaid with any
+        YAML options), sanitizing each value and falling back to defaults when invalid.
+        ``next`` is an estimate computed here, not read from the coordinator's timer.
+        Any unexpected error yields the default schedule rather than breaking attributes.
+        """
         try:
             from datetime import timedelta
 
@@ -648,6 +753,7 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
             if yaml_opts:
                 merged.update({k: v for k, v in yaml_opts.items() if v is not None})
             # Basic sanitization for attributes display
+            # Time must be HH:MM or HH:MM:SS; seconds are kept for the next-run estimate.
             schedule_type = merged.get(CONF_SCHEDULE_TYPE, DEFAULT_SCHEDULE_TYPE)
             if schedule_type not in ("daily", "weekly", "interval"):
                 schedule_type = DEFAULT_SCHEDULE_TYPE
@@ -665,6 +771,7 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
                 schedule_day = int(merged.get(CONF_SCHEDULE_DAY, DEFAULT_SCHEDULE_DAY))
             except Exception:
                 schedule_day = DEFAULT_SCHEDULE_DAY
+            # Multi-day weekly schedule (0=Monday..6=Sunday); falls back to the legacy single day.
             raw_days = merged.get(CONF_SCHEDULE_DAYS, [schedule_day])
             schedule_days = []
             if isinstance(raw_days, list):
@@ -684,6 +791,7 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
             except Exception:
                 schedule_interval = DEFAULT_SCHEDULE_INTERVAL
 
+            # --- Friendly Hebrew description and next-run estimate per schedule type ---
             friendly = None
             next_time_iso = None
             now = dt_util.now()
@@ -714,12 +822,14 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
                         dt = dt + timedelta(days=7)
                     candidates.append(dt)
                 next_dt = min(candidates) if candidates else now
+                # Indexed with the same 0=Monday mapping.
                 day_names = ["יום שני", "יום שלישי", "יום רביעי", "יום חמישי", "יום שישי", "יום שבת", "יום ראשון"]
                 friendly_days = ", ".join(day_names[int(d)] for d in schedule_days)
                 friendly = f"שבועי – {friendly_days} {hh:02d}:{mm:02d}"
                 next_time_iso = next_dt.isoformat(timespec="seconds")
             elif schedule_type == "interval":
                 interval_min = int(schedule_interval)
+                # Approximation: measured from now, not from the last actual refresh.
                 next_dt = now + timedelta(minutes=interval_min)
                 friendly = f"כל {interval_min} דקות"
                 next_time_iso = next_dt.isoformat(timespec="seconds")
@@ -847,7 +957,14 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
         }
 
     def _format_weekly_plan_data(self, items: list) -> dict[str, Any]:
-        """Format weekly plan data for display, including a weekly table view."""
+        """Format weekly plan data for display, including a weekly table view.
+
+        Two item shapes are supported:
+        - Timetable-like items (``timeTable``/``groupDetails`` or flat ``day``/``lesson``):
+          rendered as a lessons x weekdays grid.
+        - Dated plan items (``lesson_date``): span several weeks, so they are rendered as a
+          simple date/lesson/subject/plan table instead of a weekday grid.
+        """
 
         by_date: dict[str, list] = {}
         by_subject: dict[str, list] = {}
@@ -908,6 +1025,7 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
                 }
             )
 
+        # Dated plans: flat table (early return, no weekday grid).
         if any(item.get("lesson_date") for item in items):
             rows = []
             for item in items:
@@ -927,7 +1045,10 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
                 "table_html": '<table dir="auto"><tbody>' + "".join(rows) + "</tbody></table>" if rows else "",
             }
 
-        # Determine day mapping and headers
+        # Determine day mapping and headers.
+        # Mashov sources disagree on weekday numbering: if no 0 appears and all days are >= 1,
+        # treat them as 1=Sunday..7=Saturday; otherwise as 0=Monday..6=Sunday. The column
+        # order (headers) follows the detected convention.
         day_values = [n["day"] for n in normalized if isinstance(n.get("day"), int)]
         uses_sunday_based = False
         if day_values and 0 not in day_values and min(day_values) >= 1:
@@ -948,14 +1069,15 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
             def to_col(d):
                 return max(0, min(6, int(d)))  # 0=Monday through 6=Sunday
 
-        # Determine max lessons
+        # Determine max lessons: at least 8 rows by default, clamped to 6..12.
         max_lessons = max([n["lesson"] or 0 for n in normalized] + [8])
         if max_lessons < 6:
             max_lessons = 6
         if max_lessons > 12:
             max_lessons = 12
 
-        # Build table matrix
+        # Build table matrix (rows = lessons, cols = weekdays). Out-of-range lessons are clamped
+        # into the last/first row; a later item in the same cell overwrites an earlier one.
         table_rows: list[list[str]] = [["" for _ in range(7)] for _ in range(max_lessons)]
         for n in normalized:
             if not isinstance(n.get("day"), int) or not isinstance(n.get("lesson"), int):
@@ -969,7 +1091,7 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
                 text += f" ({n['room']})"
             table_rows[row][col] = text
 
-        # HTML table (works inside Markdown card)
+        # HTML table (works inside Markdown card); uses HA theme CSS variables, cell text is escaped.
         html = [
             '<table style="width:100%; border-collapse:collapse; text-align:center; direction:rtl;">',
             "<thead><tr>"
@@ -989,7 +1111,7 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
                 )
             html.append("</tr>")
         html.append("</tbody></table>")
-        # Dated plans span several weeks and carry no weekday grid position; do not render an empty grid.
+        # Items without any usable weekday have no grid position; do not render an empty grid.
         table_html = "".join(html) if day_values else ""
 
         # Create summary
@@ -1015,9 +1137,10 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
         """Format timetable using the same renderer as weekly plan."""
         # Reuse weekly plan formatting which supports timeTable/groupDetails
         return self._format_weekly_plan_data(items)
-        # Keep summary as-is or optionally tweak text; leaving as-is for consistency
+        # NOTE: unreachable; the summary therefore reads "planned lessons" for the timetable too.
 
     def _format_lessons_history(self, items: list) -> dict[str, Any]:
+        """Format past lessons (remark, homework, and whether the lesson took place)."""
         by_date = {}
         by_subject = {}
         for it in items:
@@ -1122,6 +1245,14 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
 
 
 class MashovHolidaysSensor(MashovEntity, SensorEntity):
+    """School holidays/vacations for the hub, attached to a per-school holidays device.
+
+    When a holidays fetch fails the coordinator may serve a cached list
+    (``holidays_cached``); the state then stays the cached count, while
+    ``source_status``/``data_stale`` and ``holidays_last_update`` reveal that the
+    data is not fresh and when it was actually fetched.
+    """
+
     _attr_icon = HOLIDAY_ICON
 
     def __init__(self, coordinator, entry_id: str):
@@ -1132,7 +1263,7 @@ class MashovHolidaysSensor(MashovEntity, SensorEntity):
 
     @property
     def native_value(self):
-        # number of holidays in the dataset
+        # Number of holidays; unknown only when the fetch failed and no cached copy exists.
         data = self.coordinator.data or {}
         items = data.get("holidays") or []
         return len(items) if data.get("holidays_status", "ok") == "ok" or data.get("holidays_cached") else None
@@ -1155,6 +1286,7 @@ class MashovHolidaysSensor(MashovEntity, SensorEntity):
             by_date.setdefault(key, []).append(name)
 
         summary = f"יש {len(items)} חגים/חופשות"
+        # Prefer the holidays' own fetch time: with cached holidays it predates the coordinator refresh.
         last_update = data.get("holidays_last_update", getattr(self.coordinator, "last_successful_update", None))
         return {
             "source_status": data.get("holidays_status", "ok"),
@@ -1162,7 +1294,7 @@ class MashovHolidaysSensor(MashovEntity, SensorEntity):
             "formatted_summary": summary,
             "formatted_by_date": by_date,
             "items": items,
-            "last_update": datetime.fromtimestamp(last_update, tz=dt_util.UTC).isoformat() if last_update else None,
+            "last_update": _local_timestamp(last_update),
         }
 
     @property

@@ -1,4 +1,9 @@
-"""Setup must not block the event loop, must retry transient failures and serve cached data."""
+"""Setup must not block the event loop, must retry transient failures and serve cached data.
+
+Also covers entity ID preservation across upgrades/reloads, safe partial unload and the
+``set_options`` service. ``DATA``, ``_patch_client`` and ``_patch_cache`` are reused by
+other test modules.
+"""
 
 import builtins
 import logging
@@ -23,6 +28,7 @@ DATA = {
 
 
 async def test_upgrade_and_reload_preserve_entity_ids(hass, mock_config_entry):
+    """Legacy unique IDs are migrated to entry-scoped ones while existing entity IDs keep working."""
     mock_config_entry.add_to_hass(hass)
     registry = er.async_get(hass)
     old_ids = {}
@@ -54,6 +60,7 @@ async def test_upgrade_and_reload_preserve_entity_ids(hass, mock_config_entry):
 
 
 async def test_failed_platform_unload_keeps_client_and_entry(hass, mock_config_entry):
+    """If platforms fail to unload, the client, timer and hass.data entry are left intact."""
     from custom_components.mashov import async_unload_entry
 
     client = MagicMock(async_close=AsyncMock())
@@ -68,6 +75,10 @@ async def test_failed_platform_unload_keeps_client_and_entry(hass, mock_config_e
 
 
 def _patch_client(init_side_effect=None):
+    """Start patching the integration's MashovClient and return ``(patcher, client_instance)``.
+
+    The caller must call ``patcher.stop()``. ``init_side_effect`` makes ``async_init`` fail.
+    """
     patcher = patch("custom_components.mashov.MashovClient")
     mock_client = patcher.start()
     client = mock_client.return_value
@@ -80,6 +91,7 @@ def _patch_client(init_side_effect=None):
 
 
 def _patch_cache(cached):
+    """Return a patch of the HA Store used for the entry cache, loading ``cached`` (None = no cache)."""
     store = MagicMock()
     store.async_load = AsyncMock(return_value=cached)
     store.async_save = AsyncMock()
@@ -87,16 +99,19 @@ def _patch_cache(cached):
 
 
 async def test_setup_reads_version_without_file_io(hass: HomeAssistant, mock_config_entry, caplog):
+    """Setup logs the version without opening VERSION or manifest.json inside the event loop."""
     mock_config_entry.add_to_hass(hass)
     opened = []
     real_open = builtins.open
 
     def tracking_open(file, *args, **kwargs):
+        """Record every opened path, then delegate to the real ``open``."""
         opened.append(str(file))
         return real_open(file, *args, **kwargs)
 
     patcher, _client = _patch_client()
     try:
+        # Track all file opens during setup to detect blocking I/O in the event loop.
         with caplog.at_level(logging.INFO), patch.object(builtins, "open", tracking_open):
             assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
             await hass.async_block_till_done()
@@ -109,6 +124,7 @@ async def test_setup_reads_version_without_file_io(hass: HomeAssistant, mock_con
 
 
 async def test_transient_startup_failure_is_retried(hass: HomeAssistant, mock_config_entry):
+    """A transient login error without cache puts the entry in SETUP_RETRY and closes the client."""
     mock_config_entry.add_to_hass(hass)
     patcher, client = _patch_client(MashovError("Login timeout"))
     try:
@@ -121,6 +137,7 @@ async def test_transient_startup_failure_is_retried(hass: HomeAssistant, mock_co
 
 
 async def test_bad_credentials_without_cache_are_not_retried(hass: HomeAssistant, mock_config_entry):
+    """Invalid credentials without cache fail setup permanently (SETUP_ERROR)."""
     mock_config_entry.add_to_hass(hass)
     patcher, _client = _patch_client(MashovAuthError("Authentication failed"))
     try:
@@ -133,6 +150,7 @@ async def test_bad_credentials_without_cache_are_not_retried(hass: HomeAssistant
 
 @pytest.mark.parametrize("error", [MashovError("Login timeout"), MashovAuthError("Authentication failed")])
 async def test_startup_failure_keeps_cached_data(hass: HomeAssistant, error):
+    """With a cached snapshot, a startup login failure still loads the entry and serves the cache."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={"username": "u", "password": "p", "school_id": "123456", "school_name": "Test School"},
@@ -154,6 +172,7 @@ async def test_startup_failure_keeps_cached_data(hass: HomeAssistant, error):
 
 
 async def test_set_options_targets_requested_entry(hass: HomeAssistant):
+    """set_options updates only the requested entry, normalizes days and rejects bad targets/payloads."""
     entries = []
     for school in ("111111", "222222"):
         entry = MockConfigEntry(

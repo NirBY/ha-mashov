@@ -1,4 +1,7 @@
-"""Constants for Mashov integration tests."""
+"""Sample credentials and Mashov API payloads shared by the tests.
+
+Values match the ``mock_config_entry`` and ``mock_mashov_client`` fixtures in conftest.
+"""
 
 # Test credentials
 TEST_USERNAME = "test_user"

@@ -8,6 +8,7 @@ from custom_components.mashov.mashov_client import MashovClient
 
 
 async def test_restore_uses_timetable_and_does_not_log_in():
+    """A saved session is validated via the student timetable endpoint without a fresh login POST."""
     saved = {
         "csrf_token": "synthetic",
         "local_auth": {
@@ -20,6 +21,7 @@ async def test_restore_uses_timetable_and_does_not_log_in():
     }
     client = MashovClient("123", 2027, "test", "test", saved_auth=saved)
     response = MagicMock(status=200)
+    # session.get() is used as an async context manager yielding the response.
     context = MagicMock()
     context.__aenter__ = AsyncMock(return_value=response)
     context.__aexit__ = AsyncMock(return_value=False)
@@ -34,8 +36,10 @@ async def test_restore_uses_timetable_and_does_not_log_in():
 
 
 async def test_previous_school_year_cache_is_not_restored():
+    """A cached session from a previous school year is discarded and a fresh login is attempted."""
     client = MashovClient("123", 2027, "test", "test", saved_auth={"session_year": 2026, "csrf_token": "old"})
     client._session = MagicMock(closed=False)
+    # Abort as soon as the login POST starts; only the decision to log in matters.
     client._session.post.side_effect = RuntimeError("stop at fresh login")
     with pytest.raises(RuntimeError, match="stop at fresh login"):
         await client.async_init(None)

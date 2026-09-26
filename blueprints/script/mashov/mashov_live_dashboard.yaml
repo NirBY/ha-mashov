@@ -1,0 +1,370 @@
+blueprint:
+  name: Mashov – Live dashboard (Bubble Card)
+  description: >
+    Version v1.0.0. Builds the "Mashov Live" dashboard for every child on every Mashov hub. Names, classes
+    and sensors come from the integration. The student sections below are optional tweaks (emoji, color,
+    linked person, extra viewers): match a child by name, and leave a section empty to skip it. A child
+    with no linked person is visible only to the family. A new child appears the next time you run the
+    script. Requirements: Mashov integration 1.0.14+, Bubble Card 3.4+ (HACS) and an existing empty
+    UI dashboard (Settings > Dashboards > Add dashboard > New dashboard from scratch).
+  domain: script
+  source_url: https://raw.githubusercontent.com/NirBY/ha-mashov/main/blueprints/script/mashov/mashov_live_dashboard.yaml
+  input:
+    general:
+      name: General
+      icon: mdi:view-dashboard
+      input:
+        dashboard_url:
+          name: Dashboard URL
+          description: URL path of the empty dashboard you created (the part after the host, for example mashov-live).
+          default: mashov-live
+          selector: { text: {} }
+        title:
+          name: Title
+          default: משוב לייב
+          selector: { text: {} }
+        family:
+          name: Family (sees every card)
+          description: People who see every card. Required for children who have no linked person, which is the default.
+          default: []
+          selector: { entity: { domain: person, multiple: true } }
+        overwrite:
+          name: Replace existing content
+          description: >-
+            Allow replacing a dashboard that already has other content, or a built-in dashboard such as the
+            Overview. The previous content is lost. Not needed for an empty dashboard or one this script built.
+          default: false
+          selector: { boolean: {} }
+    student_1:
+      name: Optional customization 1
+      icon: mdi:account-school
+      collapsed: false
+      input:
+        s1_name:
+          name: Name
+          description: Optional. The child's name (or first name, if it is unique) to customize. Leave empty to skip.
+          default: ""
+          selector: { text: {} }
+        s1_emoji:
+          name: Emoji
+          default: ""
+          selector: { text: {} }
+        s1_label:
+          name: Class / school label
+          description: Shown next to the name, for example "ד1".
+          default: ""
+          selector: { text: {} }
+        s1_person:
+          name: Linked person (photo)
+          description: The card shows this person's picture. Their user always sees this card.
+          default: ""
+          selector: { entity: { domain: person } }
+        s1_viewers:
+          name: Extra viewers
+          description: More people allowed to see this card. With no linked person and no viewers, everyone sees it.
+          default: []
+          selector: { entity: { domain: person, multiple: true } }
+        s1_accent:
+          name: Accent color
+          default: [155, 176, 201]
+          selector: { color_rgb: {} }
+        s1_homework:
+          name: Homework sensor
+          default: ""
+          selector: { entity: { integration: mashov, domain: sensor } }
+        s1_behavior:
+          name: Behavior sensor
+          default: ""
+          selector: { entity: { integration: mashov, domain: sensor } }
+        s1_grades:
+          name: Grades sensor
+          default: ""
+          selector: { entity: { integration: mashov, domain: sensor } }
+        s1_timetable:
+          name: Timetable sensor
+          default: ""
+          selector: { entity: { integration: mashov, domain: sensor } }
+        s1_noticeboard:
+          name: Noticeboard sensor
+          description: Requires the "message board" additional data option.
+          default: ""
+          selector: { entity: { integration: mashov, domain: sensor } }
+        s1_holidays:
+          name: Holidays sensor
+          default: ""
+          selector: { entity: { integration: mashov, domain: sensor } }
+        s1_calendar:
+          name: School calendar
+          default: ""
+          selector: { entity: { integration: mashov, domain: calendar } }
+    student_2:
+      name: Optional customization 2
+      icon: mdi:account-school
+      collapsed: true
+      input:
+        s2_name:
+          name: Name
+          description: Optional. The child's name (or first name, if it is unique) to customize. Leave empty to skip.
+          default: ""
+          selector: { text: {} }
+        s2_emoji:
+          name: Emoji
+          default: ""
+          selector: { text: {} }
+        s2_label:
+          name: Class / school label
+          description: Shown next to the name, for example "ד1".
+          default: ""
+          selector: { text: {} }
+        s2_person:
+          name: Linked person (photo)
+          description: The card shows this person's picture. Their user always sees this card.
+          default: ""
+          selector: { entity: { domain: person } }
+        s2_viewers:
+          name: Extra viewers
+          description: More people allowed to see this card. With no linked person and no viewers, everyone sees it.
+          default: []
+          selector: { entity: { domain: person, multiple: true } }
+        s2_accent:
+          name: Accent color
+          default: [212, 178, 164]
+          selector: { color_rgb: {} }
+        s2_homework:
+          name: Homework sensor
+          default: ""
+          selector: { entity: { integration: mashov, domain: sensor } }
+        s2_behavior:
+          name: Behavior sensor
+          default: ""
+          selector: { entity: { integration: mashov, domain: sensor } }
+        s2_grades:
+          name: Grades sensor
+          default: ""
+          selector: { entity: { integration: mashov, domain: sensor } }
+        s2_timetable:
+          name: Timetable sensor
+          default: ""
+          selector: { entity: { integration: mashov, domain: sensor } }
+        s2_noticeboard:
+          name: Noticeboard sensor
+          description: Requires the "message board" additional data option.
+          default: ""
+          selector: { entity: { integration: mashov, domain: sensor } }
+        s2_holidays:
+          name: Holidays sensor
+          default: ""
+          selector: { entity: { integration: mashov, domain: sensor } }
+        s2_calendar:
+          name: School calendar
+          default: ""
+          selector: { entity: { integration: mashov, domain: calendar } }
+    student_3:
+      name: Optional customization 3
+      icon: mdi:account-school
+      collapsed: true
+      input:
+        s3_name:
+          name: Name
+          description: Optional. The child's name (or first name, if it is unique) to customize. Leave empty to skip.
+          default: ""
+          selector: { text: {} }
+        s3_emoji:
+          name: Emoji
+          default: ""
+          selector: { text: {} }
+        s3_label:
+          name: Class / school label
+          description: Shown next to the name, for example "ד1".
+          default: ""
+          selector: { text: {} }
+        s3_person:
+          name: Linked person (photo)
+          description: The card shows this person's picture. Their user always sees this card.
+          default: ""
+          selector: { entity: { domain: person } }
+        s3_viewers:
+          name: Extra viewers
+          description: More people allowed to see this card. With no linked person and no viewers, everyone sees it.
+          default: []
+          selector: { entity: { domain: person, multiple: true } }
+        s3_accent:
+          name: Accent color
+          default: [168, 196, 180]
+          selector: { color_rgb: {} }
+        s3_homework:
+          name: Homework sensor
+          default: ""
+          selector: { entity: { integration: mashov, domain: sensor } }
+        s3_behavior:
+          name: Behavior sensor
+          default: ""
+          selector: { entity: { integration: mashov, domain: sensor } }
+        s3_grades:
+          name: Grades sensor
+          default: ""
+          selector: { entity: { integration: mashov, domain: sensor } }
+        s3_timetable:
+          name: Timetable sensor
+          default: ""
+          selector: { entity: { integration: mashov, domain: sensor } }
+        s3_noticeboard:
+          name: Noticeboard sensor
+          description: Requires the "message board" additional data option.
+          default: ""
+          selector: { entity: { integration: mashov, domain: sensor } }
+        s3_holidays:
+          name: Holidays sensor
+          default: ""
+          selector: { entity: { integration: mashov, domain: sensor } }
+        s3_calendar:
+          name: School calendar
+          default: ""
+          selector: { entity: { integration: mashov, domain: calendar } }
+    student_4:
+      name: Optional customization 4
+      icon: mdi:account-school
+      collapsed: true
+      input:
+        s4_name:
+          name: Name
+          description: Optional. The child's name (or first name, if it is unique) to customize. Leave empty to skip.
+          default: ""
+          selector: { text: {} }
+        s4_emoji:
+          name: Emoji
+          default: ""
+          selector: { text: {} }
+        s4_label:
+          name: Class / school label
+          description: Shown next to the name, for example "ד1".
+          default: ""
+          selector: { text: {} }
+        s4_person:
+          name: Linked person (photo)
+          description: The card shows this person's picture. Their user always sees this card.
+          default: ""
+          selector: { entity: { domain: person } }
+        s4_viewers:
+          name: Extra viewers
+          description: More people allowed to see this card. With no linked person and no viewers, everyone sees it.
+          default: []
+          selector: { entity: { domain: person, multiple: true } }
+        s4_accent:
+          name: Accent color
+          default: [199, 184, 217]
+          selector: { color_rgb: {} }
+        s4_homework:
+          name: Homework sensor
+          default: ""
+          selector: { entity: { integration: mashov, domain: sensor } }
+        s4_behavior:
+          name: Behavior sensor
+          default: ""
+          selector: { entity: { integration: mashov, domain: sensor } }
+        s4_grades:
+          name: Grades sensor
+          default: ""
+          selector: { entity: { integration: mashov, domain: sensor } }
+        s4_timetable:
+          name: Timetable sensor
+          default: ""
+          selector: { entity: { integration: mashov, domain: sensor } }
+        s4_noticeboard:
+          name: Noticeboard sensor
+          description: Requires the "message board" additional data option.
+          default: ""
+          selector: { entity: { integration: mashov, domain: sensor } }
+        s4_holidays:
+          name: Holidays sensor
+          default: ""
+          selector: { entity: { integration: mashov, domain: sensor } }
+        s4_calendar:
+          name: School calendar
+          default: ""
+          selector: { entity: { integration: mashov, domain: calendar } }
+
+mode: single
+icon: mdi:school
+
+variables:
+  dashboard_url: !input dashboard_url
+  title: !input title
+  family: !input family
+  overwrite: !input overwrite
+  student_1:
+    name: !input s1_name
+    emoji: !input s1_emoji
+    label: !input s1_label
+    person: !input s1_person
+    viewers: !input s1_viewers
+    accent: !input s1_accent
+    homework: !input s1_homework
+    behavior: !input s1_behavior
+    grades: !input s1_grades
+    timetable: !input s1_timetable
+    noticeboard: !input s1_noticeboard
+    holidays: !input s1_holidays
+    calendar: !input s1_calendar
+  student_2:
+    name: !input s2_name
+    emoji: !input s2_emoji
+    label: !input s2_label
+    person: !input s2_person
+    viewers: !input s2_viewers
+    accent: !input s2_accent
+    homework: !input s2_homework
+    behavior: !input s2_behavior
+    grades: !input s2_grades
+    timetable: !input s2_timetable
+    noticeboard: !input s2_noticeboard
+    holidays: !input s2_holidays
+    calendar: !input s2_calendar
+  student_3:
+    name: !input s3_name
+    emoji: !input s3_emoji
+    label: !input s3_label
+    person: !input s3_person
+    viewers: !input s3_viewers
+    accent: !input s3_accent
+    homework: !input s3_homework
+    behavior: !input s3_behavior
+    grades: !input s3_grades
+    timetable: !input s3_timetable
+    noticeboard: !input s3_noticeboard
+    holidays: !input s3_holidays
+    calendar: !input s3_calendar
+  student_4:
+    name: !input s4_name
+    emoji: !input s4_emoji
+    label: !input s4_label
+    person: !input s4_person
+    viewers: !input s4_viewers
+    accent: !input s4_accent
+    homework: !input s4_homework
+    behavior: !input s4_behavior
+    grades: !input s4_grades
+    timetable: !input s4_timetable
+    noticeboard: !input s4_noticeboard
+    holidays: !input s4_holidays
+    calendar: !input s4_calendar
+  students: >-
+    {{ [student_1, student_2, student_3, student_4]
+       | selectattr('name') | list }}
+
+sequence:
+  - action: mashov.create_live_dashboard
+    data:
+      dashboard: "{{ dashboard_url }}"
+      title: "{{ title }}"
+      family: "{{ family }}"
+      overwrite: "{{ overwrite }}"
+      students: "{{ students }}"
+    response_variable: result
+  - action: persistent_notification.create
+    data:
+      notification_id: mashov_live_dashboard
+      title: Mashov Live
+      message: >-
+        Dashboard /{{ result.dashboard }} updated with {{ result.students }} students.
+        {% if result.bubble_card_found == false %}Bubble Card was not found; install it from HACS.{% endif %}

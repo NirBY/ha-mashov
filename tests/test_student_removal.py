@@ -1,4 +1,9 @@
-"""Student removal must preserve current students, shared devices and history."""
+"""Student removal must preserve current students, shared devices and history.
+
+Covers the manual "delete device" check against the live or cached roster, refusing
+removal when no roster is known, and automatic cleanup that detaches a departed
+student's device only after an authoritative, non-stale refresh.
+"""
 
 from copy import deepcopy
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -16,7 +21,9 @@ from .test_setup_resilience import DATA, _patch_cache, _patch_client
 @pytest.mark.parametrize("cached", [False, True])
 @pytest.mark.parametrize("identifier,allowed", [("departed", True), ("student-123", False), ("holidays_hub", False)])
 async def test_manual_removal_checks_roster(hass, mock_config_entry, cached, identifier, allowed):
+    """Only a device for a student absent from the roster (live or cached) may be deleted manually."""
     device = MagicMock(identifiers={(DOMAIN, identifier)})
+    # Without a loaded coordinator the check must fall back to the Store cache.
     if not cached:
         hass.data[DOMAIN] = {mock_config_entry.entry_id: {"coordinator": MagicMock(data=deepcopy(DATA))}}
     with patch("custom_components.mashov.Store") as store:
@@ -28,6 +35,7 @@ async def test_manual_removal_checks_roster(hass, mock_config_entry, cached, ide
 
 @pytest.mark.parametrize("data", [None, {}, {"data": {}}, {"data": {"students": None}}])
 async def test_missing_roster_cannot_approve_removal(hass, mock_config_entry, data):
+    """Without a usable cached roster, manual device removal is refused."""
     with patch("custom_components.mashov.Store") as store:
         store.return_value.async_load = AsyncMock(return_value=data)
         assert not await async_remove_config_entry_device(
@@ -42,6 +50,7 @@ async def test_missing_roster_cannot_approve_removal(hass, mock_config_entry, da
 async def test_automatic_cleanup_detaches_only_confirmed_departed_device(
     hass, mock_config_entry, authoritative, stale, shared
 ):
+    """A departed device is detached only after a fresh, non-stale roster; other entries' devices remain."""
     mock_config_entry.add_to_hass(hass)
     devices = dr.async_get(hass)
     entities = er.async_get(hass)
@@ -58,6 +67,8 @@ async def test_automatic_cleanup_detaches_only_confirmed_departed_device(
     if shared:
         other = MockConfigEntry(domain=DOMAIN, data={})
         other.add_to_hass(hass)
+        # Single-owner device registries need a separate device per entry;
+        # otherwise the other entry is attached to the same device.
         if hasattr(departed, "config_entry_id"):
             other_device = devices.async_get_or_create(
                 config_entry_id=other.entry_id, identifiers={(DOMAIN, "departed")}
@@ -72,6 +83,7 @@ async def test_automatic_cleanup_detaches_only_confirmed_departed_device(
             device_id=other_device.id,
         )
     patcher, client = _patch_client()
+    # Setup itself must not clean up; the roster/stale flags are applied to the next update.
     client.roster_refreshed = False
     try:
         with _patch_cache(None):

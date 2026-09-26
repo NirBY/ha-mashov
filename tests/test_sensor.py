@@ -1,4 +1,9 @@
-"""Test Mashov sensors."""
+"""Core list sensors (homework, behavior, timetable, holidays) exposed after a full setup.
+
+Each test patches ``custom_components.mashov.MashovClient`` with canned data from
+``tests.const`` and checks the sensor count state and the stored ``items`` attribute,
+including that internal IDs are stripped from homework and timetable records.
+"""
 
 from unittest.mock import AsyncMock, patch
 
@@ -23,7 +28,7 @@ def _get_sensor_state_by_suffix(hass: HomeAssistant, suffix: str):
 
 
 async def test_homework_sensor(hass: HomeAssistant, mock_config_entry: MockConfigEntry):
-    """Test homework sensor."""
+    """The homework sensor counts items and stores them without internal lesson/group IDs."""
     mock_config_entry.add_to_hass(hass)
 
     with patch("custom_components.mashov.MashovClient") as mock_client:
@@ -81,7 +86,7 @@ async def test_homework_sensor(hass: HomeAssistant, mock_config_entry: MockConfi
 
 
 async def test_behavior_sensor(hass: HomeAssistant, mock_config_entry: MockConfigEntry):
-    """Test behavior sensor."""
+    """The behavior sensor counts events and stores the records unchanged."""
     mock_config_entry.add_to_hass(hass)
 
     with patch("custom_components.mashov.MashovClient") as mock_client:
@@ -132,7 +137,7 @@ async def test_behavior_sensor(hass: HomeAssistant, mock_config_entry: MockConfi
 
 
 async def test_timetable_sensor(hass: HomeAssistant, mock_config_entry: MockConfigEntry):
-    """Test timetable sensor."""
+    """The timetable sensor keeps day/lesson/group details but drops the internal group ID."""
     mock_config_entry.add_to_hass(hass)
 
     with patch("custom_components.mashov.MashovClient") as mock_client:
@@ -188,7 +193,7 @@ async def test_timetable_sensor(hass: HomeAssistant, mock_config_entry: MockConf
 
 
 async def test_holidays_sensor(hass: HomeAssistant, mock_config_entry: MockConfigEntry):
-    """Test holidays sensor."""
+    """The per-entry holidays sensor counts holidays and stores them unchanged."""
     mock_config_entry.add_to_hass(hass)
 
     with patch("custom_components.mashov.MashovClient") as mock_client:
@@ -233,6 +238,7 @@ async def test_holidays_sensor(hass: HomeAssistant, mock_config_entry: MockConfi
 
     from homeassistant.helpers import entity_registry as er
 
+    # Look up by unique ID: the holidays sensor belongs to the entry, not to a student.
     entity_id = er.async_get(hass).async_get_entity_id(
         "sensor", "mashov", f"mashov_{mock_config_entry.entry_id}_holidays"
     )

@@ -8,6 +8,7 @@ from custom_components.mashov.sensor import MashovListSensor
 
 
 def test_large_formatted_fields_do_not_push_attributes_over_budget():
+    """Huge formatted fields are truncated so the whole attribute payload stays within 14 KiB."""
     attrs = {
         "items": [{"subject": "מקצוע" * 30} for _ in range(20)],
         "stored_items": 20,
@@ -25,6 +26,7 @@ def test_large_formatted_fields_do_not_push_attributes_over_budget():
 
 
 def test_single_oversized_item_can_be_omitted():
+    """A single item larger than the budget is dropped rather than stored."""
     sensor = MashovListSensor(
         SimpleNamespace(), "entry", "synthetic", "example", "Example", "homework", "Homework", "homework"
     )
@@ -32,6 +34,7 @@ def test_single_oversized_item_can_be_omitted():
 
 
 def test_small_payload_preserves_presentation():
+    """Payloads within budget keep their formatted fields untouched."""
     attrs = {"items": [{"a": 1}], "stored_items": 1, "total_items": 1, "formatted_table_html": "<p>Example</p>"}
     result = MashovListSensor._bound_attributes(attrs)
     assert result["formatted_table_html"] == "<p>Example</p>"

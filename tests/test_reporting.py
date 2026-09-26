@@ -8,6 +8,7 @@ from custom_components.mashov.reporting import diagnostic_summary, issue_report_
 
 
 def test_release_versions_match():
+    """VERSION, manifest.json and ``reporting.VERSION`` all carry the same release number."""
     from pathlib import Path
 
     from custom_components.mashov.reporting import VERSION
@@ -18,6 +19,7 @@ def test_release_versions_match():
 
 
 def test_diagnostics_allowlist_drops_private_values_and_dynamic_keys():
+    """Diagnostics keep only allowlisted counts; private values and unknown keys/statuses are dropped."""
     secret = "PRIVATE-STUDENT-TOKEN-NOTE"
     coordinator = SimpleNamespace(
         last_update_success=False,
@@ -46,6 +48,7 @@ def test_diagnostics_allowlist_drops_private_values_and_dynamic_keys():
 
 
 def test_report_prefills_existing_form_without_raw_exception():
+    """The report URL prefills the GitHub bug form with a mapped event name, never the raw title."""
     url = issue_report_url("Mashov refresh failed")
     assert urlparse(url).netloc == "github.com"
     params = parse_qs(urlparse(url).query)

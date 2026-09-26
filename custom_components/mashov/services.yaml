@@ -108,3 +108,38 @@ set_options:
             - study_materials
             - student_files
             - justification_requests
+
+create_live_dashboard:
+  name: "Create Mashov Live dashboard"
+  description: "Build the Mashov Live Bubble Card dashboard and save it into an existing UI dashboard."
+  fields:
+    dashboard:
+      name: "Dashboard URL"
+      description: "URL path of an existing, empty UI dashboard (for example mashov-live)."
+      default: mashov-live
+      example: mashov-live
+      selector:
+        text: {}
+    title:
+      name: "Title"
+      example: "משוב לייב"
+      selector:
+        text: {}
+    family:
+      name: "Family (sees every card)"
+      description: "People who can see every student card."
+      selector:
+        entity:
+          domain: person
+          multiple: true
+    students:
+      name: "Students"
+      description: "Optional tweaks per child (emoji, color, linked person, viewers). Omit to include every child from every Mashov hub."
+      selector:
+        object: {}
+    overwrite:
+      name: "Replace existing content"
+      description: "Replace a dashboard that already has other content, or a built-in dashboard such as the Overview. The previous content is lost."
+      default: false
+      selector:
+        boolean: {}

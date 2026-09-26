@@ -8,6 +8,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.mashov.const import DOMAIN
 
+# Provides the `hass`, `enable_custom_integrations` and related HA test fixtures.
 pytest_plugins = "pytest_homeassistant_custom_component"
 
 
@@ -36,9 +37,14 @@ def mock_config_entry_fixture() -> MockConfigEntry:
 
 @pytest.fixture(name="mock_mashov_client")
 def mock_mashov_client_fixture():
-    """Mock MashovClient."""
+    """Patch the MashovClient class used by the integration's __init__.
+
+    Yields the mocked instance with every network coroutine replaced by an
+    AsyncMock returning one test student and empty data sets.
+    """
     from unittest.mock import AsyncMock, patch
 
+    # Patch where the name is looked up (the package), not where it is defined.
     with patch("custom_components.mashov.MashovClient") as mock_client:
         client = mock_client.return_value
         client.async_init = AsyncMock(return_value=None)
@@ -46,6 +52,8 @@ def mock_mashov_client_fixture():
         client.async_open_session = AsyncMock(return_value=None)
         client.async_close_session = AsyncMock(return_value=None)
         client.async_authenticate = AsyncMock(return_value=True)
+        # Shape mirrors the coordinator payload: student list, per-student data
+        # keyed by slug, and shared holidays.
         client.async_fetch_all = AsyncMock(
             return_value={
                 "students": [
@@ -89,7 +97,10 @@ def mock_mashov_client_fixture():
 
 @pytest.fixture(name="enable_event_loop_debug", autouse=True)
 def enable_event_loop_debug_fixture():
-    """Safely enable loop debug mode when an event loop already exists."""
+    """Safely enable loop debug mode when an event loop already exists.
+
+    Overrides the upstream fixture, which raises when no current loop is set.
+    """
     with suppress(RuntimeError):
         asyncio.get_event_loop().set_debug(True)
     yield
@@ -100,7 +111,11 @@ def verify_cleanup_fixture(
     expected_lingering_tasks: bool,
     expected_lingering_timers: bool,
 ):
-    """Avoid upstream cleanup crashes when Python has no current event loop."""
+    """Avoid upstream cleanup crashes when Python has no current event loop.
+
+    Overrides the upstream ``verify_cleanup`` fixture; the lingering-task/timer
+    fixtures are still requested so tests can keep parametrizing them.
+    """
     yield
     with suppress(RuntimeError):
         event_loop = asyncio.get_event_loop()

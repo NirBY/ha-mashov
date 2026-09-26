@@ -1,3 +1,10 @@
+"""Password-change and authentication failures: detection, notifications and data retention.
+
+Protects that a ChangePass login response raises a dedicated error, that notifications
+include the Mashov login link, and that the coordinator keeps the last good data
+(raising UpdateFailed only when there is none).
+"""
+
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -16,6 +23,8 @@ def enable_custom_integrations():
 
 
 class _FakeResponse:
+    """Minimal aiohttp response stand-in exposing ``status``, ``headers`` and ``text()``."""
+
     def __init__(self, status: int, headers: dict[str, str] | None = None, text: str = "") -> None:
         self.status = status
         self.headers = headers or {}
@@ -26,6 +35,8 @@ class _FakeResponse:
 
 
 class _FakeRequestContext:
+    """Async context manager returned by ``session.post(...)``, yielding the fake response."""
+
     def __init__(self, response: _FakeResponse) -> None:
         self._response = response
 
@@ -37,6 +48,8 @@ class _FakeRequestContext:
 
 
 class _FakeSession:
+    """Session stand-in whose every POST (the login call) returns the same response."""
+
     def __init__(self, response: _FakeResponse) -> None:
         self.closed = False
         self._response = response
@@ -46,6 +59,11 @@ class _FakeSession:
 
 
 def _make_coordinator(existing_data, side_effect):
+    """Build a MashovCoordinator without running ``__init__`` (no hass/scheduler needed).
+
+    Only the attributes ``_async_update_data`` reads are set; ``async_fetch_all``
+    raises ``side_effect`` and ``data`` holds the previously fetched snapshot.
+    """
     coordinator = mashov_integration.MashovCoordinator.__new__(mashov_integration.MashovCoordinator)
     coordinator.name = "MashovCoordinator:Test"
     coordinator.hass = MagicMock()
@@ -58,6 +76,7 @@ def _make_coordinator(existing_data, side_effect):
 
 
 def test_client_raises_password_change_required_on_login_response() -> None:
+    """A 403 login response with ``reason: ChangePass`` raises MashovPasswordChangeRequiredError with the login URL."""
     client = MashovClient(
         school_id="123456",
         year=2026,
@@ -80,6 +99,7 @@ def test_client_raises_password_change_required_on_login_response() -> None:
 
 
 def test_password_change_notification_contains_login_link_and_cache_message() -> None:
+    """The password-change notification links to the Mashov login page and says cached data is kept."""
     hass = MagicMock()
     entry = SimpleNamespace(entry_id="entry-1", title="Test School (123456)")
     exc = MashovPasswordChangeRequiredError(
@@ -99,6 +119,7 @@ def test_password_change_notification_contains_login_link_and_cache_message() ->
 
 
 def test_coordinator_keeps_existing_data_when_password_change_is_required() -> None:
+    """With cached data, a password-change error notifies and returns the existing data unchanged."""
     existing_data = {"students": [{"id": "student-1"}], "by_slug": {}, "holidays": []}
     exc = MashovPasswordChangeRequiredError(
         "Please change password before authenticating.",
@@ -118,6 +139,7 @@ def test_coordinator_keeps_existing_data_when_password_change_is_required() -> N
 
 
 def test_coordinator_raises_without_existing_data_when_password_change_is_required() -> None:
+    """Without cached data, a password-change error notifies and raises UpdateFailed."""
     exc = MashovPasswordChangeRequiredError(
         "Please change password before authenticating.",
         "https://web.mashov.info/students/login",
@@ -134,6 +156,7 @@ def test_coordinator_raises_without_existing_data_when_password_change_is_requir
 
 
 def test_auth_notification_contains_configure_hint_and_login_link() -> None:
+    """The auth-failure notification points to the Configure dialog and the Mashov login page."""
     hass = MagicMock()
     entry = SimpleNamespace(entry_id="entry-1", title="Test School (123456)")
 
@@ -155,6 +178,7 @@ def test_auth_notification_contains_configure_hint_and_login_link() -> None:
 
 
 def test_coordinator_keeps_existing_data_when_authentication_fails() -> None:
+    """With cached data, an auth error notifies (with the login URL) and returns the existing data."""
     existing_data = {"students": [{"id": "student-1"}], "by_slug": {}, "holidays": []}
     exc = MashovAuthError("Authentication failed. Please check your credentials, school ID, and year.")
     coordinator = _make_coordinator(existing_data, exc)
@@ -176,6 +200,7 @@ def test_coordinator_keeps_existing_data_when_authentication_fails() -> None:
 
 
 def test_coordinator_raises_without_existing_data_when_authentication_fails() -> None:
+    """Without cached data, an auth error notifies and raises UpdateFailed."""
     exc = MashovAuthError("Authentication failed. Please check your credentials, school ID, and year.")
     coordinator = _make_coordinator(None, exc)
 

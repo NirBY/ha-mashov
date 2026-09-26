@@ -1,20 +1,83 @@
 # ------------------------------------------------------------
+# Mashov – Homework grouped by date (newest first)
+#
 # PREREQUISITES (install once)
-# - HACS installed
-# - From HACS → Frontend: install
-#     • config-template-card
-#     • html-card
-# - Settings → Dashboards → Resources → add as "type: module":
-#     • /hacsfiles/config-template-card/config-template-card.js
-#     • /hacsfiles/html-card/html-card.js
-# NOTE: Visual editor is not supported for this card; use YAML mode.
+# - From HACS → Frontend install: config-template-card, html-card
+# - Settings → Dashboards → Resources (type: module):
+#     /hacsfiles/config-template-card/config-template-card.js
+#     /hacsfiles/html-card/html-card.js
+#
+# HOW TO USE
+# - Replace sensor.mashov_<studentID>_homework in BOTH places below with your
+#   homework sensor (Developer Tools → States, filter "homework").
+# - UI dashboard: add a "Manual" card and paste this whole file.
+#   YAML dashboard: use !include (see the main README).
+# - The visual editor cannot edit this card; use the code editor.
+#
+# DATA
+# - Reads the structured `items` attribute first. Falls back to
+#   `formatted_by_date` only when `items` is empty, so the card keeps working
+#   when the sensor trims its formatted attributes to stay under the size limit.
+# - JavaScript comments use /* */ only: the folded block below is joined into
+#   one line, so // comments would swallow the rest of the code.
 # ------------------------------------------------------------
 
 type: custom:config-template-card
 entities:
-  # ⬇️ REPLACE <studentID> with your actual one (entity must be: sensor.mashov_<studentID>_homework)
   - sensor.mashov_<studentID>_homework
 card:
   type: custom:html-card
-  # Keep this whole string on ONE line. Do not add newlines inside ${ ... }.
-  content: "${(function(){var id='sensor.mashov_<studentID>_homework';var s=states[id];if(!s||!s.attributes){return '<div dir=\"rtl\" style=\"text-align:right;padding:8px;opacity:.8;\">אין נתונים להצגה</div>';}{/* ---- (optional) extract studentID; not shown in title ---- */}var m=id.match(/^sensor\\.mashov_(.+?)_homework$/);var studentID=m?m[1]:'';{/* ---- source data from the Mashov sensor ---- */}var by=s.attributes.formatted_by_date||s.attributes.by_date||{};var summary=s.attributes.formatted_summary||s.attributes.summary||'';var student=s.attributes.student_name||s.attributes.student||s.attributes.full_name||s.attributes.name||(s.attributes.friendly_name||'').trim();if(!student){student='שם תלמיד/ה';}{/* ---- collect & sort dates (newest → oldest) ---- */}var rows=[];for(var d in by){if(!Object.prototype.hasOwnProperty.call(by,d))continue;var p=(d||'').split('/');if(p.length<3)continue;var k=parseInt(p[2]+(p[1]||'').padStart(2,'0')+(p[0]||'').padStart(2,'0'));rows.push({k:k,d:d,items:by[d]||[]});}rows.sort(function(a,b){return b.k-a.k;});if(!rows.length){return '<div dir=\"rtl\" style=\"text-align:right;padding:8px;opacity:.8;\">אין נתונים להצגה</div>';}{/* ---- settings ---- */}var limit=5;var pal=['#f44336','#e91e63','#9c27b0','#673ab7','#3f51b5','#2196f3','#03a9f4','#00bcd4','#009688','#4caf50','#8bc34a','#cddc39','#ffeb3b','#ffc107','#ff9800','#ff5722','#795548','#607d8b'];{/* ---- build HTML (RTL) ---- */}var title='שיעורי בית — '+student;var out='<div dir=\"rtl\" style=\"text-align:right;\"><h3 style=\"margin:0 0 8px;font-size:16px;\">'+title+'</h3><div style=\"opacity:.8;margin-bottom:10px;\">'+summary+'</div>';for(var i=0;i<rows.length&&i<limit;i++){var row=rows[i];out+='<details'+(i===0?' open':'')+' dir=\"rtl\" style=\"margin:10px 0;border:1px solid rgba(0,0,0,.08);border-radius:10px;padding:10px;\"><summary style=\"list-style:none;cursor:pointer;display:flex;flex-direction:row-reverse;gap:8px;align-items:center;font-weight:700;\"><span>'+row.d+'</span><span style=\"opacity:.7;\">('+row.items.length+' פריטים)</span></summary>';for(var j=0;j<row.items.length;j++){var it=row.items[j]||'';var parts=it.split(':');var left=parts[0]||'';var body=(parts.length>1?parts.slice(1).join(':'):'').trim();var subj=left.split('-').slice(-1)[0].trim();var lesson=left.replace('שיעור','').split('-')[0].trim();{/* stable color per subject */}var key=subj.toLowerCase().trim(),acc=0;for(var c=0;c<key.length;c++){acc=(acc*31+key.charCodeAt(c))>>>0;}var color=pal[acc%pal.length];var letter=(subj.trim().charAt(0)||'•');out+='<div style=\"display:flex;flex-direction:row-reverse;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(0,0,0,.06);\"><div style=\"width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;background:'+color+';\">'+letter+'</div><div style=\"flex:1;\"><div style=\"font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;\">'+subj+'</div><div style=\"font-size:12px;opacity:.8;\">שיעור '+lesson+' — '+body+'</div></div></div>'; } out+='</details>'; } if(rows.length>limit){out+='<div style=\"direction:rtl;text-align:right;opacity:.7;font-size:12px;margin-top:6px;\">... ועוד '+(rows.length-limit)+' תאריכים</div>'; } out+='</div>';return out;})()}"
+  content: >-
+    ${(function(){
+    var id='sensor.mashov_<studentID>_homework';
+    var LIMIT=5;
+    var s=states[id];
+    var empty='<div dir="rtl" style="text-align:right;padding:8px;opacity:.8;">אין נתונים להצגה</div>';
+    if(!s||!s.attributes){return empty;}
+    var a=s.attributes;
+    function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+    var groups={};
+    function add(key,label,entry){(groups[key]||(groups[key]={k:key,d:label,items:[]})).items.push(entry);}
+    var items=Array.isArray(a.items)?a.items:[];
+    if(items.length){
+      for(var i=0;i<items.length;i++){
+        var it=items[i]||{};
+        var p=String(it.lesson_date||'').slice(0,10).split('-');
+        if(p.length<3)continue;
+        var body=it.homework||'';
+        if(it.remark){body+=' ('+it.remark+')';}
+        add(parseInt(p[0]+p[1]+p[2],10),p[2]+'/'+p[1]+'/'+p[0],{lesson:it.lesson,subject:it.subject_name||'',body:body});
+      }
+    }else{
+      /* Fallback format: "שיעור <lesson> - <subject>: <text>" keyed by dd/mm/yyyy */
+      var by=a.formatted_by_date||{};
+      for(var d in by){
+        if(!Object.prototype.hasOwnProperty.call(by,d))continue;
+        var q=String(d).split('/');
+        if(q.length<3)continue;
+        var list=by[d]||[];
+        for(var j=0;j<list.length;j++){
+          var m=String(list[j]||'').match(/^שיעור\s*(\S*)\s+-\s+([^:]*):\s*([\s\S]*)$/);
+          add(parseInt(q[2]+q[1].padStart(2,'0')+q[0].padStart(2,'0'),10),d,m?{lesson:m[1],subject:m[2].trim(),body:m[3]}:{lesson:'',subject:'',body:list[j]});
+        }
+      }
+    }
+    var rows=Object.keys(groups).map(function(k){return groups[k];}).sort(function(x,y){return y.k-x.k;});
+    if(!rows.length){return empty;}
+    var pal=['#f44336','#e91e63','#9c27b0','#673ab7','#3f51b5','#2196f3','#03a9f4','#00bcd4','#009688','#4caf50','#8bc34a','#cddc39','#ffc107','#ff9800','#ff5722','#795548','#607d8b'];
+    var student=a.student_name||(a.friendly_name||'').trim()||'שם תלמיד/ה';
+    var out='<div dir="rtl" style="text-align:right;"><h3 style="margin:0 0 8px;font-size:16px;">שיעורי בית — '+esc(student)+'</h3><div style="opacity:.8;margin-bottom:10px;">'+esc(a.formatted_summary||'')+'</div>';
+    for(var r=0;r<rows.length&&r<LIMIT;r++){
+      var row=rows[r];
+      out+='<details'+(r===0?' open':'')+' dir="rtl" style="margin:10px 0;border:1px solid rgba(0,0,0,.08);border-radius:10px;padding:10px;"><summary style="cursor:pointer;display:flex;gap:8px;align-items:center;font-weight:700;"><span>'+esc(row.d)+'</span><span style="opacity:.7;">('+row.items.length+' פריטים)</span></summary>';
+      for(var n=0;n<row.items.length;n++){
+        var e=row.items[n];
+        var key=String(e.subject||'').toLowerCase().trim(),acc=0;
+        for(var c=0;c<key.length;c++){acc=(acc*31+key.charCodeAt(c))>>>0;}
+        out+='<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(0,0,0,.06);"><div style="flex:none;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;background:'+pal[acc%pal.length]+';">'+esc(String(e.subject||'').trim().charAt(0)||'•')+'</div><div style="flex:1;min-width:0;"><div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(e.subject||'')+'</div><div style="font-size:12px;opacity:.8;">'+(e.lesson!=null&&e.lesson!==''?'שיעור '+esc(e.lesson)+' — ':'')+esc(e.body)+'</div></div></div>';
+      }
+      out+='</details>';
+    }
+    if(rows.length>LIMIT){out+='<div style="opacity:.7;font-size:12px;margin-top:6px;">... ועוד '+(rows.length-LIMIT)+' תאריכים</div>';}
+    return out+'</div>';
+    })()}

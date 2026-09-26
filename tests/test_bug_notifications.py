@@ -36,6 +36,7 @@ from custom_components.mashov.reporting import is_internal_error, issue_report_u
     ],
 )
 def test_operational_failures_are_not_bug_reports(error):
+    """Network, HTTP, auth and OS errors are operational failures and never offer a GitHub bug report."""
     assert not is_internal_error(error)
 
 
@@ -43,12 +44,14 @@ def test_operational_failures_are_not_bug_reports(error):
     "error", [TypeError("private"), KeyError("private"), AttributeError("private"), RuntimeError("private")]
 )
 def test_internal_failures_survive_ha_wrappers(error):
+    """Programming errors are still detected as internal when wrapped in UpdateFailed via ``__cause__``."""
     wrapper = UpdateFailed("wrapper")
     wrapper.__cause__ = error
     assert is_internal_error(wrapper)
 
 
 def test_normal_alerts_have_no_github_link(hass, mock_config_entry):
+    """Auth, password-change and operational error notifications contain no GitHub link."""
     with patch("custom_components.mashov.persistent_notification.async_create") as create:
         _async_show_auth_notification(hass, mock_config_entry, "Bad password")
         _async_show_password_change_notification(
@@ -60,6 +63,7 @@ def test_normal_alerts_have_no_github_link(hass, mock_config_entry):
 
 
 async def test_internal_error_offers_optional_logs_and_diagnostics_without_private_text(hass, mock_config_entry):
+    """An internal error offers report links and diagnostics logs that never include the exception text."""
     secret = "PRIVATE-TOKEN-STUDENT-HOMEWORK"
     try:
         raise TypeError(secret)
@@ -81,10 +85,12 @@ async def test_internal_error_offers_optional_logs_and_diagnostics_without_priva
 
 
 async def test_internal_errors_notify_immediately_once_and_reset_on_recovery(hass, mock_config_entry):
+    """Repeated internal errors notify once; a successful refresh re-arms the notification."""
     client = MagicMock(async_fetch_all=AsyncMock(side_effect=TypeError("private")), auth_data={})
     coordinator = MashovCoordinator(hass, client, mock_config_entry)
     coordinator.data = {"students": [], "by_slug": {}}
     with patch("custom_components.mashov._async_show_error_notification") as notify:
+        # Three consecutive failures must produce a single notification.
         for _ in range(3):
             with pytest.raises(UpdateFailed):
                 await coordinator._async_update_data()
@@ -100,6 +106,7 @@ async def test_internal_errors_notify_immediately_once_and_reset_on_recovery(has
 
 
 async def test_technical_logs_are_bounded_and_isolated_by_hub(hass, mock_config_entry):
+    """Technical logs are capped at 20 per entry, isolated per entry, and the report URL carries only one."""
     with patch("custom_components.mashov.persistent_notification.async_create"):
         for _ in range(25):
             _async_show_error_notification(hass, mock_config_entry, "Mashov refresh failed", KeyError("secret"))
@@ -120,7 +127,11 @@ async def test_technical_logs_are_bounded_and_isolated_by_hub(hass, mock_config_
 
 
 def test_safe_log_never_uses_exception_message_or_custom_exception_name():
+    """Technical logs record the nearest builtin exception type, never a custom name or the message."""
+
     class PRIVATESTUDENT(TypeError):
+        """Custom exception whose class name itself looks like private data."""
+
         pass
 
     record = technical_log(PRIVATESTUDENT("PRIVATE-TOKEN"), "unknown private title")
@@ -129,6 +140,7 @@ def test_safe_log_never_uses_exception_message_or_custom_exception_name():
 
 
 async def test_client_programming_error_reaches_report_with_safe_code_location(hass, mock_config_entry):
+    """A client-side TypeError is reported with integration-only frame file names and no private data."""
     from custom_components.mashov.mashov_client import MashovClient
 
     client = MashovClient("123", 2027, "u", "p")
@@ -136,6 +148,7 @@ async def test_client_programming_error_reaches_report_with_safe_code_location(h
     client._headers["X-Csrf-Token"] = "PRIVATE TOKEN"
     response = MagicMock(status=200)
     response.json = AsyncMock(side_effect=TypeError("PRIVATE RECORD"))
+    # session.get() is used as an async context manager yielding the response.
     context = MagicMock()
     context.__aenter__ = AsyncMock(return_value=response)
     context.__aexit__ = AsyncMock(return_value=False)
@@ -154,10 +167,12 @@ async def test_client_programming_error_reaches_report_with_safe_code_location(h
 
 
 async def test_internal_startup_failure_with_cache_reports_only_once(hass, mock_config_entry):
+    """An internal error during cached startup notifies once, and the next failing refresh does not repeat it."""
     from .test_setup_resilience import DATA, _patch_cache, _patch_client
 
     mock_config_entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(mock_config_entry, options={"schedule_type": "interval"})
+    # Start from a cached snapshot so setup succeeds even though the first refresh fails.
     patcher, client = _patch_client(TypeError("private"))
     try:
         with (

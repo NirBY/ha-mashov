@@ -1,4 +1,7 @@
-"""Test Mashov integration initialization."""
+"""Integration lifecycle: config entry setup, setup failure, unload and the refresh_now service.
+
+Each test patches ``custom_components.mashov.MashovClient`` so no real login happens.
+"""
 
 from unittest.mock import AsyncMock, patch
 
@@ -12,7 +15,7 @@ from .const import TEST_STUDENT
 
 
 async def test_setup_entry(hass: HomeAssistant, mock_config_entry: MockConfigEntry):
-    """Test setup of a config entry."""
+    """A config entry with a working client loads successfully."""
     mock_config_entry.add_to_hass(hass)
 
     with patch("custom_components.mashov.MashovClient") as mock_client:
@@ -54,7 +57,7 @@ async def test_setup_entry(hass: HomeAssistant, mock_config_entry: MockConfigEnt
 
 
 async def test_setup_entry_auth_failed(hass: HomeAssistant, mock_config_entry: MockConfigEntry):
-    """Test setup fails when authentication fails."""
+    """A failing client init makes setup return False and leaves the entry in error/retry."""
     mock_config_entry.add_to_hass(hass)
 
     with patch("custom_components.mashov.MashovClient") as mock_client:
@@ -74,7 +77,7 @@ async def test_setup_entry_auth_failed(hass: HomeAssistant, mock_config_entry: M
 
 
 async def test_unload_entry(hass: HomeAssistant, mock_config_entry: MockConfigEntry):
-    """Test unloading a config entry."""
+    """A loaded entry unloads cleanly to NOT_LOADED."""
     mock_config_entry.add_to_hass(hass)
 
     with patch("custom_components.mashov.MashovClient") as mock_client:
@@ -119,7 +122,7 @@ async def test_unload_entry(hass: HomeAssistant, mock_config_entry: MockConfigEn
 
 
 async def test_refresh_service(hass: HomeAssistant, mock_config_entry: MockConfigEntry):
-    """Test refresh service."""
+    """Calling ``mashov.refresh_now`` for an entry triggers a coordinator fetch."""
     mock_config_entry.add_to_hass(hass)
 
     with patch("custom_components.mashov.MashovClient") as mock_client:

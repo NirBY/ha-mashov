@@ -1,5 +1,6 @@
-# Set school_holidays_entity to mashov_holidays_2 (Ahad Haam) or
-# mashov_holidays_mashov_holidays (Naomi Shemer) in BOTH places below.
+# Replace sensor.<school_holidays_entity> in BOTH places below (the entities list and
+# the holiday variable in the JavaScript) with the holiday sensor of the student's own hub.
+# Find it in Developer Tools → States by filtering "holidays".
 # --------------------------------------------
 # Mashov – Weekly timetable + plan + holidays (template)
 # --------------------------------------------
@@ -14,7 +15,8 @@
 # - Replace <studentID> in BOTH entity IDs below:
 #     sensor.mashov_<studentID>_timetable
 #     sensor.mashov_<studentID>_weekly_plan
-# - If your holidays sensor has a different id, change sensor.<school_holidays_entity> accordingly.
+# - Each school hub has its own holiday sensor; pick the one for this student's school.
+# - UI dashboard: add a "Manual" card and paste this file. YAML dashboard: use !include.
 #
 # DEPENDENCIES (Lovelace resources)
 # - custom:config-template-card   (HACS)  → add resource, then use type: module
