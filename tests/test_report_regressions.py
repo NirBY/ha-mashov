@@ -123,6 +123,23 @@ async def test_cache_and_notification_threshold_then_recovery(hass, mock_config_
     await coordinator.async_shutdown()
 
 
+async def test_failed_holidays_never_become_a_successful_empty_cache(hass, mock_config_entry):
+    client = MagicMock(auth_data={}, async_fetch_all=AsyncMock())
+    coordinator = MashovCoordinator(hass, client, mock_config_entry)
+    for _ in range(2):
+        client.async_fetch_all.return_value = {**deepcopy(DATA), "holidays_status": "http_500"}
+        coordinator.data = await coordinator._async_update_data()
+        assert not coordinator.data.get("holidays_cached")
+    client.async_fetch_all.return_value = {**deepcopy(DATA), "holidays_status": "ok"}
+    coordinator.data = await coordinator._async_update_data()
+    timestamp = coordinator.data["holidays_last_update"]
+    client.async_fetch_all.return_value = {**deepcopy(DATA), "holidays_status": "http_500"}
+    result = await coordinator._async_update_data()
+    assert result["holidays_cached"]
+    assert result["holidays_last_update"] == timestamp
+    await coordinator.async_shutdown()
+
+
 async def test_failed_first_coordinator_refresh_exposes_stale_cache_in_ha(hass, mock_config_entry):
     mock_config_entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(mock_config_entry, options={"schedule_type": "interval"})
@@ -211,7 +228,10 @@ async def test_orphan_cleanup_requires_live_roster_and_keeps_active_optional_sen
         updated["students"][0]["name"] = "Test Student (B2)"
         coordinator.async_set_updated_data(updated)
         await hass.async_block_till_done()
-        device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, "student-123")})
+        entity_id = registry.async_get_entity_id(
+            "sensor", DOMAIN, f"mashov_{mock_config_entry.entry_id}_student-123_homework"
+        )
+        device = dr.async_get(hass).async_get(registry.async_get(entity_id).device_id)
         assert device.name == "Mashov – Test Student (B2)"
         await hass.config_entries.async_unload(mock_config_entry.entry_id)
     finally:

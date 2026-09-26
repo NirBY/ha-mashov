@@ -1136,15 +1136,14 @@ class MashovHolidaysSensor(MashovEntity, SensorEntity):
             by_date.setdefault(key, []).append(name)
 
         summary = f"יש {len(items)} חגים/חופשות"
+        last_update = data.get("holidays_last_update", getattr(self.coordinator, "last_successful_update", None))
         return {
             "source_status": data.get("holidays_status", "ok"),
             "data_stale": self.data_stale or data.get("holidays_status", "ok") != "ok",
             "formatted_summary": summary,
             "formatted_by_date": by_date,
             "items": items,
-            "last_update": datetime.fromtimestamp(self.coordinator.last_successful_update, tz=dt_util.UTC).isoformat()
-            if getattr(self.coordinator, "last_successful_update", None)
-            else None,
+            "last_update": datetime.fromtimestamp(last_update, tz=dt_util.UTC).isoformat() if last_update else None,
         }
 
     @property

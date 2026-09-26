@@ -4,8 +4,6 @@ from homeassistant.core import callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
-
 
 class MashovEntity(CoordinatorEntity):
     """Keep last known data visible, explicitly marked stale after a failure."""
@@ -43,7 +41,8 @@ class MashovStudentEntity(MashovEntity):
     @callback
     def _handle_coordinator_update(self):
         registry = dr.async_get(self.hass)
-        device = registry.async_get_device(identifiers={(DOMAIN, str(self._student_id))})
+        registered = self.registry_entry
+        device = registry.async_get(registered.device_id) if registered and registered.device_id else None
         if device and device.name != f"Mashov – {self.student_name}":
             registry.async_update_device(device.id, name=f"Mashov – {self.student_name}")
         super()._handle_coordinator_update()

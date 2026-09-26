@@ -671,10 +671,18 @@ class MashovCoordinator(DataUpdateCoordinator):
             data = await asyncio.create_task(self.client.async_fetch_all())
             self.data_stale = False
             self._consecutive_failures = 0
+            previous_update = self.last_successful_update
             self.last_successful_update = time.time()
-            if data.get("holidays_status", "ok") != "ok" and self.data and "holidays" in self.data:
+            if data.get("holidays_status", "ok") == "ok":
+                data["holidays_last_update"] = self.last_successful_update
+            elif (
+                self.data
+                and "holidays" in self.data
+                and (self.data.get("holidays_status", "ok") == "ok" or self.data.get("holidays_cached"))
+            ):
                 data["holidays"] = self.data["holidays"]
                 data["holidays_cached"] = True
+                data["holidays_last_update"] = self.data.get("holidays_last_update", previous_update)
             _async_clear_issue_notification(self.hass, self.entry)
             _LOGGER.debug("Coordinator update completed; students=%d", len(data.get("students", [])))
             # Persist cache after every successful data update (interval, daily, or manual refresh)

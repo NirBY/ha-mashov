@@ -9,6 +9,7 @@ and cleanup of accidentally tracked working files.
 - Core-resource and holiday status diagnostics, plus visible `data_stale` and actual last successful refresh timestamps.
 
 ## Fixed
+- Use each entity's registered device ID for compatibility with current Home Assistant device registries.
 - Remove repeated student/device names without renaming existing entity IDs or user-defined names; update device/student names after class changes.
 - Keep cached sensor/calendar data visible after startup and periodic refresh failures. Mark it stale instead of claiming a new successful refresh.
 - Isolate holiday fetch failures from student data; retry holiday authentication once and retain previous holidays when available.
@@ -34,6 +35,6 @@ and cleanup of accidentally tracked working files.
 - Expanded `.gitignore` for scratch scripts, packaging artifacts and local HA access/diagnostic files. Kept the actual integration icon and coordinator implementation.
 
 ## Validation
-- 110 Home Assistant regression tests, Ruff lint/format, and GitHub CI (Python 3.13/3.14, hassfest and HACS).
+- 111 Home Assistant regression tests, Ruff lint/format, and GitHub CI (Python 3.13/3.14, hassfest and HACS).
 - Real HA test entities cover translated names, visible blocked-source attributes, cache fallback, name updates, conservative orphan cleanup and upgrade/reload ID preservation.
 - [All 17 review findings and decisions](https://github.com/NirBY/ha-mashov/blob/v1.0.10/docs/review-v1.0.10.md).
