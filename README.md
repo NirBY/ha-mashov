@@ -6,7 +6,11 @@ Unofficial integration for **משו"ב (Mashov)** that logs into the student por
 - **Behavior**
 - **Timetable** (weekly timetable per student)
 - **Lessons History** (historical lessons/logs per student)
-- Global **Holidays** (school holidays calendar)
+- **Grades**
+- **Holidays** (sensor and calendar per school hub)
+
+Current release: **v1.0.9**. Requires **Home Assistant 2025.3 or newer**.
+See [release notes](RELEASE_NOTES.md) for fixes and upgrade compatibility.
 
 > This project is **community-made** and not affiliated with Mashov. Use at your own risk and follow your school's policies.
 
@@ -36,7 +40,7 @@ Unofficial integration for **משו"ב (Mashov)** that logs into the student por
 1. Copy `custom_components/mashov` into your HA `/config/` folder.
 2. Restart Home Assistant.
 
-> The integration includes custom `icon.png` and `logo.png` for better visuals in Home Assistant.
+> The integration includes a custom `icon.png`.
 
 ---
 
@@ -52,6 +56,11 @@ Unofficial integration for **משו"ב (Mashov)** that logs into the student por
 To configure options, go to: **Settings → Devices & Services → Mashov → Configure**
 
 Credential updates in **Configure** apply only to the specific Mashov hub entry you opened. If you have multiple Mashov hubs, updating one hub's username or password does **not** automatically update the others.
+
+Duplicate accounts for the same school are detected during setup. Different accounts
+can expose the same child in separate hubs without sensor unique-ID collisions.
+The school year advances automatically on September 1 unless an existing entry has
+an explicitly configured year; that year remains pinned.
 
 - **Homework window**: days back (default 7), days forward (default 21)
 - **Daily refresh time**: default `02:30`
@@ -89,7 +98,9 @@ independently for each student and school. The external Shahaf exam calendar,
 mail, and parent approvals are not included in these sensors.
 
 ### Configuration via configuration.yaml (optional)
-You can also configure the refresh schedule via YAML. Values in YAML override the Options UI.
+You can also configure the refresh schedule via YAML. Scheduling values in YAML
+override the Options UI. Configure the API base, homework window, and item limit
+through the Options UI.
 
 ```yaml
 mashov:
@@ -99,12 +110,6 @@ mashov:
   schedule_day: 0             # 0=Monday ... 6=Sunday
   schedule_days: [0, 2, 4]    # optional multiple days for weekly
   schedule_interval: 120      # minutes (for interval mode)
-
-  # Other (optional)
-  homework_days_back: 7
-  homework_days_forward: 21
-  api_base: "https://web.mashov.info/api/"
-  max_items_in_attributes: 100  # 10-500, limits items stored in DB
 ```
 
 ---
@@ -113,15 +118,26 @@ mashov:
 
 For each child **N**, these sensors are created:
 
+The IDs below are illustrative. Home Assistant assigns entity IDs from entity names
+and its registry; select your actual IDs in **Settings → Devices & Services → Entities**.
+Upgrading preserves existing entity IDs and history references. Internal unique IDs
+are scoped to each hub automatically.
+
 - **Weekly Plan** – `sensor.mashov_<student_id>_weekly_plan`
 - **Homework** – `sensor.mashov_<student_id>_homework`
 - **Behavior** – `sensor.mashov_<student_id>_behavior`
 - **Timetable** – `sensor.mashov_<student_id>_timetable`
 - **Lessons History** – `sensor.mashov_<student_id>_lessons_history`
-- **Grades** – `sensor.mashov_<student_id>_grades` – 🆕 **New in v1.0.3**
+- **Grades** – `sensor.mashov_<student_id>_grades`
 
 **State** = number of items.  
 **Attributes** (common): `items`, `formatted_summary`, `formatted_by_date`, `formatted_by_subject` (and for timetable: also table helpers).
+
+Weekly-plan subjects and teachers are filled from timetable groups where available,
+and grouped views include the plan text. Dated plans without weekday grid positions
+do not expose an empty HTML table. Students continue updating after a class-name
+change because data lookup follows their stable student ID. Update and schedule
+timestamps use Home Assistant's configured timezone.
 
 > **Tip**: Use `{{ state_attr('sensor.mashov_<id>_homework', 'items') }}` to access raw lists.
 >
@@ -130,11 +146,14 @@ For each child **N**, these sensors are created:
 > - `stored_items` = number of items in the `items` attribute
 > - Full raw data is always available via `coordinator.data` for advanced automations
 
-### Global Entities
+### School hub entities
+
+Each hub has its own holiday sensor and calendar. Select the matching school's
+entities in cards and automations; IDs can have suffixes on installations with multiple hubs.
 - **Holidays Sensor** – `sensor.mashov_holidays`  
   State = number of holidays. Attributes: `items`, `formatted_summary`, `formatted_by_date`.
 
-- **Holidays Calendar** – `calendar.mashov_holidays_calendar` – 🆕 **New in v1.0.3**  
+- **Holidays Calendar** – `calendar.mashov_holidays_calendar`
   Full calendar integration for school holidays. Shows events in Home Assistant calendar view with start/end dates.  
   _Contributed by [@aviadlevy](https://github.com/aviadlevy)_
 
@@ -206,6 +225,24 @@ data:
 
 Calling without `entry_id` refreshes all configured Mashov hubs.
 
+### `mashov.set_options`
+
+Update a hub's options without opening Configure:
+
+```yaml
+service: mashov.set_options
+data:
+  entry_id: YOUR_ENTRY_ID
+  schedule_type: weekly
+  schedule_time: "14:00"
+  schedule_days: [0, 2, 4]  # Monday, Wednesday, Friday
+```
+
+For backward compatibility, omitting `entry_id` targets the first loaded hub.
+Specify it when selecting a particular hub. The legacy `schedule_day` field remains
+supported; supplying it without `schedule_days` replaces the selected days with
+that one day. Invalid service inputs are rejected. YAML scheduling overrides still apply.
+
 ---
 
 ## 🧱 Lovelace Cards (Examples)
@@ -264,14 +301,30 @@ views:
 
 ## 🔍 Troubleshooting
 
-- **401 / 403**: re-check credentials and school choice. Try **Reconfigure** or **Remove & Add** the integration again.
+- **401 / authentication failures**: check credentials and school choice, and update credentials through **Configure**. Password-change responses display a link to the Mashov login page.
+- **403 / school-disabled resources**: core resources such as weekly plan retry after 1 hour, then 6 hours, then 24 hours. Each student's resource has its own cooldown, which resets after success. Optional resources use a separate 24-hour cooldown. A school permission denial does not necessarily mean the password is wrong.
+- **Startup connection failures**: HA retries transient setup failures when no cached data is available. When cached data exists, the integration retains it until a refresh succeeds.
 - **Different host**: open **Options → API base** and paste the base prefix you see in your browser DevTools Network tab (up to `/api/`).  
   Common defaults: `https://web.mashov.info/api/`, sometimes `https://mobileapi.mashov.info/api/`.
 - **No schools in dropdown**: temporary catalog issue — the flow falls back to text; enter the name or Semel to resolve.
-- **Autocomplete not working**: the dropdown is limited to 200 schools for performance; try typing the school name to filter the list.
+- **Autocomplete not working**: suggestions are limited to 50 schools; type the school name or Semel to search beyond those suggestions.
 - **Multiple kids missing**: ensure your account actually lists multiple students in Mashov. Check HA logs for `custom_components.mashov` debug entries.
 - **Session errors**: if you see "Unclosed client session" errors, restart Home Assistant to clear any stale connections.
-- **"New Device" emails**: v1.0.5+ includes session persistence to prevent repetitive "New Device login" emails. If you still receive them, ensure the integration is not being restarted too frequently (e.g., watchlists or full system restarts) and that `custom_components.mashov.cache` exists in `.storage`.
+- **"New Device" emails**: session persistence reduces unnecessary logins but cannot prevent fresh authentication after a server-side session expiry. Authentication is saved after successful refreshes in `.storage/mashov.<entry_id>.cache`. Avoid unnecessary reloads and never share this file; it contains authentication data.
+
+### Notifications, GitHub, Telegram and GreenAPI
+
+Authentication and full-refresh failures create a persistent notification in the HA
+UI. A successful refresh dismisses that hub's notification. The GitHub link opens a
+prefilled issue form for you to review and submit; publishing or closing an issue
+on GitHub does not synchronize its status back into HA.
+
+The integration does not include GitHub issue monitoring or automatic Telegram/
+GreenAPI delivery. Configure those separately if needed. To forward HA notifications,
+use a `persistent_notification` trigger for added/updated notifications; listening
+only for calls to the `persistent_notification.create` service misses notifications
+created directly by integration code. For HACS release alerts, monitor the relevant
+`update` entities rather than relying on the legacy `sensor.hacs` entity.
 
 ### Enable debug logs
 ```yaml
@@ -341,6 +394,10 @@ retains the full fetched dataset. A single oversized item may be omitted entirel
 Upgrade in HACS and restart Home Assistant. Existing entity IDs and settings are
 preserved automatically, including when a student appears in multiple hubs.
 Disabled core resources now retry after 1h/6h/24h rather than on every refresh.
+Setup reads version metadata already loaded by HA without blocking file reads.
+Account setup retains the selected school, closes failed validation sessions, and
+applies credential/options changes with one reload. Holiday timestamps with timezone
+offsets are supported, and unloading failures preserve the active client and timers.
 See [release notes](RELEASE_NOTES.md) for the full fixes and compatibility details.
 
 `mashov.set_options` accepts an optional `entry_id` to choose a hub. For backward
