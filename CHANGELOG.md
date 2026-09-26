@@ -25,6 +25,7 @@ Changes since v1.0.13, reviewed against the implementation.
 - Scope student popup links to both hub and student, preventing collisions when two hubs include the same student ID.
 - Reject a requested family visibility selection when none of its persons resolves to a HA user, instead of saving unrestricted manual cards.
 - Add regression coverage for both cases, existing-dashboard preservation and school-year persistence across rollover.
+- Declare Lovelace as an optional startup-order dependency, as required by hassfest for the new dashboard service.
 
 ### Examples, translations and maintenance
 - Homework/behavior cards consume structured `items`, retain a legacy fallback, escape HTML and handle hyphens in subject names.

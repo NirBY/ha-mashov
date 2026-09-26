@@ -1,6 +1,9 @@
 {
   "domain": "mashov",
   "name": "Mashov",
+  "after_dependencies": [
+    "lovelace"
+  ],
   "codeowners": [
     "@nirby"
   ],
