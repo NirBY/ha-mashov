@@ -160,9 +160,10 @@ async def test_internal_startup_failure_with_cache_reports_only_once(hass, mock_
     hass.config_entries.async_update_entry(mock_config_entry, options={"schedule_type": "interval"})
     patcher, client = _patch_client(TypeError("private"))
     try:
-        with _patch_cache({"data": DATA, "auth": {}, "last_refresh_ts": 1}), patch(
-            "custom_components.mashov._async_show_error_notification"
-        ) as notify:
+        with (
+            _patch_cache({"data": DATA, "auth": {}, "last_refresh_ts": 1}),
+            patch("custom_components.mashov._async_show_error_notification") as notify,
+        ):
             assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
             await hass.async_block_till_done()
             coordinator = hass.data["mashov"][mock_config_entry.entry_id]["coordinator"]
