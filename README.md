@@ -335,3 +335,15 @@ Sensor attributes are bounded as a complete JSON payload. If `formatting_truncat
 true, duplicate formatted groups/HTML may be empty so raw records can fit. If
 `items_truncated` is true, compare `stored_items` with `total_items`; the coordinator
 retains the full fetched dataset. A single oversized item may be omitted entirely.
+
+## v1.0.9: reliability and upgrade compatibility
+
+Upgrade in HACS and restart Home Assistant. Existing entity IDs and settings are
+preserved automatically, including when a student appears in multiple hubs.
+Disabled core resources now retry after 1h/6h/24h rather than on every refresh.
+See [release notes](RELEASE_NOTES.md) for the full fixes and compatibility details.
+
+`mashov.set_options` accepts an optional `entry_id` to choose a hub. For backward
+compatibility, omitting it targets the first loaded hub. `mashov.refresh_now`
+continues to refresh every hub when `entry_id` is omitted. The legacy
+`schedule_day` service field remains supported and replaces the selected days.

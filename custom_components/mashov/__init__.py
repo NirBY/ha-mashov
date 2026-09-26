@@ -9,9 +9,12 @@ import time
 from homeassistant.components import persistent_notification  # type: ignore
 from homeassistant.config_entries import ConfigEntry  # type: ignore
 from homeassistant.core import HomeAssistant, ServiceCall, callback  # type: ignore
+from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady, ServiceValidationError  # type: ignore
+from homeassistant.helpers import config_validation as cv  # type: ignore
 from homeassistant.helpers.event import async_track_time_change  # type: ignore
 from homeassistant.helpers.storage import Store  # type: ignore
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed  # type: ignore
+from homeassistant.loader import async_get_integration  # type: ignore
 from homeassistant.util import dt as dt_util  # type: ignore
 import voluptuous as vol  # type: ignore
 
@@ -131,35 +134,89 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         _LOGGER.info("Loaded YAML options for Mashov: %s", {k: yaml_conf.get(k) for k in yaml_conf})
     else:
         _LOGGER.debug("No YAML options provided for Mashov")
+    _async_register_services(hass)
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
-    # Try to log version info (best effort)
-    try:
-        import json
-        import os
+def _int_in(lo: int, hi: int):
+    return vol.All(vol.Coerce(int), vol.Range(min=lo, max=hi))
 
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        version_file = os.path.abspath(os.path.join(current_dir, "..", "..", "VERSION"))
-        if not os.path.exists(version_file):
-            alt = os.path.abspath(os.path.join(current_dir, "..", "..", "..", "VERSION"))
-            if os.path.exists(alt):
-                version_file = alt
-        if os.path.exists(version_file):
-            with open(version_file, encoding="utf-8") as f:
-                version = f.read().strip()
-            _LOGGER.info("Setting up Mashov integration v%s for entry: %s", version, entry.title)
+
+REFRESH_NOW_SCHEMA = vol.Schema({vol.Optional("entry_id"): cv.string})
+SET_OPTIONS_SCHEMA = vol.Schema(
+    {
+        vol.Optional("entry_id"): cv.string,
+        vol.Optional(CONF_SCHEDULE_TYPE): vol.In(["daily", "weekly", "interval"]),
+        vol.Optional(CONF_SCHEDULE_TIME): vol.Match(r"^([01]?[0-9]|2[0-3]):[0-5][0-9]$"),
+        vol.Optional(CONF_SCHEDULE_DAY): _int_in(0, 6),
+        vol.Optional(CONF_SCHEDULE_DAYS): vol.All(
+            cv.ensure_list, [_int_in(0, 6)], vol.Length(min=1), lambda days: sorted(set(days))
+        ),
+        vol.Optional(CONF_SCHEDULE_INTERVAL): _int_in(5, 1440),
+        vol.Optional(CONF_HOMEWORK_DAYS_BACK): _int_in(0, 60),
+        vol.Optional(CONF_HOMEWORK_DAYS_FORWARD): _int_in(1, 120),
+        vol.Optional(CONF_API_BASE): vol.Match(r"^https?://"),
+    }
+)
+
+
+def _async_register_services(hass: HomeAssistant) -> None:
+    """Register domain services once; handlers resolve entries at call time."""
+
+    async def _handle_refresh(call: ServiceCall):
+        entry_id = call.data.get("entry_id")
+        tasks = []
+        if entry_id:
+            ce = hass.data[DOMAIN].get(entry_id)
+            if isinstance(ce, dict) and "coordinator" in ce:
+                tasks.append(ce["coordinator"].async_request_refresh())
         else:
-            manifest_file = os.path.join(current_dir, "manifest.json")
-            if os.path.exists(manifest_file):
-                with open(manifest_file, encoding="utf-8") as f:
-                    version = json.load(f).get("version", "unknown")
-                _LOGGER.info("Setting up Mashov integration v%s for entry: %s (from manifest)", version, entry.title)
-            else:
-                _LOGGER.info("Setting up Mashov integration for entry: %s", entry.title)
+            for maybe_entry in hass.data.get(DOMAIN, {}).values():
+                if isinstance(maybe_entry, dict) and "coordinator" in maybe_entry:
+                    tasks.append(maybe_entry["coordinator"].async_request_refresh())
+        if tasks:
+            await asyncio.gather(*tasks)
+
+    # Service: set_options - allows updating options without Configure UI
+    async def _handle_set_options(call: ServiceCall):
+        payload = dict(call.data or {})
+        entry_id = payload.pop("entry_id", None)
+        if entry_id:
+            entry = hass.config_entries.async_get_entry(entry_id)
+            if entry is None or entry.domain != DOMAIN:
+                raise ServiceValidationError(f"Unknown Mashov entry_id: {entry_id}")
+        else:
+            entries = hass.config_entries.async_entries(DOMAIN)
+            if not entries:
+                raise ServiceValidationError("No Mashov hub is configured")
+            # Legacy calls target the first loaded hub. Explicit entry_id selects any hub.
+            entry = next(
+                (candidate for key in hass.data.get(DOMAIN, {}) for candidate in entries if candidate.entry_id == key),
+                entries[0],
+            )
+        opts = dict(entry.options)
+        opts.update(payload)
+        if CONF_SCHEDULE_DAY in payload and CONF_SCHEDULE_DAYS not in payload:
+            opts[CONF_SCHEDULE_DAYS] = [payload[CONF_SCHEDULE_DAY]]
+        if CONF_SCHEDULE_DAYS in opts:
+            opts.pop(CONF_SCHEDULE_DAY, None)
+        hass.config_entries.async_update_entry(entry, options=opts)
+        _LOGGER.info("Options updated via service for entry %s: %s", entry.title, list(payload.keys()))
+
+    hass.services.async_register(DOMAIN, "refresh_now", _handle_refresh, schema=REFRESH_NOW_SCHEMA)
+    hass.services.async_register(DOMAIN, "set_options", _handle_set_options, schema=SET_OPTIONS_SCHEMA)
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
+    # Use the manifest metadata Home Assistant already loaded; no file I/O in the event loop.
+    try:
+        version = (await async_get_integration(hass, DOMAIN)).version
     except Exception as e:
-        _LOGGER.warning("Version discovery failed: %s", e)
+        _LOGGER.debug("Version discovery failed: %s", e)
+        version = None
+    if version:
+        _LOGGER.info("Setting up Mashov integration v%s for entry: %s", version, entry.title)
+    else:
         _LOGGER.info("Setting up Mashov integration for entry: %s", entry.title)
 
     hass.data.setdefault(DOMAIN, {})
@@ -209,6 +266,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     except Exception as e:
         _LOGGER.debug("No cache available for entry %s: %s", entry.entry_id, e)
 
+    saved_auth = cached.get("auth") if isinstance(cached, dict) else None
+    if isinstance(saved_auth, dict) and "session_year" not in saved_auth:
+        # Older caches stored the school year alongside students, not in auth.
+        cached_students = (cached.get("data") or {}).get("students") or []
+        if cached_students and cached_students[0].get("year"):
+            saved_auth = {**saved_auth, "session_year": cached_students[0]["year"]}
+
     client = MashovClient(
         school_id=data[CONF_SCHOOL_ID],
         year=data.get(CONF_YEAR),
@@ -217,7 +281,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         homework_days_back=entry.options.get(CONF_HOMEWORK_DAYS_BACK, DEFAULT_HOMEWORK_DAYS_BACK),
         homework_days_forward=entry.options.get(CONF_HOMEWORK_DAYS_FORWARD, DEFAULT_HOMEWORK_DAYS_FORWARD),
         api_base=entry.options.get(CONF_API_BASE, DEFAULT_API_BASE),
-        saved_auth=cached.get("auth") if isinstance(cached, dict) else None,
+        saved_auth=saved_auth,
         additional_data=entry.options.get(CONF_ADDITIONAL_DATA, []),
     )
 
@@ -335,12 +399,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             else:
                 _LOGGER.error("Failed to perform startup refresh: %s", e)
                 await client.async_close()
-                raise
+                raise ConfigEntryError(str(e)) from e
+        except MashovAuthError as e:
+            _async_show_auth_notification(hass, entry, e, getattr(client, "login_page_url", None))
+            if coordinator.data:
+                _LOGGER.warning("Mashov authentication failed for %s; keeping cached data", entry.title)
+            else:
+                # Do not retry bad credentials in a loop; the user must update them.
+                _LOGGER.error("Failed to perform startup refresh: %s", e)
+                await client.async_close()
+                raise ConfigEntryError(str(e)) from e
         except Exception as e:
             _async_show_error_notification(hass, entry, "Mashov startup refresh failed", e)
-            _LOGGER.error("Failed to perform startup refresh: %s", e)
-            await client.async_close()
-            raise
+            if coordinator.data:
+                # Scheduled/polled refreshes will retry; keep serving the cache meanwhile.
+                _LOGGER.warning("Startup refresh failed for %s; keeping cached data: %s", entry.title, e)
+            else:
+                _LOGGER.error("Failed to perform startup refresh: %s", e)
+                await client.async_close()
+                if isinstance(e, ConfigEntryNotReady):
+                    raise
+                # Transient (network/server) failure: let Home Assistant retry the setup.
+                raise ConfigEntryNotReady(str(e)) from e
 
     # Configure scheduler per options/YAML (also ensures timers; interval mode sets polling)
     await _async_setup_scheduler(hass, entry)
@@ -376,47 +456,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    async def _handle_refresh(call: ServiceCall):
-        entry_id = call.data.get("entry_id")
-        tasks = []
-        if entry_id:
-            ce = hass.data[DOMAIN].get(entry_id)
-            if isinstance(ce, dict) and "coordinator" in ce:
-                tasks.append(ce["coordinator"].async_request_refresh())
-        else:
-            for maybe_entry in hass.data.get(DOMAIN, {}).values():
-                if isinstance(maybe_entry, dict) and "coordinator" in maybe_entry:
-                    tasks.append(maybe_entry["coordinator"].async_request_refresh())
-        if tasks:
-            await asyncio.gather(*tasks)
-
-    if DOMAIN not in hass.services.async_services():
-        hass.services.async_register(DOMAIN, "refresh_now", _handle_refresh)
-
-        # Service: set_options – allows updating options without Configure UI
-        async def _handle_set_options(call: ServiceCall):
-            opts = dict(entry.options)
-            payload = dict(call.data or {})
-            # Keep only known option keys
-            known_keys = {
-                CONF_HOMEWORK_DAYS_BACK,
-                CONF_HOMEWORK_DAYS_FORWARD,
-                CONF_API_BASE,
-                CONF_SCHEDULE_TYPE,
-                CONF_SCHEDULE_TIME,
-                CONF_SCHEDULE_DAY,
-                CONF_SCHEDULE_DAYS,
-                CONF_SCHEDULE_INTERVAL,
-            }
-            for k, _v in list(payload.items()):
-                if k not in known_keys:
-                    payload.pop(k, None)
-            opts.update(payload)
-            hass.config_entries.async_update_entry(entry, options=opts)
-            _LOGGER.info("Options updated via service for entry %s: %s", entry.title, list(payload.keys()))
-
-        hass.services.async_register(DOMAIN, "set_options", _handle_set_options)
-
     return True
 
 
@@ -425,6 +464,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     # Check if DOMAIN exists in hass.data (it won't if setup failed or was mocked)
     if DOMAIN not in hass.data:
         return True
+    if not await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        return False
     data = hass.data[DOMAIN].pop(entry.entry_id, None)
     if data:
         if data.get("unsub_daily"):
@@ -441,7 +482,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
                 _LOGGER.debug("Error while unsubscribing timers: %s", e)
         if data.get("client"):
             await data["client"].async_close()
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    return True
 
 
 def async_get_options_flow(config_entry: ConfigEntry):

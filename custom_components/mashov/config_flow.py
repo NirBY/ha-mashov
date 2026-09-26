@@ -124,7 +124,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             school_raw = user_input[CONF_SCHOOL_NAME].strip()
             _LOGGER.debug("School input: %s", school_raw)
 
-            if school_raw.isdigit():
+            if CONF_SCHOOL_ID in user_input:
+                # Already chosen in the pick_school step; searching the plain name again could
+                # match several schools and loop back to the picker (or pick a different school).
+                pass
+            elif school_raw.isdigit():
                 # Direct semel number
                 user_input[CONF_SCHOOL_ID] = int(school_raw)
                 _LOGGER.debug("Using direct semel: %s", user_input[CONF_SCHOOL_ID])
@@ -146,9 +150,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         api_base=DEFAULT_API_BASE,
                     )
                     try:
-                        await tmp_client.async_open_session()
-                        results = await tmp_client.async_search_schools(school_raw, None)
-                        await tmp_client.async_close()
+                        try:
+                            await tmp_client.async_open_session()
+                            results = await tmp_client.async_search_schools(school_raw, None)
+                        finally:
+                            await tmp_client.async_close()
 
                         if not results:
                             errors["base"] = "school_not_found"
@@ -199,8 +205,22 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except Exception as e:
                 _LOGGER.error("Unexpected error during authentication: %s", e)
                 errors["base"] = "cannot_connect"
-            else:
+            finally:
                 await client.async_close()
+            if not errors:
+                # Legacy entries have no account-based unique_id; credentials may also
+                # have changed since a newer entry received its unique_id.
+                for existing in self._async_current_entries():
+                    if (
+                        str(existing.data.get(CONF_SCHOOL_ID)) == str(user_input[CONF_SCHOOL_ID])
+                        and str(existing.data.get(CONF_USERNAME, "")).strip().lower()
+                        == user_input[CONF_USERNAME].strip().lower()
+                    ):
+                        return self.async_abort(reason="already_configured")
+                await self.async_set_unique_id(
+                    f"{user_input[CONF_SCHOOL_ID]}_{user_input[CONF_USERNAME].strip().lower()}"
+                )
+                self._abort_if_unique_id_configured()
                 # Get school name from the cached data or use semel as fallback
                 if self._cached_user and CONF_SCHOOL_NAME in self._cached_user:
                     school_name = self._cached_user[CONF_SCHOOL_NAME]
@@ -321,7 +341,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     updated_data[CONF_PASSWORD] = new_password
 
                 if updated_data != dict(self.config_entry.data):
-                    self.hass.config_entries.async_update_entry(self.config_entry, data=updated_data)
+                    # Save credentials and options together so the update listener reloads once;
+                    # the create_entry below then finds identical options and does not fire again.
+                    self.hass.config_entries.async_update_entry(
+                        self.config_entry,
+                        data=updated_data,
+                        options=normalized,
+                        unique_id=f"{updated_data[CONF_SCHOOL_ID]}_{updated_data[CONF_USERNAME].strip().lower()}",
+                    )
                     _LOGGER.info(
                         "Credentials updated for '%s' (id=%s)",
                         getattr(self.config_entry, "title", ""),

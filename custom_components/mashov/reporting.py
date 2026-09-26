@@ -7,7 +7,7 @@ from homeassistant.const import __version__ as HA_VERSION
 
 from .additional_data import STUDENT_RESOURCES
 
-VERSION = "1.0.8"
+VERSION = "1.0.9"
 _EVENTS = {
     "Mashov password change required": "password_change_required",
     "Mashov authentication failed": "authentication_failed",

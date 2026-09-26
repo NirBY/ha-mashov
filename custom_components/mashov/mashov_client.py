@@ -28,7 +28,8 @@ def _trace(msg: str, *args):
 
 API_BASE = "https://web.mashov.info/api/"  # default; can be overridden
 
-# API_BASE = "https://web.mashov.info/api/"  # default; can be overridden
+# Escalating cooldowns for core student endpoints that answer HTTP 403 (feature disabled by the school).
+CORE_RESOURCE_BACKOFF_STEPS = (3600, 21600, 86400)  # 1h -> 6h -> 24h
 
 
 class MashovError(Exception):
@@ -80,13 +81,17 @@ class MashovClient:
         self.school_id = int(school_id) if str(school_id).isdigit() else None
         self.school_name = None if str(school_id).isdigit() else str(school_id)
 
-        self.year = int(year) if year else _default_mashov_year()
+        # An explicit year is pinned; otherwise follow the Mashov school year (rolls over on September 1st).
+        self._configured_year = int(year) if year else None
+        self._session_year: int | None = None
         self.username = username
         self.password = password
         self.homework_days_back = homework_days_back
         self.homework_days_forward = homework_days_forward
         self.additional_data = tuple(key for key in STUDENT_RESOURCES if key in (additional_data or []))
         self._resource_retry_after: dict[tuple[str, str], tuple[float, str]] = {}
+        # (student_id, url_key) -> (retry_after_monotonic, consecutive_403_count)
+        self._endpoint_cooldown: dict[tuple[str, str], tuple[float, int]] = {}
 
         self._session: aiohttp.ClientSession | None = None
         self._headers: dict[str, str] = {}
@@ -106,6 +111,11 @@ class MashovClient:
         # Concurrency control
         self._login_lock = asyncio.Lock()
         self._last_login_timestamp = 0.0
+
+    @property
+    def year(self) -> int:
+        """Return the configured year, or the current Mashov school year."""
+        return self._configured_year or _default_mashov_year()
 
     def _resolve_endpoints(self):
         self._login_endpoint = self._api_base + "login"
@@ -144,6 +154,7 @@ class MashovClient:
 
         return {
             "local_auth": self._auth_data,
+            "session_year": self._session_year,
             "csrf_token": self._headers.get("X-Csrf-Token"),
             "cookies": cookies,
         }
@@ -311,6 +322,13 @@ class MashovClient:
             _LOGGER.info("Resolved school '%s' to semel %s", best.get("name"), self.school_id)
 
         # Attempt to restore session
+        if (
+            self._saved_auth
+            and self._saved_auth.get("session_year") is not None
+            and str(self._saved_auth["session_year"]) != str(self.year)
+        ):
+            _LOGGER.info("Cached session belongs to a different school year - logging in again")
+            self._saved_auth = None
         if self._saved_auth and not self._session.closed:
             _LOGGER.info("Attempting to restore session from cached auth data")
             saved_auth = self._saved_auth
@@ -349,6 +367,10 @@ class MashovClient:
                         _LOGGER.warning("Restored session unavailable (HTTP %s) - proceeding to login", resp.status)
                 except Exception as e:
                     _LOGGER.warning("Error verifying restored session: %s", e)
+                # Do not carry the rejected cookies/CSRF token into the fresh login.
+                self._headers = {}
+                self._auth_data = {}
+                self._session.cookie_jar.clear()
 
             except Exception as e:
                 _LOGGER.warning("Failed to restore session: %s", e)
@@ -543,12 +565,25 @@ class MashovClient:
             )
 
         self._students = students
+        self._session_year = self.year
         _LOGGER.info("=== STUDENTS PROCESSING COMPLETE ===")
         _LOGGER.info("Student metadata loaded")
 
         # Keep session open for future use - don't close it here
         self._last_login_timestamp = time.time()
         _LOGGER.info("=== MASHOV CLIENT INIT COMPLETE ===")
+
+    def _register_endpoint_forbidden(self, cooldown_key: tuple[str, str]) -> None:
+        """Back off a core endpoint that answered HTTP 403, escalating per consecutive failure."""
+        _retry_after, count = self._endpoint_cooldown.get(cooldown_key, (0.0, 0))
+        count += 1
+        delay = CORE_RESOURCE_BACKOFF_STEPS[min(count, len(CORE_RESOURCE_BACKOFF_STEPS)) - 1]
+        self._endpoint_cooldown[cooldown_key] = (time.monotonic() + delay, count)
+        _LOGGER.warning(
+            "Student resource %s forbidden (HTTP 403); feature may be disabled - retrying in %d hours",
+            cooldown_key[1],
+            delay // 3600,
+        )
 
     async def _fetch_student_resource(self, sid: str, key: str, start: str, end: str) -> dict[str, Any]:
         """Fetch metadata only; never download files, mark mail read, or submit forms."""
@@ -602,6 +637,11 @@ class MashovClient:
         if not self._students or "X-Csrf-Token" not in self._headers:
             _LOGGER.debug("No students/csrf in memory – performing lazy login")
             await self.async_init(None)
+        elif self._session_year is not None and self._session_year != self.year:
+            _LOGGER.info("Mashov school year changed to %s - logging in again", self.year)
+            self._endpoint_cooldown.clear()
+            self._resource_retry_after.clear()
+            await self.async_init(None)
 
         # Ensure we have CSRF token in headers (after lazy login should exist)
         if "X-Csrf-Token" not in self._headers:
@@ -645,6 +685,11 @@ class MashovClient:
 
             async def fetch(url_key: str, attempt: int = 0):
                 url = urls[url_key]
+                cooldown_key = (sid, url_key)
+                retry_after, _count = self._endpoint_cooldown.get(cooldown_key, (0.0, 0))
+                if time.monotonic() < retry_after:
+                    _LOGGER.debug("Skipping %s: endpoint forbidden, in cooldown", url_key)
+                    return []
                 _LOGGER.debug("Fetching student resource")
                 try:
                     async with self._session.get(url, headers=self._headers) as resp:
@@ -670,13 +715,14 @@ class MashovClient:
                                 raise MashovPasswordChangeRequiredError(
                                     "Please change password before authenticating.", self.login_page_url
                                 )
-                            _LOGGER.warning("Student resource forbidden (HTTP 403); feature may be disabled")
+                            self._register_endpoint_forbidden(cooldown_key)
                             return []
                         if resp.status >= 400:
                             raise MashovError(f"HTTP {resp.status} fetching {url_key}")
                         try:
                             data = await resp.json()
                             _LOGGER.debug("Student resource loaded")
+                            self._endpoint_cooldown.pop(cooldown_key, None)
                             return data
                         except (ValueError, aiohttp.ClientError) as e:
                             raise MashovError(f"Invalid JSON fetching {url_key}") from e

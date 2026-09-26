@@ -1,6 +1,6 @@
 """Utilities for Mashov holidays processing."""
 
-from datetime import date, datetime
+from datetime import date
 
 HOLIDAY_DEFAULT_NAME = "חג/חופשה"
 HOLIDAY_ICON = "mdi:calendar-star"
@@ -11,8 +11,8 @@ def parse_iso_date_to_date(date_str: str) -> date | None:
     if not date_str:
         return None
     try:
-        dt = datetime.fromisoformat(date_str.replace("T00:00:00", ""))
-        return dt.date()
+        # Mashov sends midnight timestamps, sometimes with an offset; only the calendar date matters.
+        return date.fromisoformat(str(date_str)[:10])
     except Exception:
         return None
 
@@ -22,8 +22,7 @@ def parse_iso_date_to_formatted(date_str: str) -> str:
     if not date_str:
         return ""
     try:
-        dt = datetime.fromisoformat(date_str.replace("T00:00:00", ""))
-        return dt.strftime("%d/%m/%Y")
+        return date.fromisoformat(str(date_str)[:10]).strftime("%d/%m/%Y")
     except Exception:
         return date_str.split("T")[0]
 

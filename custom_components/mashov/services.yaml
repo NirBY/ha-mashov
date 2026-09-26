@@ -13,6 +13,13 @@ set_options:
   name: "עדכון אפשרויות (ללא Configure)"
   description: "עדכן אפשרויות של ההאב דרך Service Call כאשר כפתור Configure לא זמין"
   fields:
+    entry_id:
+      name: "מזהה כניסה"
+      description: "מזהה ההאב לעדכון (אם לא צוין, ההאב הראשון שנטען)"
+      required: false
+      selector:
+        config_entry:
+          integration: mashov
     schedule_type:
       name: "סוג לוח זמנים"
       description: "daily | weekly | interval"

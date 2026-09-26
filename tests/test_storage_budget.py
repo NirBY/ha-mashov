@@ -25,7 +25,9 @@ def test_large_formatted_fields_do_not_push_attributes_over_budget():
 
 
 def test_single_oversized_item_can_be_omitted():
-    sensor = MashovListSensor(SimpleNamespace(), "synthetic", "example", "Example", "homework", "Homework", "homework")
+    sensor = MashovListSensor(
+        SimpleNamespace(), "entry", "synthetic", "example", "Example", "homework", "Homework", "homework"
+    )
     assert sensor._limit_items_for_storage([{"homework": "x" * 20000}], 100) == []
 
 

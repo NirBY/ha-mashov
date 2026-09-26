@@ -7,8 +7,10 @@ from typing import Any
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.json import json_bytes
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,8 +45,41 @@ from .holidays_utils import (
 )
 
 
+def _async_migrate_list_sensor_unique_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Scope legacy `mashov_<student>_<key>` ids to the entry, keeping entity ids and history.
+
+    Two hubs that see the same child (e.g. both parents) otherwise collide on the same unique id.
+    """
+    registry = er.async_get(hass)
+    new_prefix = f"mashov_{entry.entry_id}_"
+    for reg_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+        unique_id = reg_entry.unique_id
+        if (
+            reg_entry.domain != "sensor"
+            or reg_entry.platform != DOMAIN
+            or not unique_id.startswith("mashov_")
+            or unique_id.startswith(new_prefix)
+            or not any(
+                unique_id.endswith(f"_{key}")
+                for key in (
+                    SENSOR_KEY_HOMEWORK,
+                    SENSOR_KEY_BEHAVIOR,
+                    SENSOR_KEY_WEEKLY_PLAN,
+                    SENSOR_KEY_TIMETABLE,
+                    SENSOR_KEY_LESSONS_HISTORY,
+                    SENSOR_KEY_GRADES,
+                )
+            )
+        ):
+            continue
+        new_unique_id = new_prefix + unique_id[len("mashov_") :]
+        if registry.async_get_entity_id("sensor", DOMAIN, new_unique_id) is None:
+            registry.async_update_entity(reg_entry.entity_id, new_unique_id=new_unique_id)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
     _LOGGER.debug("Setting up sensors for entry: %s", entry.title)
+    _async_migrate_list_sensor_unique_ids(hass, entry)
     data = hass.data[DOMAIN][entry.entry_id]
     coord = data["coordinator"]
 
@@ -61,14 +96,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
         entities.extend(
             [
-                MashovListSensor(coord, sid, slug, name, SENSOR_KEY_HOMEWORK, "Homework", "homework"),
-                MashovListSensor(coord, sid, slug, name, SENSOR_KEY_BEHAVIOR, "Behavior", "behavior"),
-                MashovListSensor(coord, sid, slug, name, SENSOR_KEY_WEEKLY_PLAN, "Weekly Plan", "weekly_plan"),
-                MashovListSensor(coord, sid, slug, name, SENSOR_KEY_TIMETABLE, "Timetable", "timetable"),
+                MashovListSensor(coord, entry.entry_id, sid, slug, name, SENSOR_KEY_HOMEWORK, "Homework", "homework"),
+                MashovListSensor(coord, entry.entry_id, sid, slug, name, SENSOR_KEY_BEHAVIOR, "Behavior", "behavior"),
                 MashovListSensor(
-                    coord, sid, slug, name, SENSOR_KEY_LESSONS_HISTORY, "Lessons History", "lessons_history"
+                    coord, entry.entry_id, sid, slug, name, SENSOR_KEY_WEEKLY_PLAN, "Weekly Plan", "weekly_plan"
                 ),
-                MashovListSensor(coord, sid, slug, name, SENSOR_KEY_GRADES, "Grades", "grades"),
+                MashovListSensor(
+                    coord, entry.entry_id, sid, slug, name, SENSOR_KEY_TIMETABLE, "Timetable", "timetable"
+                ),
+                MashovListSensor(
+                    coord,
+                    entry.entry_id,
+                    sid,
+                    slug,
+                    name,
+                    SENSOR_KEY_LESSONS_HISTORY,
+                    "Lessons History",
+                    "lessons_history",
+                ),
+                MashovListSensor(coord, entry.entry_id, sid, slug, name, SENSOR_KEY_GRADES, "Grades", "grades"),
             ]
         )
         for key in entry.options.get(CONF_ADDITIONAL_DATA, []):
@@ -80,6 +126,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
     _LOGGER.info("Adding %d Mashov sensor entities", len(entities))
     async_add_entities(entities)
+
+
+def _student_meta(data: dict, student_id, fallback_slug: str) -> dict:
+    """Find a student by stable id; the slug embeds the class name and changes every school year."""
+    return next(
+        (s for s in data.get("students", []) if s.get("id") == student_id),
+        next((s for s in data.get("students", []) if s.get("slug") == fallback_slug), {}),
+    )
+
+
+def _student_group(data: dict, student_id, fallback_slug: str) -> dict:
+    slug = _student_meta(data, student_id, fallback_slug).get("slug", fallback_slug)
+    return data.get("by_slug", {}).get(slug, {})
 
 
 class MashovAdditionalSensor(CoordinatorEntity, SensorEntity):
@@ -99,9 +158,7 @@ class MashovAdditionalSensor(CoordinatorEntity, SensorEntity):
     @property
     def _resource(self):
         return (
-            (self.coordinator.data or {})
-            .get("by_slug", {})
-            .get(self._slug, {})
+            _student_group(self.coordinator.data or {}, self._student_id, self._slug)
             .get("additional_data", {})
             .get(self._key, {"items": [], "status": "not_fetched"})
         )
@@ -156,7 +213,15 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
     _attr_icon = "mdi:school"
 
     def __init__(
-        self, coordinator, student_id: int, student_slug: str, student_name: str, key: str, name: str, data_key: str
+        self,
+        coordinator,
+        entry_id: str,
+        student_id: int,
+        student_slug: str,
+        student_name: str,
+        key: str,
+        name: str,
+        data_key: str,
     ):
         super().__init__(coordinator)
         self._student_id = student_id
@@ -165,21 +230,23 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
         self._key = key
         self._data_key = data_key
         self._attr_name = f"Mashov {student_name} {name}"
-        # unique_id includes the numeric student id for stability
-        self._attr_unique_id = f"mashov_{student_id}_{key}"
+        # Scoped to the entry: the same child can appear under two hubs (e.g. both parents).
+        self._attr_unique_id = f"mashov_{entry_id}_{student_id}_{key}"
 
     @property
     def native_value(self):
-        group = (self.coordinator.data or {}).get("by_slug", {}).get(self._student_slug, {})
+        group = _student_group(self.coordinator.data or {}, self._student_id, self._student_slug)
         items = group.get(self._data_key) or []
         return len(items)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         data = self.coordinator.data or {}
-        student_meta = next((s for s in data.get("students", []) if s["slug"] == self._student_slug), {})
-        group = data.get("by_slug", {}).get(self._student_slug, {})
+        student_meta = _student_meta(data, self._student_id, self._student_slug)
+        group = _student_group(data, self._student_id, self._student_slug)
         items = group.get(self._data_key) or []
+        if self._data_key == "weekly_plan":
+            items = self._with_plan_subjects(items, group.get("timetable") or [])
 
         # Schedule info
         schedule_info = self._compute_schedule_info()
@@ -200,7 +267,7 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
             "student_id": self._student_id,
             "year": student_meta.get("year"),
             "school_id": student_meta.get("school_id"),
-            "last_update": datetime.now().isoformat(timespec="seconds"),
+            "last_update": dt_util.now().isoformat(timespec="seconds"),
             "total_items": total_count,  # Total number of items available
             "stored_items": stored_count,  # Number of items in attributes
             "items": items_for_attributes,  # Limited items (most recent)
@@ -221,6 +288,25 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
             "next_scheduled_refresh": schedule_info.get("next"),
         }
         return self._bound_attributes(attributes)
+
+    @staticmethod
+    def _with_plan_subjects(items: list, timetable: list) -> list:
+        """Name weekly-plan lessons from the timetable groups; plans only carry a group id."""
+        lookup = {}
+        for entry in timetable:
+            details = (entry or {}).get("groupDetails") or {}
+            if details.get("groupId") is None:
+                continue
+            teachers = details.get("groupTeachers") or []
+            teacher = (teachers[0] or {}).get("teacherName") if isinstance(teachers, list) and teachers else None
+            lookup[details["groupId"]] = (details.get("subjectName") or details.get("groupName"), teacher)
+        enriched = []
+        for item in items:
+            if isinstance(item, dict) and not item.get("subject") and item.get("group_id") in lookup:
+                subject, teacher = lookup[item["group_id"]]
+                item = {**item, "subject": subject, **({"teacher": teacher} if teacher else {})}
+            enriched.append(item)
+        return enriched
 
     @staticmethod
     def _bound_attributes(attributes: dict) -> dict:
@@ -479,7 +565,7 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
     def _compute_schedule_info(self) -> dict[str, Any]:
         """Return current refresh schedule configuration and friendly description."""
         try:
-            from datetime import datetime, timedelta
+            from datetime import timedelta
 
             opts = getattr(self.coordinator, "entry", None).options if hasattr(self.coordinator, "entry") else {}
             # Merge YAML overrides if present
@@ -527,7 +613,7 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
 
             friendly = None
             next_time_iso = None
-            now = datetime.now()
+            now = dt_util.now()
 
             if schedule_type == "daily":
                 try:
@@ -588,7 +674,6 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
 
     def _format_homework_data(self, items: list) -> dict[str, Any]:
         """Format homework data for display"""
-        from datetime import datetime
 
         by_date = {}
         by_subject = {}
@@ -638,7 +723,6 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
 
     def _format_behavior_data(self, items: list) -> dict[str, Any]:
         """Format behavior data for display"""
-        from datetime import datetime
 
         by_date = {}
         by_type = {}
@@ -691,7 +775,6 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
 
     def _format_weekly_plan_data(self, items: list) -> dict[str, Any]:
         """Format weekly plan data for display, including a weekly table view."""
-        from datetime import datetime
 
         by_date: dict[str, list] = {}
         by_subject: dict[str, list] = {}
@@ -706,7 +789,8 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
 
             day_raw = tt.get("day", item.get("day"))
             lesson_raw = tt.get("lesson", item.get("lesson"))
-            room = (tt.get("roomNum") or item.get("room") or "").strip()
+            room = str(tt.get("roomNum") or item.get("room") or "").strip()
+            plan = str(item.get("plan") or "").strip()
             subject = gd.get("subjectName") or item.get("subject") or gd.get("groupName") or "מקצוע לא ידוע"
 
             teacher = None
@@ -726,9 +810,14 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
                     formatted_date = date_str
                 if formatted_date not in by_date:
                     by_date[formatted_date] = []
-                by_date[formatted_date].append(f"שיעור {lesson_raw}: {subject}")
+                by_date[formatted_date].append(f"שיעור {lesson_raw}: {subject}{' – ' + plan if plan else ''}")
+            else:
+                formatted_date = ""
 
-            by_subject.setdefault(subject, []).append(f"שיעור {lesson_raw}{' (' + room + ')' if room else ''}")
+            if plan:
+                by_subject.setdefault(subject, []).append(f"{formatted_date} שיעור {lesson_raw}: {plan}".strip())
+            else:
+                by_subject.setdefault(subject, []).append(f"שיעור {lesson_raw}{' (' + room + ')' if room else ''}")
 
             try:
                 day_i = int(day_raw) if day_raw is not None else None
@@ -812,7 +901,8 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
                 )
             html.append("</tr>")
         html.append("</tbody></table>")
-        table_html = "".join(html)
+        # Dated plans span several weeks and carry no weekday grid position; do not render an empty grid.
+        table_html = "".join(html) if day_values else ""
 
         # Create summary
         total_plans = len(items)
@@ -840,8 +930,6 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
         # Keep summary as-is or optionally tweak text; leaving as-is for consistency
 
     def _format_lessons_history(self, items: list) -> dict[str, Any]:
-        from datetime import datetime
-
         by_date = {}
         by_subject = {}
         for it in items:
@@ -877,7 +965,6 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
 
     def _format_grades_data(self, items: list) -> dict[str, Any]:
         """Format grades data for display"""
-        from datetime import datetime
 
         by_date = {}
         by_subject = {}
@@ -964,8 +1051,6 @@ class MashovHolidaysSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        from datetime import datetime
-
         data = self.coordinator.data or {}
         items = data.get("holidays") or []
 
@@ -986,7 +1071,7 @@ class MashovHolidaysSensor(CoordinatorEntity, SensorEntity):
             "formatted_summary": summary,
             "formatted_by_date": by_date,
             "items": items,
-            "last_update": datetime.now().isoformat(timespec="seconds"),
+            "last_update": dt_util.now().isoformat(timespec="seconds"),
         }
 
     @property

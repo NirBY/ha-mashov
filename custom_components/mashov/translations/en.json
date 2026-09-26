@@ -20,6 +20,9 @@
       "auth": "Authentication failed. Check credentials/school.",
       "cannot_connect": "Cannot reach Mashov.",
       "school_not_found": "No school matched that name."
+    },
+    "abort": {
+      "already_configured": "This Mashov account is already configured."
     }
   },
   "options": {
