@@ -1,0 +1,202 @@
+{
+  "title": "Mashov",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Mashov",
+        "description": "أدخل بيانات الدخول واختر المدرسة من القائمة (اكتب للتصفية).",
+        "data": {
+          "username": "اسم المستخدم / رقم الهوية",
+          "password": "كلمة المرور",
+          "school_name": "المدرسة"
+        }
+      },
+      "pick_school": {
+        "title": "اختر المدرسة",
+        "description": "تم العثور على عدة مدارس. يرجى اختيار واحدة.",
+        "data": {
+          "selected_school": "المدرسة"
+        }
+      }
+    },
+    "error": {
+      "auth": "فشلت المصادقة. تحقق من بيانات الدخول والمدرسة.",
+      "cannot_connect": "تعذر الاتصال بمشوڤ.",
+      "school_not_found": "لم يتم العثور على مدرسة بهذا الاسم."
+    },
+    "abort": {
+      "already_configured": "هذا الحساب مضاف بالفعل."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "خيارات مشوڤ",
+        "description": "اضبط نطاق الواجبات المنزلية وجدول التحديث.",
+        "data": {
+          "username": "اسم المستخدم / رقم الهوية",
+          "password": "كلمة المرور (اتركها فارغة للاحتفاظ بالحالية)",
+          "additional_data": "بيانات إضافية للطالب (اختياري)",
+          "homework_days_back": "أيام الواجبات السابقة",
+          "homework_days_forward": "أيام الواجبات القادمة",
+          "api_base": "عنوان API الأساسي (متقدم)",
+          "schedule_type": "نوع جدول التحديث",
+          "schedule_time": "وقت التحديث (HH:MM أو HH:MM:SS)",
+          "schedule_day": "يوم الأسبوع (للتوافق مع الإصدارات السابقة)",
+          "schedule_days": "أيام الأسبوع",
+          "schedule_interval": "الفاصل بالدقائق",
+          "max_items_in_attributes": "الحد الأقصى للعناصر المحفوظة في السمات",
+          "automatic_school_year": "السنة الدراسية التلقائية (تتغير في 1 سبتمبر)"
+        }
+      }
+    },
+    "error": {
+      "invalid_time_format": "صيغة الوقت غير صالحة (HH:MM أو HH:MM:SS).",
+      "invalid_api_url": "عنوان غير صالح (يجب أن يبدأ بـ http أو https).",
+      "already_configured": "هذا الحساب مضاف بالفعل."
+    }
+  },
+  "selector": {
+    "additional_data": {
+      "options": {
+        "message_board": "لوحة الإعلانات",
+        "daily_behavior": "السلوك اليومي",
+        "outside_behavior": "السلوك خارج الحصص",
+        "follow_up": "ملاحظات المتابعة",
+        "periodic_grades": "علامات الفصل",
+        "report_cards": "الشهادات المدرسية",
+        "study_materials": "المواد الدراسية",
+        "student_files": "ملفات الطالب",
+        "justification_requests": "طلبات تبرير الغياب"
+      }
+    },
+    "schedule_days": {
+      "options": {
+        "0": "الاثنين",
+        "1": "الثلاثاء",
+        "2": "الأربعاء",
+        "3": "الخميس",
+        "4": "الجمعة",
+        "5": "السبت",
+        "6": "الأحد"
+      }
+    },
+    "schedule_type": {
+      "options": {
+        "daily": "يومي",
+        "weekly": "أسبوعي",
+        "interval": "فاصل زمني"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "homework": {
+        "name": "الواجبات المنزلية"
+      },
+      "behavior": {
+        "name": "السلوك"
+      },
+      "weekly_plan": {
+        "name": "الخطة الأسبوعية"
+      },
+      "timetable": {
+        "name": "جدول الحصص"
+      },
+      "lessons_history": {
+        "name": "سجل الحصص"
+      },
+      "grades": {
+        "name": "العلامات"
+      },
+      "holidays": {
+        "name": "الأعياد والعطل"
+      },
+      "message_board": {
+        "name": "لوحة الإعلانات"
+      },
+      "daily_behavior": {
+        "name": "السلوك اليومي"
+      },
+      "outside_behavior": {
+        "name": "السلوك خارج الحصص"
+      },
+      "follow_up": {
+        "name": "ملاحظات المتابعة"
+      },
+      "periodic_grades": {
+        "name": "علامات الفصل"
+      },
+      "report_cards": {
+        "name": "الشهادات المدرسية"
+      },
+      "study_materials": {
+        "name": "المواد الدراسية"
+      },
+      "student_files": {
+        "name": "ملفات الطالب"
+      },
+      "justification_requests": {
+        "name": "طلبات تبرير الغياب"
+      }
+    },
+    "calendar": {
+      "holidays": {
+        "name": "التقويم"
+      }
+    }
+  },
+  "services": {
+    "refresh_now": {
+      "name": "تحديث البيانات",
+      "description": "تحديث بيانات مركز محدد أو جميع المراكز.",
+      "fields": {
+        "entry_id": {
+          "name": "معرّف المركز"
+        }
+      }
+    },
+    "set_options": {
+      "name": "تحديث الخيارات",
+      "description": "تحديث خيارات المركز. حدد المركز عند وجود عدة مراكز.",
+      "fields": {
+        "entry_id": {
+          "name": "معرّف المركز"
+        },
+        "additional_data": {
+          "name": "بيانات إضافية للطالب (اختياري)"
+        },
+        "homework_days_back": {
+          "name": "أيام الواجبات السابقة"
+        },
+        "homework_days_forward": {
+          "name": "أيام الواجبات القادمة"
+        },
+        "api_base": {
+          "name": "عنوان API الأساسي (متقدم)"
+        },
+        "schedule_type": {
+          "name": "نوع جدول التحديث"
+        },
+        "schedule_time": {
+          "name": "وقت التحديث (HH:MM أو HH:MM:SS)"
+        },
+        "schedule_day": {
+          "name": "يوم الأسبوع (للتوافق مع الإصدارات السابقة)"
+        },
+        "schedule_days": {
+          "name": "أيام الأسبوع"
+        },
+        "schedule_interval": {
+          "name": "الفاصل بالدقائق"
+        },
+        "max_items_in_attributes": {
+          "name": "الحد الأقصى للعناصر المحفوظة في السمات"
+        },
+        "automatic_school_year": {
+          "name": "السنة الدراسية التلقائية (تتغير في 1 سبتمبر)"
+        }
+      }
+    }
+  }
+}

@@ -106,7 +106,10 @@ class MashovClient:
         # store all students
         self._students: list[dict[str, Any]] = []  # [{id, name, slug}]
         self._auth_data: dict[str, Any] = {}  # Store authentication response data
-        self._saved_auth = saved_auth  # Data restored from cache
+        self._saved_auth = (
+            saved_auth if saved_auth and (saved_auth.get("csrf_token") or saved_auth.get("cookies")) else None
+        )
+        self.roster_refreshed = False
 
         # Concurrency control
         self._login_lock = asyncio.Lock()
@@ -518,6 +521,7 @@ class MashovClient:
 
         # Extract students from authentication response
         await self._extract_students()
+        self.roster_refreshed = True
 
     async def _extract_students(self):
         _LOGGER.info("=== EXTRACTING STUDENTS FROM AUTH RESPONSE ===")
@@ -614,6 +618,12 @@ class MashovClient:
                     if response.status in (403, 404):
                         status = "forbidden" if response.status == 403 else "unsupported"
                         # School permissions differ. Retry tomorrow, independently per student/resource.
+                        _LOGGER.warning(
+                            "Optional student resource %s %s (HTTP %s); retrying in 24 hours",
+                            key,
+                            status,
+                            response.status,
+                        )
                         self._resource_retry_after[cache_key] = (time.monotonic() + 86400, status)
                         return {"items": [], "status": status}
                     if response.status >= 400:
@@ -669,6 +679,7 @@ class MashovClient:
 
         async def fetch_for_student(stu):
             sid = stu["id"]
+            source_status = {}
 
             urls = {
                 "homework": self._endpoints["homework"].format(
@@ -689,6 +700,7 @@ class MashovClient:
                 retry_after, _count = self._endpoint_cooldown.get(cooldown_key, (0.0, 0))
                 if time.monotonic() < retry_after:
                     _LOGGER.debug("Skipping %s: endpoint forbidden, in cooldown", url_key)
+                    source_status[url_key] = "forbidden"
                     return []
                 _LOGGER.debug("Fetching student resource")
                 try:
@@ -703,11 +715,13 @@ class MashovClient:
                             raise MashovAuthError("Authentication failed after one retry")
                         if resp.status == 404:
                             _LOGGER.warning("Student resource not available (HTTP 404)")
-                            return []  # Return empty list for 404 errors
+                            source_status[url_key] = "unsupported"
+                            return []
                         if resp.status == 400:
                             txt = await resp.text()
                             _LOGGER.warning("Student resource rejected (HTTP 400)")
-                            return []  # Return empty list for 400 errors
+                            source_status[url_key] = "http_400"
+                            return []
                         if resp.status == 403:
                             txt = await resp.text()
                             reason = (resp.headers.get("reason") or "").strip().lower()
@@ -715,6 +729,7 @@ class MashovClient:
                                 raise MashovPasswordChangeRequiredError(
                                     "Please change password before authenticating.", self.login_page_url
                                 )
+                            source_status[url_key] = "forbidden"
                             self._register_endpoint_forbidden(cooldown_key)
                             return []
                         if resp.status >= 400:
@@ -722,6 +737,7 @@ class MashovClient:
                         try:
                             data = await resp.json()
                             _LOGGER.debug("Student resource loaded")
+                            source_status[url_key] = "ok"
                             self._endpoint_cooldown.pop(cooldown_key, None)
                             return data
                         except (ValueError, aiohttp.ClientError) as e:
@@ -751,26 +767,38 @@ class MashovClient:
                 "lessons_history": self._normalize_lessons_history(lessons_history),
                 "grades": self._normalize_grades(grades),
                 "additional_data": additional,
+                "source_status": source_status,
             }
 
         _LOGGER.debug("Fetching data for all students in parallel")
         # Use asyncio.gather for parallel execution
         results = await asyncio.gather(*(fetch_for_student(s) for s in self._students))
 
-        # Fetch holidays once (not per student)
+        # A holiday failure must not discard successfully fetched student data.
         holidays_raw = []
+        holidays_status = "not_fetched"
         try:
             url = self._endpoints.get("holidays")
             if url:
-                _LOGGER.debug("Fetching holidays from: %s", url)
-                async with self._session.get(url, headers=self._headers) as resp:
-                    if resp.status >= 400:
-                        raise MashovError(f"Holidays endpoint returned HTTP {resp.status}")
-                    holidays_raw = await resp.json(content_type=None)
-        except MashovError:
-            raise
-        except Exception as e:
-            raise MashovError("Unable to fetch holidays") from e
+                for attempt in range(2):
+                    async with self._session.get(url, headers=self._headers) as resp:
+                        if resp.status == 401 and attempt == 0:
+                            await self._ensure_valid_session()
+                            continue
+                        if resp.status >= 400:
+                            holidays_status = f"http_{resp.status}"
+                            break
+                        holidays_raw = await resp.json(content_type=None)
+                        if not isinstance(holidays_raw, list):
+                            holidays_raw = []
+                            holidays_status = "invalid_response"
+                        else:
+                            holidays_status = "ok"
+                        break
+        except Exception:
+            holidays_status = "fetch_failed"
+        if holidays_status != "ok":
+            _LOGGER.warning("Holidays refresh failed (%s); student data is retained", holidays_status)
 
         holidays = self._normalize_holidays(holidays_raw)
         by_slug = {self._students[i]["slug"]: results[i] for i in range(len(self._students))}
@@ -788,6 +816,7 @@ class MashovClient:
             ],
             "by_slug": by_slug,
             "holidays": holidays,
+            "holidays_status": holidays_status,
         }
 
         _LOGGER.debug("Data fetch completed for %d students", len(self._students))

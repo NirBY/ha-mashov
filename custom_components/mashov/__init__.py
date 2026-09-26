@@ -18,11 +18,12 @@ from homeassistant.loader import async_get_integration  # type: ignore
 from homeassistant.util import dt as dt_util  # type: ignore
 import voluptuous as vol  # type: ignore
 
-from .additional_data import CONF_ADDITIONAL_DATA
+from .additional_data import CONF_ADDITIONAL_DATA, STUDENT_RESOURCES
 from .const import (
     CONF_API_BASE,
     CONF_HOMEWORK_DAYS_BACK,
     CONF_HOMEWORK_DAYS_FORWARD,
+    CONF_MAX_ITEMS_IN_ATTRIBUTES,
     CONF_PASSWORD,
     CONF_SCHEDULE_DAY,
     CONF_SCHEDULE_DAYS,
@@ -146,8 +147,11 @@ REFRESH_NOW_SCHEMA = vol.Schema({vol.Optional("entry_id"): cv.string})
 SET_OPTIONS_SCHEMA = vol.Schema(
     {
         vol.Optional("entry_id"): cv.string,
+        vol.Optional("automatic_school_year"): cv.boolean,
+        vol.Optional(CONF_MAX_ITEMS_IN_ATTRIBUTES): _int_in(10, 500),
+        vol.Optional(CONF_ADDITIONAL_DATA): vol.All(cv.ensure_list, [vol.In(STUDENT_RESOURCES)]),
         vol.Optional(CONF_SCHEDULE_TYPE): vol.In(["daily", "weekly", "interval"]),
-        vol.Optional(CONF_SCHEDULE_TIME): vol.Match(r"^([01]?[0-9]|2[0-3]):[0-5][0-9]$"),
+        vol.Optional(CONF_SCHEDULE_TIME): vol.Match(r"^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$"),
         vol.Optional(CONF_SCHEDULE_DAY): _int_in(0, 6),
         vol.Optional(CONF_SCHEDULE_DAYS): vol.All(
             cv.ensure_list, [_int_in(0, 6)], vol.Length(min=1), lambda days: sorted(set(days))
@@ -156,7 +160,8 @@ SET_OPTIONS_SCHEMA = vol.Schema(
         vol.Optional(CONF_HOMEWORK_DAYS_BACK): _int_in(0, 60),
         vol.Optional(CONF_HOMEWORK_DAYS_FORWARD): _int_in(1, 120),
         vol.Optional(CONF_API_BASE): vol.Match(r"^https?://"),
-    }
+    },
+    extra=vol.REMOVE_EXTRA,
 )
 
 
@@ -189,6 +194,10 @@ def _async_register_services(hass: HomeAssistant) -> None:
             entries = hass.config_entries.async_entries(DOMAIN)
             if not entries:
                 raise ServiceValidationError("No Mashov hub is configured")
+            if len(entries) > 1:
+                _LOGGER.warning(
+                    "set_options without entry_id targets the first loaded hub; specify entry_id with multiple hubs"
+                )
             # Legacy calls target the first loaded hub. Explicit entry_id selects any hub.
             entry = next(
                 (candidate for key in hass.data.get(DOMAIN, {}) for candidate in entries if candidate.entry_id == key),
@@ -267,7 +276,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         _LOGGER.debug("No cache available for entry %s: %s", entry.entry_id, e)
 
     saved_auth = cached.get("auth") if isinstance(cached, dict) else None
-    if isinstance(saved_auth, dict) and "session_year" not in saved_auth:
+    if (
+        isinstance(saved_auth, dict)
+        and (saved_auth.get("csrf_token") or saved_auth.get("cookies"))
+        and "session_year" not in saved_auth
+    ):
         # Older caches stored the school year alongside students, not in auth.
         cached_students = (cached.get("data") or {}).get("students") or []
         if cached_students and cached_students[0].get("year"):
@@ -275,7 +288,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     client = MashovClient(
         school_id=data[CONF_SCHOOL_ID],
-        year=data.get(CONF_YEAR),
+        year=None if entry.options.get("automatic_school_year", not data.get(CONF_YEAR)) else data.get(CONF_YEAR),
         username=data[CONF_USERNAME],
         password=data[CONF_PASSWORD],
         homework_days_back=entry.options.get(CONF_HOMEWORK_DAYS_BACK, DEFAULT_HOMEWORK_DAYS_BACK),
@@ -290,6 +303,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     # Inject cached data into coordinator if available
     if isinstance(cached, dict) and cached.get("data"):
         coordinator.data = cached.get("data")
+        coordinator.last_successful_update = cached.get("last_refresh_ts")
 
     hass.data[DOMAIN][entry.entry_id] = {
         "client": client,
@@ -378,18 +392,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         try:
             await asyncio.create_task(client.async_init(hass))
             await coordinator.async_config_entry_first_refresh()
-            # Save cache after successful refresh
-            try:
-                await store.async_save(
-                    {
-                        "last_refresh_ts": time.time(),
-                        "data": coordinator.data,
-                        "auth": client.auth_data,
-                    }
-                )
-            except Exception as e:
-                _LOGGER.debug("Failed saving cache: %s", e)
         except MashovPasswordChangeRequiredError as e:
+            coordinator.data_stale = True
             _async_show_password_change_notification(hass, entry, e)
             if coordinator.data:
                 _LOGGER.warning(
@@ -401,6 +405,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                 await client.async_close()
                 raise ConfigEntryError(str(e)) from e
         except MashovAuthError as e:
+            coordinator.data_stale = True
             _async_show_auth_notification(hass, entry, e, getattr(client, "login_page_url", None))
             if coordinator.data:
                 _LOGGER.warning("Mashov authentication failed for %s; keeping cached data", entry.title)
@@ -410,7 +415,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                 await client.async_close()
                 raise ConfigEntryError(str(e)) from e
         except Exception as e:
-            _async_show_error_notification(hass, entry, "Mashov startup refresh failed", e)
+            coordinator.data_stale = True
+            if not coordinator.data:
+                _async_show_error_notification(hass, entry, "Mashov startup refresh failed", e)
             if coordinator.data:
                 # Scheduled/polled refreshes will retry; keep serving the cache meanwhile.
                 _LOGGER.warning("Startup refresh failed for %s; keeping cached data: %s", entry.title, e)
@@ -431,7 +438,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         options = updated_entry.options
         credentials_changed = data.get(CONF_USERNAME) != client.username or data.get(CONF_PASSWORD) != client.password
         client_changed = (
-            data.get(CONF_USERNAME) != client.username
+            str(None if options.get("automatic_school_year", not data.get(CONF_YEAR)) else data.get(CONF_YEAR))
+            != str(client._configured_year)
+            or data.get(CONF_USERNAME) != client.username
             or data.get(CONF_PASSWORD) != client.password
             or set(options.get(CONF_ADDITIONAL_DATA, [])) != set(client.additional_data)
             or options.get(CONF_HOMEWORK_DAYS_BACK, DEFAULT_HOMEWORK_DAYS_BACK) != client.homework_days_back
@@ -483,6 +492,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
         if data.get("client"):
             await data["client"].async_close()
     return True
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry):
+    """Remove credentials and cached school data when a hub is deleted."""
+    await Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.cache").async_remove()
+    _async_clear_issue_notification(hass, entry)
 
 
 def async_get_options_flow(config_entry: ConfigEntry):
@@ -543,12 +558,16 @@ async def _async_setup_scheduler(hass: HomeAssistant, entry: ConfigEntry):
     def _as_hhmm(val, default):
         try:
             s = str(val)
-            hh, mm = s.split(":")
+            parts = s.split(":")
+            if len(parts) not in (2, 3):
+                raise ValueError
+            hh, mm = parts[:2]
             H = _as_int(hh, None, 0, 23)
             M = _as_int(mm, None, 0, 59)
-            if H is None or M is None:
+            S = _as_int(parts[2], None, 0, 59) if len(parts) == 3 else 0
+            if H is None or M is None or S is None:
                 raise ValueError
-            return f"{H:02d}:{M:02d}"
+            return f"{H:02d}:{M:02d}:{S:02d}"
         except Exception:
             return default
 
@@ -588,13 +607,15 @@ async def _async_setup_scheduler(hass: HomeAssistant, entry: ConfigEntry):
         # Disable periodic polling and schedule time-based jobs
         coordinator.set_interval_minutes(None)
         try:
-            hh, mm = [int(x) for x in schedule_time.split(":")]
+            parts = [int(x) for x in schedule_time.split(":")]
+            hh, mm = parts[:2]
+            ss = parts[2] if len(parts) > 2 else 0
         except Exception:
-            hh, mm = 2, 30
+            hh, mm, ss = 2, 30, 0
 
         if schedule_type == "daily":
             _LOGGER.info("Daily mode: refresh at %02d:%02d", hh, mm)
-            unsubs.append(async_track_time_change(hass, _refresh_data, hour=hh, minute=mm, second=0))
+            unsubs.append(async_track_time_change(hass, _refresh_data, hour=hh, minute=mm, second=ss))
 
         elif schedule_type == "weekly":
             _LOGGER.info("Weekly mode: days=%s at %02d:%02d", days, hh, mm)
@@ -610,7 +631,7 @@ async def _async_setup_scheduler(hass: HomeAssistant, entry: ConfigEntry):
                     _LOGGER.debug("Weekly mode: skipping refresh (today=%s not in %s)", today_idx, days)
 
             # Schedule once daily at the specified time; gate by weekday inside the callback
-            unsubs.append(async_track_time_change(hass, _maybe_refresh_weekly, hour=hh, minute=mm, second=0))
+            unsubs.append(async_track_time_change(hass, _maybe_refresh_weekly, hour=hh, minute=mm, second=ss))
 
     hass.data[DOMAIN][entry.entry_id]["unsub_daily"] = unsubs
 
@@ -628,6 +649,9 @@ class MashovCoordinator(DataUpdateCoordinator):
         )
         self.client = client
         self.entry = entry
+        self.data_stale = False
+        self.last_successful_update = None
+        self._consecutive_failures = 0
 
     def set_interval_minutes(self, minutes: int | None):
         """Set/clear periodic polling interval."""
@@ -645,6 +669,12 @@ class MashovCoordinator(DataUpdateCoordinator):
         _LOGGER.debug("Coordinator update started: %s", self.name)
         try:
             data = await asyncio.create_task(self.client.async_fetch_all())
+            self.data_stale = False
+            self._consecutive_failures = 0
+            self.last_successful_update = time.time()
+            if data.get("holidays_status", "ok") != "ok" and self.data and "holidays" in self.data:
+                data["holidays"] = self.data["holidays"]
+                data["holidays_cached"] = True
             _async_clear_issue_notification(self.hass, self.entry)
             _LOGGER.debug("Coordinator update completed; students=%d", len(data.get("students", [])))
             # Persist cache after every successful data update (interval, daily, or manual refresh)
@@ -661,6 +691,7 @@ class MashovCoordinator(DataUpdateCoordinator):
                 _LOGGER.debug("Failed saving cache after coordinator update: %s", e)
             return data
         except MashovPasswordChangeRequiredError as exc:
+            self.data_stale = True
             _async_show_password_change_notification(self.hass, self.entry, exc)
             if self.data:
                 _LOGGER.warning(
@@ -671,6 +702,7 @@ class MashovCoordinator(DataUpdateCoordinator):
             _LOGGER.error("Authentication error during data update: %s", exc)
             raise UpdateFailed(f"Password change required: {exc}") from exc
         except MashovAuthError as exc:
+            self.data_stale = True
             _async_show_auth_notification(
                 self.hass,
                 self.entry,
@@ -686,10 +718,16 @@ class MashovCoordinator(DataUpdateCoordinator):
             _LOGGER.error("Authentication error during data update: %s", exc)
             raise UpdateFailed(f"Auth error: {exc}") from exc
         except MashovError as exc:
-            _async_show_error_notification(self.hass, self.entry, "Mashov refresh failed", exc)
+            self.data_stale = True
+            self._consecutive_failures += 1
+            if not self.data or self._consecutive_failures == 3:
+                _async_show_error_notification(self.hass, self.entry, "Mashov refresh failed", exc)
             _LOGGER.error("Mashov error during data update: %s", exc)
             raise UpdateFailed(f"Mashov error: {exc}") from exc
         except Exception as exc:
-            _async_show_error_notification(self.hass, self.entry, "Mashov refresh failed", exc)
+            self.data_stale = True
+            self._consecutive_failures += 1
+            if not self.data or self._consecutive_failures == 3:
+                _async_show_error_notification(self.hass, self.entry, "Mashov refresh failed", exc)
             _LOGGER.error("Unexpected error during data update: %s", exc)
             raise UpdateFailed(f"Unexpected error: {exc}") from exc

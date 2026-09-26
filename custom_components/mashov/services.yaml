@@ -32,7 +32,7 @@ set_options:
             - interval
     schedule_time:
       name: "שעת רענון"
-      description: "HH:MM עבור daily/weekly"
+      description: "HH:MM או HH:MM:SS עבור daily/weekly"
       required: false
       selector:
         text: {}
@@ -81,3 +81,30 @@ set_options:
       required: false
       selector:
         text: {}
+    automatic_school_year:
+      name: "Automatic school year"
+      selector:
+        boolean: {}
+    max_items_in_attributes:
+      name: "Maximum stored items"
+      selector:
+        number:
+          min: 10
+          max: 500
+          mode: box
+    additional_data:
+      name: "Additional student data"
+      selector:
+        select:
+          multiple: true
+          translation_key: additional_data
+          options:
+            - message_board
+            - daily_behavior
+            - outside_behavior
+            - follow_up
+            - periodic_grades
+            - report_cards
+            - study_materials
+            - student_files
+            - justification_requests

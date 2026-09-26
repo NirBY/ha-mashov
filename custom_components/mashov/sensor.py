@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 from datetime import datetime
+from html import escape
 import logging
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.json import json_bytes
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
@@ -37,10 +37,12 @@ from .const import (
     SENSOR_KEY_TIMETABLE,
     SENSOR_KEY_WEEKLY_PLAN,
 )
+from .entity import MashovEntity, MashovStudentEntity
 from .holidays_utils import (
     HOLIDAY_DEFAULT_NAME,
     HOLIDAY_ICON,
     create_holidays_device_info,
+    parse_iso_date_to_date,
     parse_iso_date_to_formatted,
 )
 
@@ -83,49 +85,93 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     data = hass.data[DOMAIN][entry.entry_id]
     coord = data["coordinator"]
 
-    all_data = coord.data or {}
-    students = all_data.get("students", [])
-    _LOGGER.debug("Found %d students for sensor setup", len(students))
+    known = set()
 
-    entities = []
-    for stu in students:
-        slug = stu["slug"]
-        sid = stu["id"]
-        name = stu["name"]
-        _LOGGER.debug("Creating sensors for student: %s (id=%s, slug=%s)", name, sid, slug)
+    @callback
+    def sync_students():
+        students = (coord.data or {}).get("students", [])
+        # Only a real, successful login can prove that a student left this hub.
+        # Cached session metadata, failed refreshes and empty rosters cannot delete entries.
+        if (
+            students
+            and getattr(coord.client, "roster_refreshed", False) is True
+            and not coord.data_stale
+            and coord.last_update_success
+        ):
+            active = {str(stu["id"]) for stu in students}
+            registry = er.async_get(hass)
+            prefix = f"mashov_{entry.entry_id}_"
+            keys = (
+                SENSOR_KEY_HOMEWORK,
+                SENSOR_KEY_BEHAVIOR,
+                SENSOR_KEY_WEEKLY_PLAN,
+                SENSOR_KEY_TIMETABLE,
+                SENSOR_KEY_LESSONS_HISTORY,
+                SENSOR_KEY_GRADES,
+                *STUDENT_RESOURCES,
+            )
+            for registered in er.async_entries_for_config_entry(registry, entry.entry_id):
+                if (
+                    registered.domain != "sensor"
+                    or registered.platform != DOMAIN
+                    or not registered.unique_id.startswith(prefix)
+                ):
+                    continue
+                tail = registered.unique_id[len(prefix) :]
+                for key in sorted(keys, key=len, reverse=True):
+                    suffix = f"_{key}"
+                    if tail.endswith(suffix):
+                        if tail[: -len(suffix)] not in active:
+                            registry.async_remove(registered.entity_id)
+                        break
+            known.intersection_update({stu["id"] for stu in students})
+        entities = []
+        for stu in students:
+            if stu["id"] in known:
+                continue
+            known.add(stu["id"])
+            slug = stu["slug"]
+            sid = stu["id"]
+            name = stu["name"]
+            _LOGGER.debug("Creating sensors for student: %s (id=%s, slug=%s)", name, sid, slug)
 
-        entities.extend(
-            [
-                MashovListSensor(coord, entry.entry_id, sid, slug, name, SENSOR_KEY_HOMEWORK, "Homework", "homework"),
-                MashovListSensor(coord, entry.entry_id, sid, slug, name, SENSOR_KEY_BEHAVIOR, "Behavior", "behavior"),
-                MashovListSensor(
-                    coord, entry.entry_id, sid, slug, name, SENSOR_KEY_WEEKLY_PLAN, "Weekly Plan", "weekly_plan"
-                ),
-                MashovListSensor(
-                    coord, entry.entry_id, sid, slug, name, SENSOR_KEY_TIMETABLE, "Timetable", "timetable"
-                ),
-                MashovListSensor(
-                    coord,
-                    entry.entry_id,
-                    sid,
-                    slug,
-                    name,
-                    SENSOR_KEY_LESSONS_HISTORY,
-                    "Lessons History",
-                    "lessons_history",
-                ),
-                MashovListSensor(coord, entry.entry_id, sid, slug, name, SENSOR_KEY_GRADES, "Grades", "grades"),
-            ]
-        )
-        for key in entry.options.get(CONF_ADDITIONAL_DATA, []):
-            if key in STUDENT_RESOURCES:
-                entities.append(MashovAdditionalSensor(coord, sid, slug, name, key, entry.entry_id))
+            entities.extend(
+                [
+                    MashovListSensor(
+                        coord, entry.entry_id, sid, slug, name, SENSOR_KEY_HOMEWORK, "Homework", "homework"
+                    ),
+                    MashovListSensor(
+                        coord, entry.entry_id, sid, slug, name, SENSOR_KEY_BEHAVIOR, "Behavior", "behavior"
+                    ),
+                    MashovListSensor(
+                        coord, entry.entry_id, sid, slug, name, SENSOR_KEY_WEEKLY_PLAN, "Weekly Plan", "weekly_plan"
+                    ),
+                    MashovListSensor(
+                        coord, entry.entry_id, sid, slug, name, SENSOR_KEY_TIMETABLE, "Timetable", "timetable"
+                    ),
+                    MashovListSensor(
+                        coord,
+                        entry.entry_id,
+                        sid,
+                        slug,
+                        name,
+                        SENSOR_KEY_LESSONS_HISTORY,
+                        "Lessons History",
+                        "lessons_history",
+                    ),
+                    MashovListSensor(coord, entry.entry_id, sid, slug, name, SENSOR_KEY_GRADES, "Grades", "grades"),
+                ]
+            )
+            for key in entry.options.get(CONF_ADDITIONAL_DATA, []):
+                if key in STUDENT_RESOURCES:
+                    entities.append(MashovAdditionalSensor(coord, sid, slug, name, key, entry.entry_id))
 
-    # Global holidays sensor (per entry; ensure unique_id per entry)
-    entities.append(MashovHolidaysSensor(coord, entry.entry_id))
+        if entities:
+            async_add_entities(entities)
 
-    _LOGGER.info("Adding %d Mashov sensor entities", len(entities))
-    async_add_entities(entities)
+    sync_students()
+    async_add_entities([MashovHolidaysSensor(coord, entry.entry_id)])
+    entry.async_on_unload(coord.async_add_listener(sync_students))
 
 
 def _student_meta(data: dict, student_id, fallback_slug: str) -> dict:
@@ -141,7 +187,7 @@ def _student_group(data: dict, student_id, fallback_slug: str) -> dict:
     return data.get("by_slug", {}).get(slug, {})
 
 
-class MashovAdditionalSensor(CoordinatorEntity, SensorEntity):
+class MashovAdditionalSensor(MashovStudentEntity, SensorEntity):
     """Optional portal data; an inaccessible resource is not an empty list."""
 
     _attr_icon = "mdi:school"
@@ -152,7 +198,7 @@ class MashovAdditionalSensor(CoordinatorEntity, SensorEntity):
         self._slug = slug
         self._student_name = name
         self._key = key
-        self._attr_name = f"Mashov {name} {STUDENT_RESOURCES[key].name}"
+        self._attr_translation_key = key
         self._attr_unique_id = f"mashov_{entry_id}_{student_id}_{key}"
 
     @property
@@ -165,17 +211,17 @@ class MashovAdditionalSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def available(self):
-        return super().available and self._resource.get("status") == "ok"
+        return super().available
 
     @property
     def native_value(self):
-        return len(self._resource.get("items", [])) if self.available else None
+        return len(self._resource.get("items", [])) if self.available and self._resource.get("status") == "ok" else None
 
     @property
     def device_info(self):
         return {
             "identifiers": {(DOMAIN, str(self._student_id))},
-            "name": f"Mashov – {self._student_name}",
+            "name": f"Mashov – {self.student_name}",
             "manufacturer": DEVICE_MANUFACTURER,
             "model": DEVICE_MODEL,
         }
@@ -201,7 +247,8 @@ class MashovAdditionalSensor(CoordinatorEntity, SensorEntity):
             if len(json.dumps([*stored, item], ensure_ascii=True).encode("utf-8")) <= 12 * 1024:
                 stored.append(item)
         return {
-            "student_name": self._student_name,
+            "student_name": self.student_name,
+            "data_stale": self.data_stale,
             "source_status": resource.get("status", "not_fetched"),
             "total_items": len(items),
             "stored_items": len(stored),
@@ -209,7 +256,7 @@ class MashovAdditionalSensor(CoordinatorEntity, SensorEntity):
         }
 
 
-class MashovListSensor(CoordinatorEntity, SensorEntity):
+class MashovListSensor(MashovStudentEntity, SensorEntity):
     _attr_icon = "mdi:school"
 
     def __init__(
@@ -229,7 +276,7 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
         self._student_name = student_name
         self._key = key
         self._data_key = data_key
-        self._attr_name = f"Mashov {student_name} {name}"
+        self._attr_translation_key = key
         # Scoped to the entry: the same child can appear under two hubs (e.g. both parents).
         self._attr_unique_id = f"mashov_{entry_id}_{student_id}_{key}"
 
@@ -237,7 +284,7 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
     def native_value(self):
         group = _student_group(self.coordinator.data or {}, self._student_id, self._student_slug)
         items = group.get(self._data_key) or []
-        return len(items)
+        return len(items) if group.get("source_status", {}).get(self._data_key, "ok") == "ok" else None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -263,11 +310,15 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
         stored_count = len(items_for_attributes)
 
         attributes = {
-            "student_name": self._student_name,
+            "student_name": self.student_name,
+            "data_stale": self.data_stale,
+            "source_status": group.get("source_status", {}).get(self._data_key, "ok"),
             "student_id": self._student_id,
             "year": student_meta.get("year"),
             "school_id": student_meta.get("school_id"),
-            "last_update": dt_util.now().isoformat(timespec="seconds"),
+            "last_update": datetime.fromtimestamp(self.coordinator.last_successful_update, tz=dt_util.UTC).isoformat()
+            if getattr(self.coordinator, "last_successful_update", None)
+            else None,
             "total_items": total_count,  # Total number of items available
             "stored_items": stored_count,  # Number of items in attributes
             "items": items_for_attributes,  # Limited items (most recent)
@@ -349,7 +400,7 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
     def device_info(self):
         return {
             "identifiers": {(DOMAIN, f"{self._student_id}")},
-            "name": f"Mashov – {self._student_name}",
+            "name": f"Mashov – {self.student_name}",
             "manufacturer": DEVICE_MANUFACTURER,
             "model": DEVICE_MODEL,
         }
@@ -583,11 +634,14 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
                 schedule_type = DEFAULT_SCHEDULE_TYPE
             schedule_time = str(merged.get(CONF_SCHEDULE_TIME, DEFAULT_SCHEDULE_TIME))
             try:
-                hh, mm = (int(x) for x in schedule_time.split(":"))
-                if not (0 <= hh <= 23 and 0 <= mm <= 59):
+                parts = [int(x) for x in schedule_time.split(":")]
+                hh, mm = parts[:2]
+                ss = parts[2] if len(parts) > 2 else 0
+                if not (0 <= hh <= 23 and 0 <= mm <= 59 and 0 <= ss <= 59 and len(parts) in (2, 3)):
                     raise ValueError
             except Exception:
                 schedule_time = DEFAULT_SCHEDULE_TIME
+                ss = 0
             try:
                 schedule_day = int(merged.get(CONF_SCHEDULE_DAY, DEFAULT_SCHEDULE_DAY))
             except Exception:
@@ -617,17 +671,17 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
 
             if schedule_type == "daily":
                 try:
-                    hh, mm = (int(x) for x in str(schedule_time).split(":"))
+                    hh, mm = (int(x) for x in str(schedule_time).split(":")[:2])
                 except Exception:
                     hh, mm = (int(x) for x in DEFAULT_SCHEDULE_TIME.split(":"))
-                next_dt = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+                next_dt = now.replace(hour=hh, minute=mm, second=ss, microsecond=0)
                 if next_dt <= now:
                     next_dt = next_dt + timedelta(days=1)
                 friendly = f"יומי בשעה {hh:02d}:{mm:02d}"
                 next_time_iso = next_dt.isoformat(timespec="seconds")
             elif schedule_type == "weekly":
                 try:
-                    hh, mm = (int(x) for x in str(schedule_time).split(":"))
+                    hh, mm = (int(x) for x in str(schedule_time).split(":")[:2])
                 except Exception:
                     hh, mm = (int(x) for x in DEFAULT_SCHEDULE_TIME.split(":"))
                 # Our 0=Monday mapping; Python weekday(): Monday=0
@@ -636,7 +690,7 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
                 for target_wd in schedule_days:
                     target_wd = int(target_wd)
                     days_ahead = (target_wd - now.weekday()) % 7
-                    dt = now.replace(hour=hh, minute=mm, second=0, microsecond=0) + timedelta(days=days_ahead)
+                    dt = now.replace(hour=hh, minute=mm, second=ss, microsecond=0) + timedelta(days=days_ahead)
                     if dt <= now:
                         dt = dt + timedelta(days=7)
                     candidates.append(dt)
@@ -683,7 +737,7 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
             date_str = item.get("lesson_date", "")
             if date_str:
                 try:
-                    date_obj = datetime.fromisoformat(date_str.replace("T00:00:00", ""))
+                    date_obj = parse_iso_date_to_date(date_str)
                     formatted_date = date_obj.strftime("%d/%m/%Y")
                 except Exception:
                     formatted_date = date_str
@@ -732,7 +786,7 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
             date_str = item.get("lesson_date", "")
             if date_str:
                 try:
-                    date_obj = datetime.fromisoformat(date_str.replace("T00:00:00", ""))
+                    date_obj = parse_iso_date_to_date(date_str)
                     formatted_date = date_obj.strftime("%d/%m/%Y")
                 except Exception:
                     formatted_date = date_str
@@ -804,7 +858,7 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
             date_str = item.get("lesson_date", "")
             if date_str:
                 try:
-                    date_obj = datetime.fromisoformat(date_str.replace("T00:00:00", ""))
+                    date_obj = parse_iso_date_to_date(date_str)
                     formatted_date = date_obj.strftime("%d/%m/%Y")
                 except Exception:
                     formatted_date = date_str
@@ -835,6 +889,25 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
                 }
             )
 
+        if any(item.get("lesson_date") for item in items):
+            rows = []
+            for item in items:
+                parsed = parse_iso_date_to_date(item.get("lesson_date"))
+                if parsed:
+                    cells = [
+                        parsed.isoformat(),
+                        str(item.get("lesson") or ""),
+                        str(item.get("subject") or ""),
+                        str(item.get("plan") or ""),
+                    ]
+                    rows.append("<tr>" + "".join(f"<td>{escape(cell)}</td>" for cell in cells) + "</tr>")
+            return {
+                "summary": f"יש {len(items)} שיעורים מתוכננים ב-{len(by_subject)} מקצועות על פני {len(by_date)} ימים",
+                "by_date": by_date,
+                "by_subject": by_subject,
+                "table_html": '<table dir="auto"><tbody>' + "".join(rows) + "</tbody></table>" if rows else "",
+            }
+
         # Determine day mapping and headers
         day_values = [n["day"] for n in normalized if isinstance(n.get("day"), int)]
         uses_sunday_based = False
@@ -854,11 +927,7 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
             headers = headers_mon
 
             def to_col(d):
-                return max(
-                    0, min(6, (int(d) + 6) % 7)
-                )  # 0(Mon)->6? We want order Mon..Sun mapped to 0..6 index of headers_mon
-
-            # Explanation: headers_mon starts at Monday, but rendered order is Mon..Sun; mapping (d) to index accordingly
+                return max(0, min(6, int(d)))  # 0=Monday through 6=Sunday
 
         # Determine max lessons
         max_lessons = max([n["lesson"] or 0 for n in normalized] + [8])
@@ -895,7 +964,7 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
         for _i, row in enumerate(table_rows, start=1):
             html.append("<tr>")
             for cell in row:
-                cell_html = cell.replace("\n", "<br/>") if cell else ""
+                cell_html = escape(cell).replace("\n", "<br/>") if cell else ""
                 html.append(
                     f'<td style="border:1px solid var(--divider-color); padding:6px; vertical-align:top;">{cell_html}</td>'
                 )
@@ -935,7 +1004,7 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
         for it in items:
             ds = it.get("lesson_date")
             try:
-                d = datetime.fromisoformat((ds or "").replace("T00:00:00", ""))
+                d = parse_iso_date_to_date(ds)
                 date_key = d.strftime("%d/%m/%Y")
             except Exception:
                 date_key = (ds or "").split("T")[0]
@@ -974,7 +1043,7 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
             date_str = item.get("eventDate", "")
             if date_str:
                 try:
-                    date_obj = datetime.fromisoformat(date_str.replace("T00:00:00", ""))
+                    date_obj = parse_iso_date_to_date(date_str)
                     formatted_date = date_obj.strftime("%d/%m/%Y")
                 except Exception:
                     formatted_date = date_str
@@ -1033,13 +1102,13 @@ class MashovListSensor(CoordinatorEntity, SensorEntity):
         }
 
 
-class MashovHolidaysSensor(CoordinatorEntity, SensorEntity):
+class MashovHolidaysSensor(MashovEntity, SensorEntity):
     _attr_icon = HOLIDAY_ICON
 
     def __init__(self, coordinator, entry_id: str):
         super().__init__(coordinator)
         self._entry_id = entry_id
-        self._attr_name = "Mashov Holidays"
+        self._attr_translation_key = "holidays"
         self._attr_unique_id = f"mashov_{entry_id}_holidays"
 
     @property
@@ -1047,7 +1116,7 @@ class MashovHolidaysSensor(CoordinatorEntity, SensorEntity):
         # number of holidays in the dataset
         data = self.coordinator.data or {}
         items = data.get("holidays") or []
-        return len(items)
+        return len(items) if data.get("holidays_status", "ok") == "ok" or data.get("holidays_cached") else None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -1068,10 +1137,14 @@ class MashovHolidaysSensor(CoordinatorEntity, SensorEntity):
 
         summary = f"יש {len(items)} חגים/חופשות"
         return {
+            "source_status": data.get("holidays_status", "ok"),
+            "data_stale": self.data_stale or data.get("holidays_status", "ok") != "ok",
             "formatted_summary": summary,
             "formatted_by_date": by_date,
             "items": items,
-            "last_update": dt_util.now().isoformat(timespec="seconds"),
+            "last_update": datetime.fromtimestamp(self.coordinator.last_successful_update, tz=dt_util.UTC).isoformat()
+            if getattr(self.coordinator, "last_successful_update", None)
+            else None,
         }
 
     @property

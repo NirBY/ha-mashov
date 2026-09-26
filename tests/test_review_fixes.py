@@ -104,7 +104,9 @@ async def test_credentials_and_options_change_reloads_once(hass: HomeAssistant, 
 
 
 def _coordinator(data):
-    return SimpleNamespace(data=data, entry=SimpleNamespace(options={}), hass=SimpleNamespace(data={}))
+    return SimpleNamespace(
+        data=data, entry=SimpleNamespace(options={}), hass=SimpleNamespace(data={}), last_update_success=True
+    )
 
 
 def test_sensor_follows_student_after_class_change():
@@ -148,8 +150,9 @@ def test_weekly_plan_shows_subject_and_plan_text():
     assert attrs["formatted_by_date"] == {"08/09/2025": ["שיעור 2: Science – Chapter 3"]}
     assert attrs["formatted_by_subject"] == {"Science": ["08/09/2025 שיעור 2: Chapter 3"]}
     assert attrs["items"][0]["subject"] == "Science"
-    # Dated multi-week plans are not forced into an empty weekday grid.
-    assert "formatted_table_html" not in attrs
+    # Dated plans preserve their actual dates, even when spanning multiple weeks.
+    assert "2025-09-08" in attrs["formatted_table_html"]
+    assert "Chapter 3" in attrs["formatted_table_html"]
 
 
 async def test_legacy_list_sensor_unique_ids_are_scoped_to_entry(hass: HomeAssistant, mock_config_entry):

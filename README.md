@@ -9,7 +9,7 @@ Unofficial integration for **משו"ב (Mashov)** that logs into the student por
 - **Grades**
 - **Holidays** (sensor and calendar per school hub)
 
-Current release: **v1.0.9**. Requires **Home Assistant 2025.3 or newer**.
+Current release: **v1.0.10**. Requires **Home Assistant 2025.3 or newer**.
 See [release notes](RELEASE_NOTES.md) for fixes and upgrade compatibility.
 
 > This project is **community-made** and not affiliated with Mashov. Use at your own risk and follow your school's policies.
@@ -22,7 +22,7 @@ See [release notes](RELEASE_NOTES.md) for fixes and upgrade compatibility.
 
 ## 🧩 Features
 - Simple **Config Flow (UI)** via Settings → Devices & Services → Add Integration → **Mashov**.
-- **Daily refresh** (02:30 by default) + `mashov.refresh_now` service for on-demand updates.
+- **Daily refresh** (14:00 by default) + `mashov.refresh_now` service for on-demand updates.
 - **Sensors** expose compact **state** (count) + rich **attributes** (lists you can use in automations / dashboards).
 - **Calendar entity** for school holidays - integrates with Home Assistant calendar view 📅
 - **Diagnostics** endpoint for safe issue reporting (redacts credentials).
@@ -60,10 +60,11 @@ Credential updates in **Configure** apply only to the specific Mashov hub entry 
 Duplicate accounts for the same school are detected during setup. Different accounts
 can expose the same child in separate hubs without sensor unique-ID collisions.
 The school year advances automatically on September 1 unless an existing entry has
-an explicitly configured year; that year remains pinned.
+an explicitly configured year; that year remains pinned until you enable
+**Automatic school year** in Configure (or `automatic_school_year: true` with `mashov.set_options`).
 
 - **Homework window**: days back (default 7), days forward (default 21)
-- **Daily refresh time**: default `02:30`
+- **Daily refresh time**: default `14:00`
 - **API base**: default `https://web.mashov.info/api/` (override if your deployment differs)
 - **Max items in attributes**: maximum items to store in sensor attributes (default 100, range: 10-500)
   - Controls how many recent items are stored in sensor attributes to prevent database size issues
@@ -92,7 +93,7 @@ Files are not downloaded, messages are not marked read, and requests/forms are
 never submitted. Dated resources use the configured days-back/days-forward window.
 
 School permissions and published data vary. An empty successful result has state
-`0`; access failures are `unavailable` with a `source_status` attribute. Forbidden
+`0`; access failures are `unknown` with a visible `source_status` attribute. Forbidden
 or unsupported resources are retried after 24 hours (or an integration reload),
 independently for each student and school. The external Shahaf exam calendar,
 mail, and parent approvals are not included in these sensors.
@@ -134,10 +135,11 @@ are scoped to each hub automatically.
 **Attributes** (common): `items`, `formatted_summary`, `formatted_by_date`, `formatted_by_subject` (and for timetable: also table helpers).
 
 Weekly-plan subjects and teachers are filled from timetable groups where available,
-and grouped views include the plan text. Dated plans without weekday grid positions
-do not expose an empty HTML table. Students continue updating after a class-name
-change because data lookup follows their stable student ID. Update and schedule
-timestamps use Home Assistant's configured timezone.
+and grouped views include the plan text. Dated plans render a date-labelled HTML table
+instead of combining different weeks into one grid. Students continue updating after
+a class-name change because data lookup follows their stable student ID. Schedule
+timestamps use Home Assistant's configured timezone. `last_update` is the
+actual last successful refresh time in UTC, or null for legacy caches without a timestamp.
 
 > **Tip**: Use `{{ state_attr('sensor.mashov_<id>_homework', 'items') }}` to access raw lists.
 >
@@ -363,7 +365,9 @@ card using the holiday sensor belonging to the student's school. Update both the
 In the two-school example, Ahad Haam uses `sensor.mashov_holidays_2` and Naomi Shemer
 uses `sensor.mashov_holidays_mashov_holidays`. IDs depend on your entity registry.
 
-Authentication and full refresh failures create a persistent notification in HA.
+Authentication failures create a persistent notification immediately. With cached data,
+transient refresh failures create a notification after three consecutive failures;
+without cached data, setup/refresh failures notify immediately.
 **Review a bug report on GitHub** opens a prefilled form with versions and a technical
 event summary. Review, describe the problem and submit on GitHub. This does not publish
 anything automatically or upload the HA log. Download integration diagnostics for
@@ -404,3 +408,39 @@ See [release notes](RELEASE_NOTES.md) for the full fixes and compatibility detai
 compatibility, omitting it targets the first loaded hub. `mashov.refresh_now`
 continues to refresh every hub when `entry_id` is omitted. The legacy
 `schedule_day` service field remains supported and replaces the selected days.
+
+
+## v1.0.10: languages, cache visibility and report fixes
+
+Setup, options, service labels, weekdays and entity names support English, Hebrew,
+Arabic, Russian and Ukrainian using Home Assistant's language settings. School-provided
+content is unchanged. Existing Hebrew formatted summaries, cards and speech blueprints
+remain compatible and are not automatically translated.
+
+Entity names contain the student name only once. Registered entity IDs and user-assigned
+names are preserved; newly created IDs may reflect the selected language. Device names
+and `student_name` follow class changes. After a successful real login and data refresh
+with a nonempty roster, sensor registrations for students no longer in that hub are
+removed. Cached, empty or failed rosters never trigger removal. Recorder history is not
+purged. Newly returned students receive their sensors without restarting HA.
+
+All student resources expose `source_status`. Failed/blocked sources show `unknown`,
+not a misleading zero. Optional 403/404 responses log a warning once per request cycle
+and wait 24 hours before retrying. A successful empty result still means zero.
+After a failed refresh, cached values remain visible with `data_stale: true` and the
+original `last_update`. Holiday failures retain the previous holidays, when available,
+and expose their own failure status without discarding fresh student data.
+
+`mashov.set_options` accepts `max_items_in_attributes`, `additional_data`,
+`automatic_school_year`, and `HH:MM:SS` as well as `HH:MM`. Legacy unknown fields are
+ignored rather than persisted; invalid known values are rejected. Calls without
+`entry_id` retain their first-loaded-hub behavior and log a warning if ambiguous.
+Deleting a hub also removes its cache and issue notification.
+
+Dated weekly plans render a date-labelled HTML table, keeping different weeks separate.
+The recurring timetable retains its weekday grid. Both escape school text in HTML.
+Holiday entities remain per hub to preserve existing dashboards and allow hubs to be
+removed independently. Downgrading past the v1.0.9 registry migration requires restoring
+a matching HA backup; a downgrade does not reverse the unique-ID migration.
+
+See the [17-item review disposition](docs/review-v1.0.10.md) and [release notes](RELEASE_NOTES.md).

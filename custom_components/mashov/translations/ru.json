@@ -1,0 +1,202 @@
+{
+  "title": "Mashov",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Mashov",
+        "description": "Введите данные для входа и выберите школу из списка (введите текст для поиска).",
+        "data": {
+          "username": "Имя пользователя / номер удостоверения",
+          "password": "Пароль",
+          "school_name": "Школа"
+        }
+      },
+      "pick_school": {
+        "title": "Выберите школу",
+        "description": "Найдено несколько школ. Выберите одну.",
+        "data": {
+          "selected_school": "Школа"
+        }
+      }
+    },
+    "error": {
+      "auth": "Ошибка входа. Проверьте данные и школу.",
+      "cannot_connect": "Не удалось подключиться к Mashov.",
+      "school_not_found": "Школа с таким названием не найдена."
+    },
+    "abort": {
+      "already_configured": "Эта учётная запись уже настроена."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Настройки Mashov",
+        "description": "Настройте диапазон домашних заданий и расписание обновлений.",
+        "data": {
+          "username": "Имя пользователя / номер удостоверения",
+          "password": "Пароль (оставьте пустым, чтобы сохранить текущий)",
+          "additional_data": "Дополнительные данные ученика (необязательно)",
+          "homework_days_back": "Дней назад для домашних заданий",
+          "homework_days_forward": "Дней вперёд для домашних заданий",
+          "api_base": "Базовый адрес API (расширенная настройка)",
+          "schedule_type": "Тип расписания",
+          "schedule_time": "Время обновления (HH:MM или HH:MM:SS)",
+          "schedule_day": "День недели (для совместимости)",
+          "schedule_days": "Дни недели",
+          "schedule_interval": "Интервал в минутах",
+          "max_items_in_attributes": "Максимум элементов в атрибутах",
+          "automatic_school_year": "Автоматический учебный год (смена 1 сентября)"
+        }
+      }
+    },
+    "error": {
+      "invalid_time_format": "Неверный формат времени (HH:MM или HH:MM:SS).",
+      "invalid_api_url": "Неверный URL (должен начинаться с http или https).",
+      "already_configured": "Эта учётная запись уже настроена."
+    }
+  },
+  "selector": {
+    "additional_data": {
+      "options": {
+        "message_board": "Доска объявлений",
+        "daily_behavior": "Поведение за день",
+        "outside_behavior": "Поведение вне уроков",
+        "follow_up": "Заметки наблюдений",
+        "periodic_grades": "Оценки за период",
+        "report_cards": "Табели успеваемости",
+        "study_materials": "Учебные материалы",
+        "student_files": "Файлы ученика",
+        "justification_requests": "Заявки на оправдание пропусков"
+      }
+    },
+    "schedule_days": {
+      "options": {
+        "0": "Понедельник",
+        "1": "Вторник",
+        "2": "Среда",
+        "3": "Четверг",
+        "4": "Пятница",
+        "5": "Суббота",
+        "6": "Воскресенье"
+      }
+    },
+    "schedule_type": {
+      "options": {
+        "daily": "Ежедневно",
+        "weekly": "Еженедельно",
+        "interval": "Через интервал"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "homework": {
+        "name": "Домашние задания"
+      },
+      "behavior": {
+        "name": "Поведение"
+      },
+      "weekly_plan": {
+        "name": "План на неделю"
+      },
+      "timetable": {
+        "name": "Расписание"
+      },
+      "lessons_history": {
+        "name": "История уроков"
+      },
+      "grades": {
+        "name": "Оценки"
+      },
+      "holidays": {
+        "name": "Праздники и каникулы"
+      },
+      "message_board": {
+        "name": "Доска объявлений"
+      },
+      "daily_behavior": {
+        "name": "Поведение за день"
+      },
+      "outside_behavior": {
+        "name": "Поведение вне уроков"
+      },
+      "follow_up": {
+        "name": "Заметки наблюдений"
+      },
+      "periodic_grades": {
+        "name": "Оценки за период"
+      },
+      "report_cards": {
+        "name": "Табели успеваемости"
+      },
+      "study_materials": {
+        "name": "Учебные материалы"
+      },
+      "student_files": {
+        "name": "Файлы ученика"
+      },
+      "justification_requests": {
+        "name": "Заявки на оправдание пропусков"
+      }
+    },
+    "calendar": {
+      "holidays": {
+        "name": "Календарь"
+      }
+    }
+  },
+  "services": {
+    "refresh_now": {
+      "name": "Обновить данные",
+      "description": "Обновить данные выбранного или всех подключений.",
+      "fields": {
+        "entry_id": {
+          "name": "Идентификатор подключения"
+        }
+      }
+    },
+    "set_options": {
+      "name": "Изменить настройки",
+      "description": "Изменить настройки подключения. При нескольких подключениях укажите нужное.",
+      "fields": {
+        "entry_id": {
+          "name": "Идентификатор подключения"
+        },
+        "additional_data": {
+          "name": "Дополнительные данные ученика (необязательно)"
+        },
+        "homework_days_back": {
+          "name": "Дней назад для домашних заданий"
+        },
+        "homework_days_forward": {
+          "name": "Дней вперёд для домашних заданий"
+        },
+        "api_base": {
+          "name": "Базовый адрес API (расширенная настройка)"
+        },
+        "schedule_type": {
+          "name": "Тип расписания"
+        },
+        "schedule_time": {
+          "name": "Время обновления (HH:MM или HH:MM:SS)"
+        },
+        "schedule_day": {
+          "name": "День недели (для совместимости)"
+        },
+        "schedule_days": {
+          "name": "Дни недели"
+        },
+        "schedule_interval": {
+          "name": "Интервал в минутах"
+        },
+        "max_items_in_attributes": {
+          "name": "Максимум элементов в атрибутах"
+        },
+        "automatic_school_year": {
+          "name": "Автоматический учебный год (смена 1 сентября)"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,202 @@
+{
+  "title": "Mashov",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Mashov",
+        "description": "Введіть дані для входу та виберіть школу зі списку (введіть текст для пошуку).",
+        "data": {
+          "username": "Ім’я користувача / номер посвідчення",
+          "password": "Пароль",
+          "school_name": "Школа"
+        }
+      },
+      "pick_school": {
+        "title": "Виберіть школу",
+        "description": "Знайдено кілька шкіл. Виберіть одну.",
+        "data": {
+          "selected_school": "Школа"
+        }
+      }
+    },
+    "error": {
+      "auth": "Помилка входу. Перевірте дані та школу.",
+      "cannot_connect": "Не вдалося підключитися до Mashov.",
+      "school_not_found": "Школу з такою назвою не знайдено."
+    },
+    "abort": {
+      "already_configured": "Цей обліковий запис уже налаштовано."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Налаштування Mashov",
+        "description": "Налаштуйте діапазон домашніх завдань і розклад оновлень.",
+        "data": {
+          "username": "Ім’я користувача / номер посвідчення",
+          "password": "Пароль (залиште порожнім, щоб зберегти поточний)",
+          "additional_data": "Додаткові дані учня (необов’язково)",
+          "homework_days_back": "Попередні дні домашніх завдань",
+          "homework_days_forward": "Наступні дні домашніх завдань",
+          "api_base": "Базова адреса API (розширене налаштування)",
+          "schedule_type": "Тип розкладу",
+          "schedule_time": "Час оновлення (HH:MM або HH:MM:SS)",
+          "schedule_day": "День тижня (для сумісності)",
+          "schedule_days": "Дні тижня",
+          "schedule_interval": "Інтервал у хвилинах",
+          "max_items_in_attributes": "Максимум елементів в атрибутах",
+          "automatic_school_year": "Автоматичний навчальний рік (зміна 1 вересня)"
+        }
+      }
+    },
+    "error": {
+      "invalid_time_format": "Неправильний формат часу (HH:MM або HH:MM:SS).",
+      "invalid_api_url": "Неправильна URL-адреса (має починатися з http або https).",
+      "already_configured": "Цей обліковий запис уже налаштовано."
+    }
+  },
+  "selector": {
+    "additional_data": {
+      "options": {
+        "message_board": "Дошка оголошень",
+        "daily_behavior": "Поведінка за день",
+        "outside_behavior": "Поведінка поза уроками",
+        "follow_up": "Нотатки спостережень",
+        "periodic_grades": "Оцінки за період",
+        "report_cards": "Табелі успішності",
+        "study_materials": "Навчальні матеріали",
+        "student_files": "Файли учня",
+        "justification_requests": "Заяви на виправдання пропусків"
+      }
+    },
+    "schedule_days": {
+      "options": {
+        "0": "Понеділок",
+        "1": "Вівторок",
+        "2": "Середа",
+        "3": "Четвер",
+        "4": "П’ятниця",
+        "5": "Субота",
+        "6": "Неділя"
+      }
+    },
+    "schedule_type": {
+      "options": {
+        "daily": "Щодня",
+        "weekly": "Щотижня",
+        "interval": "Через інтервал"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "homework": {
+        "name": "Домашні завдання"
+      },
+      "behavior": {
+        "name": "Поведінка"
+      },
+      "weekly_plan": {
+        "name": "План на тиждень"
+      },
+      "timetable": {
+        "name": "Розклад"
+      },
+      "lessons_history": {
+        "name": "Історія уроків"
+      },
+      "grades": {
+        "name": "Оцінки"
+      },
+      "holidays": {
+        "name": "Свята та канікули"
+      },
+      "message_board": {
+        "name": "Дошка оголошень"
+      },
+      "daily_behavior": {
+        "name": "Поведінка за день"
+      },
+      "outside_behavior": {
+        "name": "Поведінка поза уроками"
+      },
+      "follow_up": {
+        "name": "Нотатки спостережень"
+      },
+      "periodic_grades": {
+        "name": "Оцінки за період"
+      },
+      "report_cards": {
+        "name": "Табелі успішності"
+      },
+      "study_materials": {
+        "name": "Навчальні матеріали"
+      },
+      "student_files": {
+        "name": "Файли учня"
+      },
+      "justification_requests": {
+        "name": "Заяви на виправдання пропусків"
+      }
+    },
+    "calendar": {
+      "holidays": {
+        "name": "Календар"
+      }
+    }
+  },
+  "services": {
+    "refresh_now": {
+      "name": "Оновити дані",
+      "description": "Оновити дані вибраного або всіх підключень.",
+      "fields": {
+        "entry_id": {
+          "name": "Ідентифікатор підключення"
+        }
+      }
+    },
+    "set_options": {
+      "name": "Змінити налаштування",
+      "description": "Змінити налаштування підключення. Якщо їх кілька, вкажіть потрібне.",
+      "fields": {
+        "entry_id": {
+          "name": "Ідентифікатор підключення"
+        },
+        "additional_data": {
+          "name": "Додаткові дані учня (необов’язково)"
+        },
+        "homework_days_back": {
+          "name": "Попередні дні домашніх завдань"
+        },
+        "homework_days_forward": {
+          "name": "Наступні дні домашніх завдань"
+        },
+        "api_base": {
+          "name": "Базова адреса API (розширене налаштування)"
+        },
+        "schedule_type": {
+          "name": "Тип розкладу"
+        },
+        "schedule_time": {
+          "name": "Час оновлення (HH:MM або HH:MM:SS)"
+        },
+        "schedule_day": {
+          "name": "День тижня (для сумісності)"
+        },
+        "schedule_days": {
+          "name": "Дні тижня"
+        },
+        "schedule_interval": {
+          "name": "Інтервал у хвилинах"
+        },
+        "max_items_in_attributes": {
+          "name": "Максимум елементів в атрибутах"
+        },
+        "automatic_school_year": {
+          "name": "Автоматичний навчальний рік (зміна 1 вересня)"
+        }
+      }
+    }
+  }
+}

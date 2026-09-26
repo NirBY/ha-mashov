@@ -94,15 +94,15 @@ def make_sensor(resource=None):
 
 
 @pytest.mark.parametrize("status", ["forbidden", "unsupported", "fetch_failed", "invalid_response"])
-def test_failed_sensor_is_unavailable_not_zero(status):
+def test_failed_sensor_is_unknown_with_visible_status_not_zero(status):
     sensor = make_sensor({"items": [], "status": status})
-    assert not sensor.available
+    assert sensor.available
     assert sensor.native_value is None
     assert sensor.extra_state_attributes["source_status"] == status
 
 
 def test_unfetched_sensor_and_valid_empty_sensor():
-    assert not make_sensor().available
+    assert make_sensor().native_value is None
     sensor = make_sensor({"items": [], "status": "ok"})
     assert sensor.available
     assert sensor.native_value == 0

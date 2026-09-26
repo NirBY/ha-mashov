@@ -13,7 +13,10 @@
       },
       "pick_school": {
         "title": "בחירת מוסד",
-        "description": "נמצאו כמה תוצאות — בחרו את המוסד המתאים."
+        "description": "נמצאו כמה תוצאות — בחרו את המוסד המתאים.",
+        "data": {
+          "selected_school": "מוסד"
+        }
       }
     },
     "error": {
@@ -38,31 +41,161 @@
           "homework_days_forward": "כמה ימים קדימה לש\"ב",
           "api_base": "כתובת API (מתקדם)",
           "schedule_type": "סוג לו\"ז (daily/weekly/interval)",
-          "schedule_time": "שעת רענון (HH:MM)",
+          "schedule_time": "שעת רענון (HH:MM או HH:MM:SS)",
           "schedule_day": "יום בשבוע (ישן, תאימות לאחור)",
           "schedule_days": "ימים בשבוע (0=שני ... 6=ראשון)",
           "schedule_interval": "מרווח בדקות (במצב interval)",
-          "max_items_in_attributes": "מקסימום פריטים לשמירה במאפיינים"
+          "max_items_in_attributes": "מקסימום פריטים לשמירה במאפיינים",
+          "automatic_school_year": "שנת לימודים אוטומטית (מתחלפת ב־1 בספטמבר)"
         }
       }
     },
     "error": {
-      "invalid_time_format": "פורמט זמן שגוי (HH:MM)",
-      "invalid_api_url": "כתובת לא תקינה (חובה http/https)"
+      "invalid_time_format": "שעה לא תקינה (HH:MM או HH:MM:SS)",
+      "invalid_api_url": "כתובת לא תקינה (חובה http/https)",
+      "already_configured": "חשבון משו\"ב זה כבר מוגדר."
     }
   },
   "selector": {
     "additional_data": {
       "options": {
         "message_board": "לוח מודעות",
-        "daily_behavior": "אירועי התנהגות יומיים",
+        "daily_behavior": "התנהגות יומית",
         "outside_behavior": "התנהגות מחוץ לשיעור",
         "follow_up": "הערות מעקב",
         "periodic_grades": "ציונים תקופתיים",
         "report_cards": "תעודות",
         "study_materials": "חומרי לימוד",
-        "student_files": "מרחב קבצים",
-        "justification_requests": "בקשות הצדקה"
+        "student_files": "קובצי תלמיד",
+        "justification_requests": "בקשות להצדקת היעדרות"
+      }
+    },
+    "schedule_days": {
+      "options": {
+        "0": "יום שני",
+        "1": "יום שלישי",
+        "2": "יום רביעי",
+        "3": "יום חמישי",
+        "4": "יום שישי",
+        "5": "שבת",
+        "6": "יום ראשון"
+      }
+    },
+    "schedule_type": {
+      "options": {
+        "daily": "יומי",
+        "weekly": "שבועי",
+        "interval": "מרווח זמן"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "homework": {
+        "name": "שיעורי בית"
+      },
+      "behavior": {
+        "name": "התנהגות"
+      },
+      "weekly_plan": {
+        "name": "תוכנית שבועית"
+      },
+      "timetable": {
+        "name": "מערכת שעות"
+      },
+      "lessons_history": {
+        "name": "היסטוריית שיעורים"
+      },
+      "grades": {
+        "name": "ציונים"
+      },
+      "holidays": {
+        "name": "חגים וחופשות"
+      },
+      "message_board": {
+        "name": "לוח מודעות"
+      },
+      "daily_behavior": {
+        "name": "התנהגות יומית"
+      },
+      "outside_behavior": {
+        "name": "התנהגות מחוץ לשיעור"
+      },
+      "follow_up": {
+        "name": "הערות מעקב"
+      },
+      "periodic_grades": {
+        "name": "ציונים תקופתיים"
+      },
+      "report_cards": {
+        "name": "תעודות"
+      },
+      "study_materials": {
+        "name": "חומרי לימוד"
+      },
+      "student_files": {
+        "name": "קובצי תלמיד"
+      },
+      "justification_requests": {
+        "name": "בקשות להצדקת היעדרות"
+      }
+    },
+    "calendar": {
+      "holidays": {
+        "name": "לוח שנה"
+      }
+    }
+  },
+  "services": {
+    "refresh_now": {
+      "name": "רענון נתונים",
+      "description": "רענון האב אחד או כל ההאבים.",
+      "fields": {
+        "entry_id": {
+          "name": "מזהה האב"
+        }
+      }
+    },
+    "set_options": {
+      "name": "עדכון אפשרויות",
+      "description": "עדכון אפשרויות ההאב. כשיש כמה האבים יש לציין entry_id.",
+      "fields": {
+        "entry_id": {
+          "name": "מזהה האב"
+        },
+        "additional_data": {
+          "name": "נתוני תלמיד נוספים (לבחירה)"
+        },
+        "homework_days_back": {
+          "name": "כמה ימים אחורה לש\"ב"
+        },
+        "homework_days_forward": {
+          "name": "כמה ימים קדימה לש\"ב"
+        },
+        "api_base": {
+          "name": "כתובת API (מתקדם)"
+        },
+        "schedule_type": {
+          "name": "סוג לו\"ז (daily/weekly/interval)"
+        },
+        "schedule_time": {
+          "name": "שעת רענון (HH:MM או HH:MM:SS)"
+        },
+        "schedule_day": {
+          "name": "יום בשבוע (ישן, תאימות לאחור)"
+        },
+        "schedule_days": {
+          "name": "ימים בשבוע (0=שני ... 6=ראשון)"
+        },
+        "schedule_interval": {
+          "name": "מרווח בדקות (במצב interval)"
+        },
+        "max_items_in_attributes": {
+          "name": "מקסימום פריטים לשמירה במאפיינים"
+        },
+        "automatic_school_year": {
+          "name": "שנת לימודים אוטומטית (מתחלפת ב־1 בספטמבר)"
+        }
       }
     }
   }

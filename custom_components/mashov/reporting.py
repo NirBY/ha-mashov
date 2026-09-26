@@ -7,7 +7,7 @@ from homeassistant.const import __version__ as HA_VERSION
 
 from .additional_data import STUDENT_RESOURCES
 
-VERSION = "1.0.9"
+VERSION = "1.0.10"
 _EVENTS = {
     "Mashov password change required": "password_change_required",
     "Mashov authentication failed": "authentication_failed",
@@ -24,6 +24,17 @@ def diagnostic_summary(coordinator=None):
         return result
     result["last_update_success"] = bool(coordinator.last_update_success)
     data = coordinator.data or {}
+    result["data_stale"] = bool(getattr(coordinator, "data_stale", False)) or not coordinator.last_update_success
+    holiday_status = data.get("holidays_status", "not_fetched")
+    result["holidays_status"] = holiday_status if holiday_status in _STATUSES else "other_error"
+    core_counts = {}
+    for student in data.get("by_slug", {}).values():
+        for key in ("homework", "behavior", "weekly_plan", "timetable", "lessons_history", "grades"):
+            status = student.get("source_status", {}).get(key, "not_fetched")
+            status = status if status in _STATUSES else "other_error"
+            bucket = core_counts.setdefault(key, {})
+            bucket[status] = bucket.get(status, 0) + 1
+    result["core_resource_status_counts"] = core_counts
     result["student_count"] = len(data.get("students", []))
     counts = {}
     for student in data.get("by_slug", {}).values():

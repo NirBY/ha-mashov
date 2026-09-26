@@ -13,7 +13,10 @@
       },
       "pick_school": {
         "title": "Select School",
-        "description": "Multiple schools matched. Please choose one."
+        "description": "Multiple schools matched. Please choose one.",
+        "data": {
+          "selected_school": "School"
+        }
       }
     },
     "error": {
@@ -38,17 +41,19 @@
           "homework_days_forward": "Homework days forward",
           "api_base": "API base (advanced)",
           "schedule_type": "Schedule type (daily/weekly/interval)",
-          "schedule_time": "Refresh time (HH:MM)",
+          "schedule_time": "Refresh time (HH:MM or HH:MM:SS)",
           "schedule_day": "Weekday (legacy, backward compat)",
           "schedule_days": "Weekdays (0=Mon ... 6=Sun)",
           "schedule_interval": "Interval minutes (interval mode)",
-          "max_items_in_attributes": "Max items stored in attributes"
+          "max_items_in_attributes": "Max items stored in attributes",
+          "automatic_school_year": "Automatic school year (changes on September 1)"
         }
       }
     },
     "error": {
-      "invalid_time_format": "Invalid time format (HH:MM)",
-      "invalid_api_url": "Invalid URL (must start with http/https)"
+      "invalid_time_format": "Invalid time (HH:MM or HH:MM:SS)",
+      "invalid_api_url": "Invalid URL (must start with http/https)",
+      "already_configured": "This Mashov account is already configured."
     }
   },
   "selector": {
@@ -63,6 +68,134 @@
         "study_materials": "Study materials",
         "student_files": "Student files",
         "justification_requests": "Absence justification requests"
+      }
+    },
+    "schedule_days": {
+      "options": {
+        "0": "Monday",
+        "1": "Tuesday",
+        "2": "Wednesday",
+        "3": "Thursday",
+        "4": "Friday",
+        "5": "Saturday",
+        "6": "Sunday"
+      }
+    },
+    "schedule_type": {
+      "options": {
+        "daily": "Daily",
+        "weekly": "Weekly",
+        "interval": "Interval"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "homework": {
+        "name": "Homework"
+      },
+      "behavior": {
+        "name": "Behavior"
+      },
+      "weekly_plan": {
+        "name": "Weekly plan"
+      },
+      "timetable": {
+        "name": "Timetable"
+      },
+      "lessons_history": {
+        "name": "Lesson history"
+      },
+      "grades": {
+        "name": "Grades"
+      },
+      "holidays": {
+        "name": "Holidays"
+      },
+      "message_board": {
+        "name": "Noticeboard"
+      },
+      "daily_behavior": {
+        "name": "Daily behavior"
+      },
+      "outside_behavior": {
+        "name": "Outside lesson behavior"
+      },
+      "follow_up": {
+        "name": "Follow-up notes"
+      },
+      "periodic_grades": {
+        "name": "Term grades"
+      },
+      "report_cards": {
+        "name": "Report cards"
+      },
+      "study_materials": {
+        "name": "Study materials"
+      },
+      "student_files": {
+        "name": "Student files"
+      },
+      "justification_requests": {
+        "name": "Absence justification requests"
+      }
+    },
+    "calendar": {
+      "holidays": {
+        "name": "Calendar"
+      }
+    }
+  },
+  "services": {
+    "refresh_now": {
+      "name": "Refresh data",
+      "description": "Refresh one hub or all hubs.",
+      "fields": {
+        "entry_id": {
+          "name": "Hub entry ID"
+        }
+      }
+    },
+    "set_options": {
+      "name": "Update options",
+      "description": "Update hub options. Specify entry_id when multiple hubs exist.",
+      "fields": {
+        "entry_id": {
+          "name": "Hub entry ID"
+        },
+        "additional_data": {
+          "name": "Additional student data (optional)"
+        },
+        "homework_days_back": {
+          "name": "Homework days back"
+        },
+        "homework_days_forward": {
+          "name": "Homework days forward"
+        },
+        "api_base": {
+          "name": "API base (advanced)"
+        },
+        "schedule_type": {
+          "name": "Schedule type (daily/weekly/interval)"
+        },
+        "schedule_time": {
+          "name": "Refresh time (HH:MM or HH:MM:SS)"
+        },
+        "schedule_day": {
+          "name": "Weekday (legacy, backward compat)"
+        },
+        "schedule_days": {
+          "name": "Weekdays (0=Mon ... 6=Sun)"
+        },
+        "schedule_interval": {
+          "name": "Interval minutes (interval mode)"
+        },
+        "max_items_in_attributes": {
+          "name": "Max items stored in attributes"
+        },
+        "automatic_school_year": {
+          "name": "Automatic school year (changes on September 1)"
+        }
       }
     }
   }

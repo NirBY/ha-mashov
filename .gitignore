@@ -156,3 +156,12 @@ dataExample/
 !/.env.example
 !/.env.sample
 **/mashov*diagnostics*.json
+
+# Local scratch scripts, command captures and packaging output
+*.tmp.*
+/tatus
+/mashov_brands_files.zip
+/ha-mashov-access.json
+/ha-mashov-*.json
+/ha-mashov-*.ps1
+/custom_components/icon.png

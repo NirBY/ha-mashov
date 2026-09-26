@@ -6,7 +6,6 @@ import logging
 from homeassistant.components.calendar import CalendarEntity, CalendarEvent
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -14,6 +13,7 @@ from .const import (
     DEVICE_MODEL,
     DOMAIN,
 )
+from .entity import MashovEntity
 from .holidays_utils import (
     HOLIDAY_DEFAULT_NAME,
     HOLIDAY_ICON,
@@ -36,7 +36,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     async_add_entities(entities)
 
 
-class MashovHolidaysCalendar(CoordinatorEntity, CalendarEntity):
+class MashovHolidaysCalendar(MashovEntity, CalendarEntity):
     """Calendar entity for Mashov holidays."""
 
     _attr_icon = HOLIDAY_ICON
@@ -45,8 +45,16 @@ class MashovHolidaysCalendar(CoordinatorEntity, CalendarEntity):
         """Initialize the calendar entity."""
         super().__init__(coordinator)
         self._entry_id = entry_id
-        self._attr_name = "Mashov Holidays Calendar"
+        self._attr_translation_key = "holidays"
         self._attr_unique_id = f"mashov_{entry_id}_holidays_calendar"
+
+    @property
+    def extra_state_attributes(self):
+        data = self.coordinator.data or {}
+        return {
+            "source_status": data.get("holidays_status", "ok"),
+            "data_stale": self.data_stale or data.get("holidays_status", "ok") != "ok",
+        }
 
     @property
     def event(self) -> CalendarEvent | None:

@@ -31,6 +31,7 @@ from .const import (
     CONF_SCHOOL_ID,
     CONF_SCHOOL_NAME,
     CONF_USERNAME,
+    CONF_YEAR,
     DEFAULT_API_BASE,
     DEFAULT_HOMEWORK_DAYS_BACK,
     DEFAULT_HOMEWORK_DAYS_FORWARD,
@@ -298,7 +299,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             import re
 
             time_val = user_input.get(CONF_SCHEDULE_TIME, "")
-            if time_val and not re.match(r"^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$", time_val):
+            if time_val and not re.match(r"^([0-1]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$", time_val):
                 errors[CONF_SCHEDULE_TIME] = "invalid_time_format"
 
             # Validate API URL
@@ -306,9 +307,22 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             if api_val and not (api_val.startswith("http://") or api_val.startswith("https://")):
                 errors[CONF_API_BASE] = "invalid_api_url"
 
+            proposed_username = str(user_input.get(CONF_USERNAME, "")).strip()
+            if (
+                proposed_username
+                and proposed_username != self.config_entry.data.get(CONF_USERNAME)
+                and any(
+                    other.entry_id != self.config_entry.entry_id
+                    and str(other.data.get(CONF_SCHOOL_ID)) == str(self.config_entry.data.get(CONF_SCHOOL_ID))
+                    and str(other.data.get(CONF_USERNAME, "")).strip().lower() == proposed_username.lower()
+                    for other in self.hass.config_entries.async_entries(DOMAIN)
+                )
+            ):
+                errors["base"] = "already_configured"
+
             if not errors:
                 # Normalize: accept both legacy single day and new multi-days selector
-                normalized = dict(user_input)
+                normalized = {**self.config_entry.options, **user_input}
                 try:
                     if CONF_SCHEDULE_DAYS in normalized:
                         raw_days = normalized.get(CONF_SCHEDULE_DAYS) or []
@@ -340,6 +354,19 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 if new_password:
                     updated_data[CONF_PASSWORD] = new_password
 
+                candidate_id = f"{updated_data[CONF_SCHOOL_ID]}_{updated_data[CONF_USERNAME].strip().lower()}"
+                duplicate = any(
+                    other.entry_id != self.config_entry.entry_id
+                    and (
+                        other.unique_id == candidate_id
+                        or (
+                            str(other.data.get(CONF_SCHOOL_ID)) == str(updated_data[CONF_SCHOOL_ID])
+                            and str(other.data.get(CONF_USERNAME, "")).strip().lower()
+                            == updated_data[CONF_USERNAME].strip().lower()
+                        )
+                    )
+                    for other in self.hass.config_entries.async_entries(DOMAIN)
+                )
                 if updated_data != dict(self.config_entry.data):
                     # Save credentials and options together so the update listener reloads once;
                     # the create_entry below then finds identical options and does not fire again.
@@ -347,7 +374,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         self.config_entry,
                         data=updated_data,
                         options=normalized,
-                        unique_id=f"{updated_data[CONF_SCHOOL_ID]}_{updated_data[CONF_USERNAME].strip().lower()}",
+                        unique_id=self.config_entry.unique_id if duplicate else candidate_id,
                     )
                     _LOGGER.info(
                         "Credentials updated for '%s' (id=%s)",
@@ -387,6 +414,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             {
                 vol.Optional(CONF_USERNAME, default=options[CONF_USERNAME]): str,
                 vol.Optional(
+                    "automatic_school_year",
+                    default=current_options.get("automatic_school_year", not self.config_entry.data.get(CONF_YEAR)),
+                ): bool,
+                vol.Optional(
                     CONF_ADDITIONAL_DATA, default=current_options.get(CONF_ADDITIONAL_DATA, [])
                 ): SelectSelector(
                     SelectSelectorConfig(
@@ -404,23 +435,16 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     int, vol.Range(min=1, max=120)
                 ),
                 vol.Optional(CONF_API_BASE, default=options[CONF_API_BASE]): str,
-                vol.Optional(CONF_SCHEDULE_TYPE, default=options[CONF_SCHEDULE_TYPE]): vol.In(
-                    ["daily", "weekly", "interval"]
+                vol.Optional(CONF_SCHEDULE_TYPE, default=options[CONF_SCHEDULE_TYPE]): SelectSelector(
+                    SelectSelectorConfig(options=["daily", "weekly", "interval"], translation_key="schedule_type")
                 ),
                 vol.Optional(CONF_SCHEDULE_TIME, default=options[CONF_SCHEDULE_TIME]): str,
                 # Hide legacy single-day field by not including it in the schema
                 # Multi days selector via HA SelectSelector (multiple)
                 vol.Optional(CONF_SCHEDULE_DAYS, default=[str(d) for d in options[CONF_SCHEDULE_DAYS]]): SelectSelector(
                     SelectSelectorConfig(
-                        options=[
-                            {"value": "0", "label": "Monday"},
-                            {"value": "1", "label": "Tuesday"},
-                            {"value": "2", "label": "Wednesday"},
-                            {"value": "3", "label": "Thursday"},
-                            {"value": "4", "label": "Friday"},
-                            {"value": "5", "label": "Saturday"},
-                            {"value": "6", "label": "Sunday"},
-                        ],
+                        options=[str(d) for d in range(7)],
+                        translation_key="schedule_days",
                         mode=SelectSelectorMode.DROPDOWN,
                         multiple=True,
                     )
