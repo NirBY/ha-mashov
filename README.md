@@ -9,7 +9,7 @@ Unofficial integration for **משו"ב (Mashov)** that logs into the student por
 - **Grades**
 - **Holidays** (sensor and calendar per school hub)
 
-Current release: **v1.0.10**. Requires **Home Assistant 2025.3 or newer**.
+Current release: **v1.0.11**. Requires **Home Assistant 2025.3 or newer**.
 See [release notes](RELEASE_NOTES.md) for fixes and upgrade compatibility.
 
 > This project is **community-made** and not affiliated with Mashov. Use at your own risk and follow your school's policies.
@@ -317,8 +317,9 @@ views:
 ### Notifications, GitHub, Telegram and GreenAPI
 
 Authentication and full-refresh failures create a persistent notification in the HA
-UI. A successful refresh dismisses that hub's notification. The GitHub link opens a
-prefilled issue form for you to review and submit; publishing or closing an issue
+UI. A successful refresh dismisses that hub's notification. Only detected internal
+programming errors offer GitHub reporting; account, network, HTTP/API availability
+and school-permission failures do not. The link opens a prefilled issue form for review; publishing or closing an issue
 on GitHub does not synchronize its status back into HA.
 
 The integration does not include GitHub issue monitoring or automatic Telegram/
@@ -368,7 +369,7 @@ uses `sensor.mashov_holidays_mashov_holidays`. IDs depend on your entity registr
 Authentication failures create a persistent notification immediately. With cached data,
 transient refresh failures create a notification after three consecutive failures;
 without cached data, setup/refresh failures notify immediately.
-**Review a bug report on GitHub** opens a prefilled form with versions and a technical
+For internal errors only, **Review a bug report on GitHub** opens a prefilled form with versions and a technical
 event summary. Review, describe the problem and submit on GitHub. This does not publish
 anything automatically or upload the HA log. Download integration diagnostics for
 additional counts/statuses; diagnostics exclude student records, credentials and entry data.
@@ -444,3 +445,30 @@ removed independently. Downgrading past the v1.0.9 registry migration requires r
 a matching HA backup; a downgrade does not reverse the unique-ID migration.
 
 See the [17-item review disposition](docs/review-v1.0.10.md) and [release notes](RELEASE_NOTES.md).
+
+
+## v1.0.11: internal-error reports and optional technical logs
+
+Account/password problems, school-denied resources, timeouts, connection failures,
+server HTTP errors and invalid API responses never add a bug-report link. Their
+existing recovery notifications and retry behavior remain in place. Unexpected
+internal programming exceptions are reportable; automated classification cannot
+prove the root cause, so reports still require your review and submission.
+
+An internal error offers two links: **Review a bug report on GitHub** and
+**Review a bug report with technical logs**. The second pre-fills the latest error's
+UTC timestamp, a standard exception type, integration version and integration source
+filenames/line numbers. It excludes exception messages, full paths, local variables,
+credentials and portal/student data. This is a sanitized technical event log, not a
+copy of the complete Home Assistant log.
+
+For a file attachment, open **Settings → Devices & Services → Mashov**, choose the
+affected hub and download diagnostics from its menu. Attach the reviewed JSON file
+(or a .txt copy) in the GitHub form's optional **Log files** field. Diagnostics contains
+up to 20 internal-error records for that hub from the current HA session; restarting
+HA clears this in-memory history. Raw HA debug logs may be attached manually after
+reviewing and redacting them. Nothing is posted to GitHub automatically.
+
+Internal errors notify immediately, once per failure sequence. A successful refresh
+resets this suppression. The three-failure threshold for transient errors with cached
+data is unchanged, and those operational alerts contain no reporting links.

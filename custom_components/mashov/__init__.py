@@ -45,7 +45,7 @@ from .const import (
     PLATFORMS,
 )
 from .mashov_client import MashovAuthError, MashovClient, MashovError, MashovPasswordChangeRequiredError
-from .reporting import issue_report_url
+from .reporting import is_internal_error, issue_report_url, technical_log
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -56,12 +56,23 @@ def _issue_notification_id(entry: ConfigEntry) -> str:
     return f"{DOMAIN}_{entry.entry_id}_{_ISSUE_NOTIFICATION_KEY}"
 
 
-def _async_show_issue_notification(hass: HomeAssistant, entry: ConfigEntry, title: str, message: str) -> None:
-    message += (
-        f"\n\n[Review a bug report on GitHub]({issue_report_url(title)})"
-        "\n\nThe form contains only a technical event summary and software versions. "
-        "Review it and add reproduction steps before submitting. Raw logs are not uploaded."
-    )
+def _async_show_issue_notification(
+    hass: HomeAssistant, entry: ConfigEntry, title: str, message: str, *, error=None
+) -> None:
+    if is_internal_error(error):
+        logs = hass.data.setdefault(DOMAIN, {}).setdefault("report_logs", {}).setdefault(entry.entry_id, [])
+        logs.append(technical_log(error, title))
+        del logs[:-20]
+        message += (
+            "\n\nAn unexpected internal error was detected."
+            f"\n\n[Review a bug report on GitHub]({issue_report_url(title)})"
+            f"\n\n[Review a bug report with technical logs]({issue_report_url(title, logs)})"
+            "\n\nTechnical logs include error types, timestamps and integration code locations only; "
+            "exception text, credentials, student data and raw HA logs are excluded. "
+            "For an attachment, open [Mashov settings](/config/integrations/integration/mashov), "
+            "choose the affected hub, download diagnostics from its menu and attach the file to GitHub. "
+            "Review the report and attachments before submitting. Nothing is submitted automatically."
+        )
     persistent_notification.async_create(
         hass,
         message,
@@ -82,8 +93,11 @@ def _async_show_password_change_notification(
 
 
 def _async_show_error_notification(hass: HomeAssistant, entry: ConfigEntry, title: str, error: Exception | str) -> None:
-    message = f"Mashov reported an error for **{entry.title}**.\n\nError: `{error}`"
-    _async_show_issue_notification(hass, entry, title, message)
+    if is_internal_error(error):
+        message = "Mashov encountered an unexpected internal error while processing data. Cached data is retained when available."
+    else:
+        message = f"Mashov could not refresh **{entry.title}**. Check connectivity and Mashov availability; a later refresh will retry."
+    _async_show_issue_notification(hass, entry, title, message, error=error)
 
 
 def _async_show_auth_notification(
@@ -416,8 +430,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                 raise ConfigEntryError(str(e)) from e
         except Exception as e:
             coordinator.data_stale = True
-            if not coordinator.data:
+            if (not coordinator.data or is_internal_error(e)) and not coordinator._internal_error_notified:
                 _async_show_error_notification(hass, entry, "Mashov startup refresh failed", e)
+                coordinator._internal_error_notified = is_internal_error(e)
             if coordinator.data:
                 # Scheduled/polled refreshes will retry; keep serving the cache meanwhile.
                 _LOGGER.warning("Startup refresh failed for %s; keeping cached data: %s", entry.title, e)
@@ -497,6 +512,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Remove credentials and cached school data when a hub is deleted."""
     await Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.cache").async_remove()
+    hass.data.get(DOMAIN, {}).get("report_logs", {}).pop(entry.entry_id, None)
     _async_clear_issue_notification(hass, entry)
 
 
@@ -652,6 +668,7 @@ class MashovCoordinator(DataUpdateCoordinator):
         self.data_stale = False
         self.last_successful_update = None
         self._consecutive_failures = 0
+        self._internal_error_notified = False
 
     def set_interval_minutes(self, minutes: int | None):
         """Set/clear periodic polling interval."""
@@ -671,6 +688,7 @@ class MashovCoordinator(DataUpdateCoordinator):
             data = await asyncio.create_task(self.client.async_fetch_all())
             self.data_stale = False
             self._consecutive_failures = 0
+            self._internal_error_notified = False
             previous_update = self.last_successful_update
             self.last_successful_update = time.time()
             if data.get("holidays_status", "ok") == "ok":
@@ -735,7 +753,11 @@ class MashovCoordinator(DataUpdateCoordinator):
         except Exception as exc:
             self.data_stale = True
             self._consecutive_failures += 1
-            if not self.data or self._consecutive_failures == 3:
+            reportable = is_internal_error(exc)
+            if (reportable and not self._internal_error_notified) or (
+                not reportable and (not self.data or self._consecutive_failures == 3)
+            ):
                 _async_show_error_notification(self.hass, self.entry, "Mashov refresh failed", exc)
+                self._internal_error_notified |= reportable
             _LOGGER.error("Unexpected error during data update: %s", exc)
             raise UpdateFailed(f"Unexpected error: {exc}") from exc

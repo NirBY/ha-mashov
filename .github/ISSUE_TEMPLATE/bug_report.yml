@@ -72,7 +72,7 @@ body:
     id: debug_logs
     attributes:
       label: "Debug logs"
-      description: "The HA notification pre-fills a safe event summary. Raw logs are optional and must be reviewed and redacted before uploading."
+      description: "The HA notification offers a report with or without technical logs (error types, timestamps and code locations only). Exception messages and raw HA logs are excluded."
       render: shell
       placeholder: |
         <paste relevant logs enclosed in triple backticks>
@@ -81,6 +81,15 @@ body:
         ```
     validations:
       required: true
+
+  - type: textarea
+    id: log_attachments
+    attributes:
+      label: "Log files (optional)"
+      description: "In Settings → Devices & Services → Mashov, download diagnostics for the affected hub. Drag the JSON file here (or save it as .txt). It includes up to 20 sanitized internal-error records from the current HA session. You may also attach relevant manually redacted HA debug logs. Review every attachment before uploading."
+      placeholder: "Drag a reviewed diagnostic/log file here, or paste a relevant redacted excerpt."
+    validations:
+      required: false
 
   - type: textarea
     id: diagnostics

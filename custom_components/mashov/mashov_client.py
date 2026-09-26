@@ -744,7 +744,7 @@ class MashovClient:
                             raise MashovError(f"Invalid JSON fetching {url_key}") from e
                 except MashovError:
                     raise
-                except Exception as e:
+                except (aiohttp.ClientError, OSError) as e:
                     raise MashovError(f"Request failed fetching {url_key}") from e
 
             homework, behavior, weekly_plan, timetable, lessons_history, grades = await asyncio.gather(
