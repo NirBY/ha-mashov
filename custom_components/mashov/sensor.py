@@ -138,7 +138,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                         for entity in er.async_entries_for_device(registry, device.id)
                     )
                 ):
-                    devices.async_update_device(device.id, remove_config_entry_id=entry.entry_id)
+                    if hasattr(device, "config_entry_id"):
+                        # New HA registries scope each device to one config entry.
+                        devices.async_remove_device(device.id)
+                    else:
+                        devices.async_update_device(device.id, remove_config_entry_id=entry.entry_id)
             known.intersection_update({stu["id"] for stu in students})
         entities = []
         for stu in students:

@@ -58,9 +58,18 @@ async def test_automatic_cleanup_detaches_only_confirmed_departed_device(
     if shared:
         other = MockConfigEntry(domain=DOMAIN, data={})
         other.add_to_hass(hass)
-        devices.async_update_device(departed.id, add_config_entry_id=other.entry_id)
+        if hasattr(departed, "config_entry_id"):
+            other_device = devices.async_get_or_create(
+                config_entry_id=other.entry_id, identifiers={(DOMAIN, "departed")}
+            )
+        else:
+            other_device = devices.async_update_device(departed.id, add_config_entry_id=other.entry_id)
         retained = entities.async_get_or_create(
-            "sensor", DOMAIN, f"mashov_{other.entry_id}_departed_homework", config_entry=other, device_id=departed.id
+            "sensor",
+            DOMAIN,
+            f"mashov_{other.entry_id}_departed_homework",
+            config_entry=other,
+            device_id=other_device.id,
         )
     patcher, client = _patch_client()
     client.roster_refreshed = False
@@ -81,7 +90,7 @@ async def test_automatic_cleanup_detaches_only_confirmed_departed_device(
         else:
             assert mock_config_entry.entry_id in remaining.config_entries
         if shared:
-            assert other.entry_id in remaining.config_entries
+            assert devices.async_get(other_device.id) is not None
             assert entities.async_get(retained.entity_id) is not None
         current_entities = er.async_entries_for_config_entry(entities, mock_config_entry.entry_id)
         assert any("student-123" in entity.unique_id for entity in current_entities)

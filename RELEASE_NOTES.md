@@ -5,7 +5,7 @@ Fix departed-student device removal and document old-data retention.
 ## Fixed
 - Enable the Home Assistant device-page Delete action for a student absent from that hub's latest known roster, including after startup from cache.
 - Complete automatic departed-student cleanup by removing empty device cards after a successful refresh with a roster obtained through a fresh login. Cached sessions, empty rosters and failed/stale refreshes do not trigger automatic deletion.
-- Detach only the affected hub from shared devices. Active students and holiday devices remain protected.
+- Support both legacy shared devices and newer HA devices scoped to one hub. Detach only the affected hub; active students and holiday devices remain protected.
 
 ## Data retention and compatibility
 - Device removal does not purge HA Recorder history or delete anything from Mashov's servers.
