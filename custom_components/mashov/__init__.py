@@ -442,6 +442,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     except Exception as e:
         _LOGGER.debug("No cache available for entry %s: %s", entry.entry_id, e)
 
+    # Apply opt-outs on disk before authentication or network requests. A failed
+    # refresh must never leave disabled records or message bodies in our cache.
+    # Keep the snapshot's original selection metadata until a successful fetch,
+    # so adding data still forces a refresh after a failed attempt/restart.
+    if isinstance(cached, dict) and cached.get("data"):
+        filtered = filter_cached_data(cached["data"], entry.options)
+        if filtered != cached["data"]:
+            cached = {**cached, "data": filtered}
+            try:
+                await store.async_save(cached)
+            except Exception as err:
+                raise ConfigEntryNotReady("Could not remove disabled data from the Mashov cache") from err
+
     # Restore the saved Mashov session so a restart does not force a new login.
     # The client needs to know which school year a session was opened for, so it
     # does not reuse a session from a different year.
@@ -476,7 +489,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     # Inject cached data into coordinator if available, so platforms create entities
     # from the cache even when no startup refresh runs.
     if isinstance(cached, dict) and cached.get("data"):
-        coordinator.data = filter_cached_data(cached["data"], entry.options)
+        coordinator.data = cached["data"]
         coordinator.last_successful_update = cached.get("last_refresh_ts")
 
     hass.data[DOMAIN][entry.entry_id] = {
@@ -937,6 +950,9 @@ class MashovCoordinator(DataUpdateCoordinator):
         _LOGGER.debug("Coordinator update started: %s", self.name)
         try:
             data = await asyncio.create_task(self.client.async_fetch_all())
+            # Options may change while a request is in flight. Never reintroduce
+            # opted-out data if that old request completes during the reload.
+            data = filter_cached_data(data, self.entry.options)
             self.data_stale = False
             self._consecutive_failures = 0
             self._internal_error_notified = False

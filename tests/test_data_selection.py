@@ -1,7 +1,8 @@
 """User choices must bound fetching and survive upgrades without resetting entities."""
 
 from copy import deepcopy
-from unittest.mock import MagicMock
+import logging
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_registry as er
@@ -16,7 +17,7 @@ from custom_components.mashov.data_selection import (
     merge_selection_options,
 )
 from custom_components.mashov.entity import sync_selected_entities
-from custom_components.mashov.mashov_client import MashovClient
+from custom_components.mashov.mashov_client import MashovClient, MashovError
 
 from .test_roster_change import _response
 from .test_setup_resilience import DATA, _patch_cache, _patch_client
@@ -158,6 +159,170 @@ async def test_options_cannot_enable_full_content_without_mailbox(hass, mock_con
     )
     assert result["errors"]["mailbox_full_content"] == "mailbox_required"
     assert not mock_config_entry.options.get("mailbox_full_content")
+
+
+async def test_options_deselect_mailbox_resets_checked_full_content(hass, mock_config_entry):
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={"enabled_data": ["homework", "mailbox"], "mailbox_full_content": True}
+    )
+    flow = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"enabled_data": ["homework"], "mailbox_full_content": True}
+    )
+    assert result["type"] == "create_entry"
+    assert mock_config_entry.options["enabled_data"] == ["homework"]
+    assert mock_config_entry.options["mailbox_full_content"] is False
+    flow = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+    await hass.config_entries.options.async_configure(flow["flow_id"], {"enabled_data": ["homework", "mailbox"]})
+    assert mock_config_entry.options["mailbox_full_content"] is False
+
+
+async def test_invalid_options_keep_submitted_selection(hass, mock_config_entry, caplog):
+    caplog.set_level(logging.DEBUG, logger="custom_components.mashov.config_flow")
+    mock_config_entry.add_to_hass(hass)
+    flow = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        flow["flow_id"],
+        {
+            "enabled_data": ["mailbox"],
+            "mailbox_limit": 3,
+            "schedule_time": "bad",
+            "password": "never-log-this-password",
+        },
+    )
+    assert result["errors"]["schedule_time"] == "invalid_time_format"
+    defaults = {
+        str(key): key.default() for key in result["data_schema"].schema if str(key) in ("enabled_data", "mailbox_limit")
+    }
+    assert defaults == {"enabled_data": ["mailbox"], "mailbox_limit": 3}
+    assert "never-log-this-password" not in caplog.text
+
+
+async def test_initial_validation_keeps_selection(hass):
+    with patch("custom_components.mashov.config_flow.ConfigFlow._load_schools_catalog", return_value=[]):
+        flow = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+        result = await hass.config_entries.flow.async_configure(
+            flow["flow_id"],
+            {
+                "username": "test",
+                "password": "test",
+                "school_name": "123",
+                "enabled_data": ["homework"],
+                "mailbox_full_content": True,
+            },
+        )
+    assert result["errors"]["mailbox_full_content"] == "mailbox_required"
+    field = next(key for key in result["data_schema"].schema if str(key) == "enabled_data")
+    assert field.default() == ["homework"]
+
+
+async def test_inflight_refresh_cannot_restore_disabled_bodies(hass, mock_config_entry):
+    from custom_components.mashov import MashovCoordinator
+
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={"enabled_data": ["mailbox"], "mailbox_full_content": True}
+    )
+
+    async def fetch():
+        # Consent was revoked after the request started but before it finished.
+        hass.config_entries.async_update_entry(
+            mock_config_entry, options={"enabled_data": ["mailbox"], "mailbox_full_content": False}
+        )
+        return {
+            **deepcopy(DATA),
+            "mailbox": {"full_content": True, "items": [{"messages": [{"body": "revoked content"}]}]},
+        }
+
+    client = MagicMock(async_fetch_all=AsyncMock(side_effect=fetch), auth_data={})
+    coordinator = MashovCoordinator(hass, client, mock_config_entry)
+    with _patch_cache(None) as store_class:
+        result = await coordinator._async_update_data()
+        assert "revoked content" not in str(result)
+        assert "revoked content" not in str(store_class.return_value.async_save.call_args)
+    await coordinator.async_shutdown()
+
+
+@pytest.mark.parametrize("selected", [[], ["mailbox"]])
+async def test_disable_purges_disk_cache_even_when_login_fails(hass, mock_config_entry, selected):
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={"enabled_data": selected, "mailbox_full_content": False, "mailbox_limit": 1}
+    )
+    snapshot = deepcopy(DATA)
+    snapshot.update(enabled_data=["homework", "mailbox"], mailbox_full_content=True)
+    snapshot["by_slug"]["test_student"]["homework"] = [{"text": "old private homework"}]
+    snapshot["mailbox"] = {
+        "full_content": True,
+        "items": [{"messages": [{"subject": "header", "body": "old private body"}]}] * 2,
+    }
+    cached = {"data": snapshot, "auth": {"csrf_token": "synthetic"}, "last_refresh_ts": 123}
+    patcher, client = _patch_client(MashovError("offline"))
+    try:
+        with _patch_cache(cached) as store_class:
+
+            async def assert_purged_before_login(*_):
+                store_class.return_value.async_save.assert_awaited_once()
+                raise MashovError("offline")
+
+            client.async_init.side_effect = assert_purged_before_login
+            assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+            await hass.async_block_till_done()
+            saved = store_class.return_value.async_save.call_args.args[0]
+            assert saved["auth"] == cached["auth"]
+            assert saved["last_refresh_ts"] == 123
+            assert "old private" not in str(saved)
+            if selected:
+                assert len(saved["data"]["mailbox"]["items"]) == 1
+                assert saved["data"]["mailbox"]["full_content"] is False
+            else:
+                assert "mailbox" not in saved["data"]
+            assert hass.data[DOMAIN][mock_config_entry.entry_id]["coordinator"].data == saved["data"]
+            client.async_fetch_all.assert_not_awaited()
+            await hass.config_entries.async_unload(mock_config_entry.entry_id)
+    finally:
+        patcher.stop()
+
+
+async def test_options_reload_disables_then_restores_existing_entity(hass, mock_config_entry):
+    """Exercise HA's real options listener/reload and Store, not just selection helpers."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(mock_config_entry, options={"enabled_data": ["homework"]})
+    clients = []
+
+    def make_client(**kwargs):
+        client = MashovClient(**kwargs)
+        client.async_init = AsyncMock()
+        client.async_close = AsyncMock()
+        data = filter_cached_data(DATA, mock_config_entry.options)
+        data["enabled_data"] = kwargs["enabled_data"]
+        client.async_fetch_all = AsyncMock(return_value=data)
+        clients.append(client)
+        return client
+
+    with patch("custom_components.mashov.MashovClient", side_effect=make_client):
+        assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+        registry = er.async_get(hass)
+        entity = er.async_entries_for_config_entry(registry, mock_config_entry.entry_id)[0]
+        registry.async_update_entity(entity.entity_id, name="My homework")
+        for selected in ([], ["homework"]):
+            flow = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+            await hass.config_entries.options.async_configure(flow["flow_id"], {"enabled_data": selected})
+            await hass.async_block_till_done()
+            assert clients[-1].enabled_data == tuple(selected)
+            current = registry.async_get(entity.entity_id)
+            assert current.name == "My homework"
+            assert current.disabled_by == (None if selected else er.RegistryEntryDisabler.INTEGRATION)
+            state = hass.states.get(entity.entity_id)
+            if selected:
+                assert state is not None and state.state == "0"
+            else:
+                # HA can retain an unavailable restored placeholder for an ID.
+                assert state is None or (state.state == "unavailable" and "items" not in state.attributes)
+        assert len(clients) == 3
+        await hass.config_entries.async_unload(mock_config_entry.entry_id)
 
 
 async def test_service_legacy_selection_still_updates_new_selection(hass, mock_config_entry):

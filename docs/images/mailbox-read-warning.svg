@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="500" height="108" viewBox="0 0 500 108" role="img" aria-labelledby="title desc">
+<title id="title">שליפת תוכן מלא מסמנת שיחות כנקראו</title>
+<desc id="desc">Full-content retrieval marks fetched conversations as read in Mashov, even if you have not opened them yourself.</desc>
+<rect x="1" y="1" width="498" height="106" rx="8" fill="#fff4f4" stroke="#c62828" stroke-width="2"/>
+<g fill="#b71c1c" font-family="Arial, sans-serif" font-size="19" font-weight="bold" text-anchor="middle">
+<text x="250" y="30" direction="rtl">שליפת תוכן מלא מסמנת באתר משו״ב</text>
+<text x="250" y="57" direction="rtl">את השיחות שנשלפו כנקראו, גם בלי שפתחתם אותן.</text>
+<text x="250" y="88" font-size="16">Full-content retrieval marks conversations read.</text>
+</g></svg>
