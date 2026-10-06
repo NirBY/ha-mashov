@@ -18,6 +18,7 @@ rather than 0, so a failed fetch is never mistaken for an empty list.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime
 from html import escape
 import logging
@@ -41,7 +42,7 @@ def _local_timestamp(value: float | None) -> str | None:
 
 
 # NOTE: these package imports sit below the helper above for historical reasons; order is harmless.
-from .additional_data import CONF_ADDITIONAL_DATA, STUDENT_RESOURCES
+from .additional_data import STUDENT_RESOURCES
 from .const import (
     CONF_MAX_ITEMS_IN_ATTRIBUTES,
     CONF_SCHEDULE_DAY,
@@ -64,7 +65,8 @@ from .const import (
     SENSOR_KEY_TIMETABLE,
     SENSOR_KEY_WEEKLY_PLAN,
 )
-from .entity import MashovEntity, MashovStudentEntity
+from .data_selection import LEGACY_CORE_DATA, enabled_data
+from .entity import MashovEntity, MashovStudentEntity, sync_selected_entities
 from .holidays_utils import (
     HOLIDAY_DEFAULT_NAME,
     HOLIDAY_ICON,
@@ -118,6 +120,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     _LOGGER.debug("Setting up sensors for entry: %s", entry.title)
     # Must run before entities are created so they pick up the migrated registry entries.
     _async_migrate_list_sensor_unique_ids(hass, entry)
+    sync_selected_entities(hass, entry)
+    selected = set(enabled_data(entry.options))
     data = hass.data[DOMAIN][entry.entry_id]
     coord = data["coordinator"]
 
@@ -163,10 +167,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                     suffix = f"_{key}"
                     if tail.endswith(suffix):
                         student_id = tail[: -len(suffix)]
-                        enabled_additional = set(entry.options.get(CONF_ADDITIONAL_DATA) or [])
-                        # Remove sensors of students no longer on the roster, and optional
-                        # resource sensors the user has since disabled in options.
-                        if student_id not in active or (key in STUDENT_RESOURCES and key not in enabled_additional):
+                        # Selection changes disable registry entries separately; only
+                        # a confirmed student departure can remove them here.
+                        if student_id not in active:
                             registry.async_remove(registered.entity_id)
                         break
             # Entity cleanup alone leaves an undeletable student card behind.
@@ -178,7 +181,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                 identifiers = {value for domain, value in device.identifiers if domain == DOMAIN}
                 if (
                     identifiers
-                    and not any(value.startswith("holidays_") for value in identifiers)
+                    and not any(value.startswith(("holidays_", "mailbox_")) for value in identifiers)
                     and identifiers.isdisjoint(active)
                     and not any(
                         entity.config_entry_id == entry.entry_id
@@ -205,33 +208,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             _LOGGER.debug("Creating sensors for student: %s (id=%s, slug=%s)", name, sid, slug)
 
             entities.extend(
-                [
-                    MashovListSensor(
-                        coord, entry.entry_id, sid, slug, name, SENSOR_KEY_HOMEWORK, "Homework", "homework"
-                    ),
-                    MashovListSensor(
-                        coord, entry.entry_id, sid, slug, name, SENSOR_KEY_BEHAVIOR, "Behavior", "behavior"
-                    ),
-                    MashovListSensor(
-                        coord, entry.entry_id, sid, slug, name, SENSOR_KEY_WEEKLY_PLAN, "Weekly Plan", "weekly_plan"
-                    ),
-                    MashovListSensor(
-                        coord, entry.entry_id, sid, slug, name, SENSOR_KEY_TIMETABLE, "Timetable", "timetable"
-                    ),
-                    MashovListSensor(
-                        coord,
-                        entry.entry_id,
-                        sid,
-                        slug,
-                        name,
-                        SENSOR_KEY_LESSONS_HISTORY,
-                        "Lessons History",
-                        "lessons_history",
-                    ),
-                    MashovListSensor(coord, entry.entry_id, sid, slug, name, SENSOR_KEY_GRADES, "Grades", "grades"),
-                ]
+                MashovListSensor(coord, entry.entry_id, sid, slug, name, key, key, key)
+                for key in LEGACY_CORE_DATA[:-1]
+                if key in selected
             )
-            for key in entry.options.get(CONF_ADDITIONAL_DATA, []):
+            for key in selected:
                 if key in STUDENT_RESOURCES:
                     entities.append(MashovAdditionalSensor(coord, sid, slug, name, key, entry.entry_id))
 
@@ -240,8 +221,96 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
     sync_students()
     # One holidays sensor per hub (holidays are per school, not per student).
-    async_add_entities([MashovHolidaysSensor(coord, entry.entry_id)])
+    if "holidays" in selected:
+        async_add_entities([MashovHolidaysSensor(coord, entry.entry_id)])
+    if "mailbox" in selected:
+        async_add_entities([MashovMailboxSensor(coord, entry.entry_id)])
     entry.async_on_unload(coord.async_add_listener(sync_students))
+
+
+class MashovMailboxSensor(MashovEntity, SensorEntity):
+    """Unread conversations for the parent account; bounded inbox text in attributes."""
+
+    _attr_icon = "mdi:email-outline"
+    _attr_translation_key = "mailbox"
+
+    def __init__(self, coordinator, entry_id):
+        super().__init__(coordinator)
+        self._entry_id = entry_id
+        self._attr_unique_id = f"mashov_{entry_id}_mailbox"
+
+    @property
+    def _resource(self):
+        return (self.coordinator.data or {}).get("mailbox", {})
+
+    @property
+    def native_value(self):
+        return self._resource.get("unread_count") if self._resource.get("counts_status") == "ok" else None
+
+    @property
+    def device_info(self):
+        return {
+            "identifiers": {(DOMAIN, f"mailbox_{self._entry_id}")},
+            "name": f"Mashov – {self.coordinator.entry.title} – Mailbox",
+            "manufacturer": DEVICE_MANUFACTURER,
+            "model": "Mashov Mailbox",
+        }
+
+    @property
+    def extra_state_attributes(self):
+        resource = self._resource
+        content_failures = (
+            sum(item.get("content_status") != "ok" for item in resource.get("items", []))
+            if resource.get("full_content")
+            else 0
+        )
+        attributes = {
+            "source_status": resource.get("status", "not_fetched"),
+            "counts_status": resource.get("counts_status", "not_fetched"),
+            "data_stale": self.data_stale
+            or resource.get("status") != "ok"
+            or resource.get("counts_status") != "ok"
+            or content_failures > 0,
+            "content_failures": content_failures,
+            "inbox_count": resource.get("inbox_count"),
+            "full_content": resource.get("full_content", False),
+            "marks_as_read": resource.get("full_content", False),
+            "body_format": "plain_text",
+            "fetched_conversations": len(resource.get("items", [])),
+            "stored_conversations": 0,
+            "content_truncated": False,
+            "items": [],
+            "last_update": _local_timestamp(getattr(self.coordinator, "last_successful_update", None)),
+        }
+        if "unread_before_fetch" in resource:
+            attributes["unread_before_fetch"] = resource["unread_before_fetch"]
+        # Bound the whole attribute object. Keep a long message's metadata and a
+        # visible truncation flag instead of silently omitting the newest message.
+        for original in resource.get("items", []):
+            item = deepcopy(original)
+            attributes["items"].append(item)
+            if len(json_bytes(attributes)) > 14 * 1024:
+                bodies = [m for m in item.get("messages", []) if "body" in m]
+                for message in sorted(bodies, key=lambda m: len(m["body"]), reverse=True):
+                    original_body = message["body"]
+                    message["body_truncated"] = True
+                    attributes["content_truncated"] = True
+                    low, high = 0, len(original_body)
+                    while low < high:
+                        middle = (low + high + 1) // 2
+                        message["body"] = original_body[:middle]
+                        if len(json_bytes(attributes)) <= 14 * 1024:
+                            low = middle
+                        else:
+                            high = middle - 1
+                    message["body"] = original_body[:low]
+                    if len(json_bytes(attributes)) <= 14 * 1024:
+                        break
+                if len(json_bytes(attributes)) > 14 * 1024:
+                    attributes["items"].pop()
+                    attributes["content_truncated"] = True
+            attributes["stored_conversations"] = len(attributes["items"])
+        return attributes
 
 
 def _student_meta(data: dict, student_id, fallback_slug: str) -> dict:

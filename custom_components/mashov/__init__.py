@@ -55,6 +55,17 @@ from .const import (
     DOMAIN,
     PLATFORMS,
 )
+from .data_selection import (
+    CONF_ENABLED_DATA,
+    CONF_MAILBOX_FULL_CONTENT,
+    CONF_MAILBOX_LIMIT,
+    DATA_KEYS,
+    DEFAULT_MAILBOX_LIMIT,
+    cached_selection,
+    enabled_data,
+    filter_cached_data,
+    merge_selection_options,
+)
 from .live_dashboard import DEFAULT_DASHBOARD, STUDENT_ENTITY_KEYS, async_save_live_dashboard
 from .mashov_client import (
     MashovAuthError,
@@ -216,6 +227,9 @@ SET_OPTIONS_SCHEMA = vol.Schema(
         vol.Optional("automatic_school_year"): cv.boolean,
         vol.Optional(CONF_MAX_ITEMS_IN_ATTRIBUTES): _int_in(10, 500),
         vol.Optional(CONF_ADDITIONAL_DATA): vol.All(cv.ensure_list, [vol.In(STUDENT_RESOURCES)]),
+        vol.Optional(CONF_ENABLED_DATA): vol.All(cv.ensure_list, [vol.In(DATA_KEYS)]),
+        vol.Optional(CONF_MAILBOX_FULL_CONTENT): cv.boolean,
+        vol.Optional(CONF_MAILBOX_LIMIT): _int_in(1, 50),
         vol.Optional(CONF_SCHEDULE_TYPE): vol.In(["daily", "weekly", "interval"]),
         vol.Optional(CONF_SCHEDULE_TIME): vol.Match(r"^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$"),
         vol.Optional(CONF_SCHEDULE_DAY): _int_in(0, 6),
@@ -304,8 +318,11 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 (candidate for key in hass.data.get(DOMAIN, {}) for candidate in entries if candidate.entry_id == key),
                 entries[0],
             )
-        opts = dict(entry.options)
-        opts.update(payload)
+        if payload.get(CONF_MAILBOX_FULL_CONTENT) and "mailbox" not in payload.get(
+            CONF_ENABLED_DATA, enabled_data(entry.options)
+        ):
+            raise ServiceValidationError("Select mailbox before enabling full content (which marks messages read)")
+        opts = merge_selection_options(entry.options, payload)
         # Legacy schedule_day is promoted to a one-element schedule_days, and the old
         # key is never stored alongside the list (mirrors the setup-time migration).
         if CONF_SCHEDULE_DAY in payload and CONF_SCHEDULE_DAYS not in payload:
@@ -371,6 +388,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         _LOGGER.info("Setting up Mashov integration for entry: %s", entry.title)
 
     hass.data.setdefault(DOMAIN, {})
+
+    # Preserve exactly what older hubs (including v1.0.7+) fetched. New sources
+    # are never added to the frozen historical default during an upgrade.
+    if CONF_ENABLED_DATA not in entry.options:
+        hass.config_entries.async_update_entry(entry, options=merge_selection_options(entry.options, {}))
 
     # Extra diagnostics to understand why Configure button may not appear
     try:
@@ -444,6 +466,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         api_base=entry.options.get(CONF_API_BASE, DEFAULT_API_BASE),
         saved_auth=saved_auth,
         additional_data=entry.options.get(CONF_ADDITIONAL_DATA, []),
+        enabled_data=list(enabled_data(entry.options)),
+        mailbox_full_content=entry.options.get(CONF_MAILBOX_FULL_CONTENT, False),
+        mailbox_limit=entry.options.get(CONF_MAILBOX_LIMIT, DEFAULT_MAILBOX_LIMIT),
     )
 
     coordinator = MashovCoordinator(hass, client, entry)
@@ -451,7 +476,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     # Inject cached data into coordinator if available, so platforms create entities
     # from the cache even when no startup refresh runs.
     if isinstance(cached, dict) and cached.get("data"):
-        coordinator.data = cached.get("data")
+        coordinator.data = filter_cached_data(cached["data"], entry.options)
         coordinator.last_successful_update = cached.get("last_refresh_ts")
 
     hass.data[DOMAIN][entry.entry_id] = {
@@ -540,6 +565,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                 "Startup refresh disabled for schedule_type=%s (defer to timers or manual service)", schedule_type
             )
 
+    # Newly selected data must be fetched immediately after Configure, even when
+    # the daily schedule or restart cooldown would otherwise defer the refresh.
+    cached_data = (cached or {}).get("data") or {}
+    if cached_data and (
+        cached_selection(cached_data) != set(enabled_data(entry.options))
+        or bool(cached_data.get(CONF_MAILBOX_FULL_CONTENT, False))
+        != bool(entry.options.get(CONF_MAILBOX_FULL_CONTENT, False))
+        or cached_data.get(CONF_MAILBOX_LIMIT, DEFAULT_MAILBOX_LIMIT)
+        != entry.options.get(CONF_MAILBOX_LIMIT, DEFAULT_MAILBOX_LIMIT)
+    ):
+        do_startup_refresh = True
+
     # Failure handling below: always mark data stale and notify; keep the cache when
     # there is one, otherwise close the client and fail setup (see docstring).
     if do_startup_refresh:
@@ -608,7 +645,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             str(configured_school_year(data, options)) != str(client._configured_year)
             or data.get(CONF_USERNAME) != client.username
             or data.get(CONF_PASSWORD) != client.password
-            or set(options.get(CONF_ADDITIONAL_DATA, [])) != set(client.additional_data)
+            or set(enabled_data(options)) != set(client.enabled_data)
+            or bool(options.get(CONF_MAILBOX_FULL_CONTENT, False)) != client.mailbox_full_content
+            or options.get(CONF_MAILBOX_LIMIT, DEFAULT_MAILBOX_LIMIT) != client.mailbox_limit
             or options.get(CONF_HOMEWORK_DAYS_BACK, DEFAULT_HOMEWORK_DAYS_BACK) != client.homework_days_back
             or options.get(CONF_HOMEWORK_DAYS_FORWARD, DEFAULT_HOMEWORK_DAYS_FORWARD) != client.homework_days_forward
             or (options.get(CONF_API_BASE, DEFAULT_API_BASE).rstrip("/") + "/") != client._api_base
@@ -689,7 +728,7 @@ async def async_remove_config_entry_device(
     Without any roster data removal is refused, to avoid deleting active students.
     """
     identifiers = {value for domain, value in device_entry.identifiers if domain == DOMAIN}
-    if not identifiers or any(value.startswith("holidays_") for value in identifiers):
+    if not identifiers or any(value.startswith(("holidays_", "mailbox_")) for value in identifiers):
         return False
     coordinator = hass.data.get(DOMAIN, {}).get(config_entry.entry_id, {}).get("coordinator")
     data = coordinator.data if coordinator else None
@@ -910,6 +949,7 @@ class MashovCoordinator(DataUpdateCoordinator):
                 data["holidays_last_update"] = self.last_successful_update
             elif (
                 self.data
+                and data.get("holidays_status") != "disabled"
                 and "holidays" in self.data
                 and (self.data.get("holidays_status", "ok") == "ok" or self.data.get("holidays_cached"))
             ):

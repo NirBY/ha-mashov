@@ -173,7 +173,9 @@ def _split_display_name(full: str) -> tuple[str, str]:
 
 
 def _registry_entity(registry, domain: str, unique_id: str) -> str | None:
-    return registry.async_get_entity_id(domain, DOMAIN, unique_id)
+    entity_id = registry.async_get_entity_id(domain, DOMAIN, unique_id)
+    registered = registry.async_get(entity_id) if entity_id else None
+    return entity_id if registered and registered.disabled_by is None else None
 
 
 def discover_students(hass: HomeAssistant) -> list[dict[str, Any]]:

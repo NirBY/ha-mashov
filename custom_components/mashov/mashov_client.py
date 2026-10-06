@@ -2,8 +2,8 @@
 
 Handles login (with a cached-session fast path), school lookup, per-student data
 fetching and normalization of the raw API payloads into the snake_case dicts the
-sensors consume. The client is strictly read-only: it never submits forms, marks
-messages read or downloads attachments.
+sensors consume. It never submits forms or downloads attachments. The optional
+mailbox full-content GET marks conversations read and requires explicit opt-in.
 
 Failure isolation is deliberate: a school that disables a feature (HTTP 403/404)
 only blanks that one resource for that one student, with a cooldown so we do not
@@ -25,6 +25,13 @@ import aiohttp  # type: ignore[import]
 
 from .additional_data import STUDENT_RESOURCES
 from .const import CONF_YEAR
+from .data_selection import (
+    CONF_ADDITIONAL_DATA,
+    CONF_ENABLED_DATA,
+    DEFAULT_MAILBOX_LIMIT,
+    enabled_data as resolve_enabled_data,
+)
+from .mailbox import fetch_mailbox
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant  # type: ignore[import]  # pyright: ignore[reportMissingImports]
@@ -116,6 +123,9 @@ class MashovClient:
         api_base: str | None = None,
         saved_auth: dict[str, Any] | None = None,
         additional_data: list[str] | None = None,
+        enabled_data: list[str] | None = None,
+        mailbox_full_content: bool = False,
+        mailbox_limit: int = DEFAULT_MAILBOX_LIMIT,
     ) -> None:
         # school may be semel int or name string (resolved in async_init)
         self.school_id = int(school_id) if str(school_id).isdigit() else None
@@ -128,8 +138,13 @@ class MashovClient:
         self.password = password
         self.homework_days_back = homework_days_back
         self.homework_days_forward = homework_days_forward
-        # Keep STUDENT_RESOURCES order and silently drop unknown keys from old options.
-        self.additional_data = tuple(key for key in STUDENT_RESOURCES if key in (additional_data or []))
+        selection = {CONF_ADDITIONAL_DATA: additional_data or []}
+        if enabled_data is not None:
+            selection[CONF_ENABLED_DATA] = enabled_data
+        self.enabled_data = resolve_enabled_data(selection)
+        self.additional_data = tuple(key for key in STUDENT_RESOURCES if key in self.enabled_data)
+        self.mailbox_full_content = bool(mailbox_full_content and "mailbox" in self.enabled_data)
+        self.mailbox_limit = max(1, min(50, int(mailbox_limit)))
         # Optional resources: (student_id, resource_key) -> (retry_after_monotonic, last_status)
         self._resource_retry_after: dict[tuple[str, str], tuple[float, str]] = {}
         # Core resources: (student_id, url_key) -> (retry_after_monotonic, consecutive_403_count)
@@ -437,6 +452,12 @@ class MashovClient:
                     children = self._auth_data.get("accessToken", {}).get("children", [])
                     if not children or not children[0].get("childGuid"):
                         raise MashovError("Cached session has no student metadata")
+                    if "timetable" not in self.enabled_data:
+                        # Do not query a deselected dataset just to validate a cookie.
+                        # The first selected request handles a stale session via 401.
+                        await self._extract_students()
+                        self._last_login_timestamp = 0
+                        return
                     student_id = quote(str(children[0]["childGuid"]), safe="")
                     probe_url = self._endpoints["timetable"].format(student_id=student_id)
                     async with self._session.get(probe_url, headers=self._headers) as resp:
@@ -823,6 +844,9 @@ class MashovClient:
                 403 -> password-change check, else escalating cooldown; other
                 errors raise MashovError and fail the whole refresh.
                 """
+                if url_key not in self.enabled_data:
+                    source_status[url_key] = "disabled"
+                    return []
                 url = urls[url_key]
                 cooldown_key = (sid, url_key)
                 retry_after, _count = self._endpoint_cooldown.get(cooldown_key, (0.0, 0))
@@ -911,10 +935,10 @@ class MashovClient:
         # --- Holidays (school-wide, not per student). A holiday failure must not
         # discard successfully fetched student data; only auth errors propagate.
         holidays_raw = []
-        holidays_status = "not_fetched"
+        holidays_status = "not_fetched" if "holidays" in self.enabled_data else "disabled"
         try:
             url = self._endpoints.get("holidays")
-            if url:
+            if url and "holidays" in self.enabled_data:
                 for attempt in range(2):
                     async with self._session.get(url, headers=self._headers) as resp:
                         if resp.status == 401 and attempt == 0:
@@ -934,7 +958,7 @@ class MashovClient:
             raise
         except Exception:
             holidays_status = "fetch_failed"
-        if holidays_status != "ok":
+        if holidays_status not in ("ok", "disabled"):
             _LOGGER.warning("Holidays refresh failed (%s); student data is retained", holidays_status)
 
         holidays = self._normalize_holidays(holidays_raw)
@@ -956,10 +980,59 @@ class MashovClient:
             "by_slug": by_slug,
             "holidays": holidays,
             "holidays_status": holidays_status,
+            "enabled_data": list(self.enabled_data),
+            "mailbox_full_content": self.mailbox_full_content,
+            "mailbox_limit": self.mailbox_limit,
         }
+
+        if "mailbox" in self.enabled_data:
+            result["mailbox"] = await fetch_mailbox(
+                self._fetch_account_json, full_content=self.mailbox_full_content, limit=self.mailbox_limit
+            )
 
         _LOGGER.debug("Data fetch completed for %d students", len(students))
         return result
+
+    async def _fetch_account_json(self, path, key, expected_type):
+        """Fetch a known account route; isolate failures and back off forbidden features."""
+        cache_key = ("account", path if key == "mail_content" else key)
+        retry_after, previous = self._resource_retry_after.get(cache_key, (0, "not_fetched"))
+        if time.monotonic() < retry_after:
+            return previous, None
+        try:
+            for attempt in range(2):
+                async with self._session.get(self._api_base + path, headers=self._headers) as response:
+                    if response.status == 401:
+                        if attempt == 0:
+                            await self._ensure_valid_session()
+                            continue
+                        return "unauthorized", None
+                    if response.status == 403:
+                        body = await response.text()
+                        if (
+                            response.headers.get("reason") or ""
+                        ).lower() == "changepass" or "change password" in body.lower():
+                            raise MashovPasswordChangeRequiredError(
+                                "Please change password before authenticating.", self.login_page_url
+                            )
+                    if response.status in (403, 404):
+                        status = "forbidden" if response.status == 403 else "unsupported"
+                        # A single removed conversation (404) must not block other details.
+                        if key != "mail_content" or response.status == 403:
+                            self._resource_retry_after[cache_key] = (time.monotonic() + 86400, status)
+                        return status, None
+                    if response.status >= 400:
+                        return f"http_{response.status}", None
+                    payload = await response.json()
+                    if not isinstance(payload, expected_type):
+                        return "invalid_response", None
+                    self._resource_retry_after.pop(cache_key, None)
+                    return "ok", payload
+        except MashovPasswordChangeRequiredError:
+            raise
+        except (aiohttp.ClientError, TimeoutError, ValueError):
+            _LOGGER.warning("Unable to fetch Mashov account resource %s", key)
+            return "fetch_failed", None
 
     # Normalizers: map Mashov's camelCase (sometimes lowercase) API fields to the
     # snake_case keys the sensors use. They never raise; a malformed payload

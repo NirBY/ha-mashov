@@ -4,11 +4,19 @@
     "step": {
       "user": {
         "title": "Mashov",
-        "description": "Enter your credentials. Pick your school from the dropdown (type to filter).",
+        "description": "Enter your credentials. Pick your school from the dropdown (type to filter).\n\nChoose only the data you need. Existing hubs retain their previous selection.\n\nFull message content is off by default. Enabling it marks fetched conversations as read in Mashov, even if you have not opened them yourself.",
         "data": {
           "username": "Username/ID",
           "password": "Password",
-          "school_name": "School"
+          "school_name": "School",
+          "enabled_data": "Data to fetch",
+          "mailbox_full_content": "Full message content (marks conversations read)",
+          "mailbox_limit": "Recent inbox conversations"
+        },
+        "data_description": {
+          "enabled_data": "Choose only the data you need. Existing hubs retain their previous selection.",
+          "mailbox_full_content": "Full message content is off by default. Enabling it marks fetched conversations as read in Mashov, even if you have not opened them yourself.",
+          "mailbox_limit": "Up to 50 recent inbox conversations. Older conversations and attachment files are not fetched."
         }
       },
       "pick_school": {
@@ -22,7 +30,8 @@
     "error": {
       "auth": "Authentication failed. Check credentials/school.",
       "cannot_connect": "Cannot reach Mashov.",
-      "school_not_found": "No school matched that name."
+      "school_not_found": "No school matched that name.",
+      "mailbox_required": "Select Mailbox before enabling full message content."
     },
     "abort": {
       "already_configured": "This Mashov account is already configured."
@@ -32,11 +41,10 @@
     "step": {
       "init": {
         "title": "Mashov Options",
-        "description": "Configure homework ranges and refresh schedule.",
+        "description": "Configure homework ranges and refresh schedule.\n\nChoose only the data you need. Existing hubs retain their previous selection.\n\nFull message content is off by default. Enabling it marks fetched conversations as read in Mashov, even if you have not opened them yourself.",
         "data": {
           "username": "Username/ID",
           "password": "Password (leave blank to keep current)",
-          "additional_data": "Additional student data (optional)",
           "homework_days_back": "Homework days back",
           "homework_days_forward": "Homework days forward",
           "api_base": "API base (advanced)",
@@ -46,14 +54,23 @@
           "schedule_days": "Weekdays (0=Mon ... 6=Sun)",
           "schedule_interval": "Interval minutes (interval mode)",
           "max_items_in_attributes": "Max items stored in attributes",
-          "automatic_school_year": "Automatic school year (changes on September 1)"
+          "automatic_school_year": "Automatic school year (changes on September 1)",
+          "enabled_data": "Data to fetch",
+          "mailbox_full_content": "Full message content (marks conversations read)",
+          "mailbox_limit": "Recent inbox conversations"
+        },
+        "data_description": {
+          "enabled_data": "Choose only the data you need. Existing hubs retain their previous selection.",
+          "mailbox_full_content": "Full message content is off by default. Enabling it marks fetched conversations as read in Mashov, even if you have not opened them yourself.",
+          "mailbox_limit": "Up to 50 recent inbox conversations. Older conversations and attachment files are not fetched."
         }
       }
     },
     "error": {
       "invalid_time_format": "Invalid time (HH:MM or HH:MM:SS)",
       "invalid_api_url": "Invalid URL (must start with http/https)",
-      "already_configured": "This Mashov account is already configured."
+      "already_configured": "This Mashov account is already configured.",
+      "mailbox_required": "Select Mailbox before enabling full message content."
     }
   },
   "selector": {
@@ -67,7 +84,8 @@
         "report_cards": "Report cards",
         "study_materials": "Study materials",
         "student_files": "Student files",
-        "justification_requests": "Absence justification requests"
+        "justification_requests": "Absence justification requests",
+        "special_hours": "Individual lessons"
       }
     },
     "schedule_days": {
@@ -86,6 +104,28 @@
         "daily": "Daily",
         "weekly": "Weekly",
         "interval": "Interval"
+      }
+    },
+    "enabled_data": {
+      "options": {
+        "homework": "Homework",
+        "behavior": "Behavior",
+        "weekly_plan": "Weekly plan",
+        "timetable": "Timetable",
+        "lessons_history": "Lesson history",
+        "grades": "Grades",
+        "holidays": "Count",
+        "message_board": "Noticeboard",
+        "daily_behavior": "Daily behavior",
+        "outside_behavior": "Outside lesson behavior",
+        "follow_up": "Follow-up notes",
+        "periodic_grades": "Term grades",
+        "report_cards": "Report cards",
+        "study_materials": "Study materials",
+        "student_files": "Student files",
+        "justification_requests": "Absence justification requests",
+        "special_hours": "Individual lessons",
+        "mailbox": "Mailbox — headers and unread count"
       }
     }
   },
@@ -138,6 +178,12 @@
       },
       "justification_requests": {
         "name": "Absence justification requests"
+      },
+      "special_hours": {
+        "name": "Individual lessons"
+      },
+      "mailbox": {
+        "name": "Unread conversations"
       }
     },
     "calendar": {
@@ -195,6 +241,18 @@
         },
         "automatic_school_year": {
           "name": "Automatic school year (changes on September 1)"
+        },
+        "enabled_data": {
+          "name": "Data to fetch",
+          "description": "Choose only the data you need. Existing hubs retain their previous selection."
+        },
+        "mailbox_full_content": {
+          "name": "Full message content (marks conversations read)",
+          "description": "Full message content is off by default. Enabling it marks fetched conversations as read in Mashov, even if you have not opened them yourself."
+        },
+        "mailbox_limit": {
+          "name": "Recent inbox conversations",
+          "description": "Up to 50 recent inbox conversations. Older conversations and attachment files are not fetched."
         }
       }
     },

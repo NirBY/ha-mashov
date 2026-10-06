@@ -23,7 +23,8 @@ from .const import (
     DEVICE_MODEL,
     DOMAIN,
 )
-from .entity import MashovEntity
+from .data_selection import enabled_data
+from .entity import MashovEntity, sync_selected_entities
 from .holidays_utils import (
     HOLIDAY_DEFAULT_NAME,
     HOLIDAY_ICON,
@@ -37,6 +38,9 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
     """Set up Mashov calendar entities."""
     _LOGGER.debug("Setting up calendar for entry: %s", entry.title)
+    sync_selected_entities(hass, entry)
+    if "holidays" not in enabled_data(entry.options):
+        return
     data = hass.data[DOMAIN][entry.entry_id]
     coord = data["coordinator"]
 

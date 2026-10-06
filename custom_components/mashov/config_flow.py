@@ -32,7 +32,6 @@ _LOGGER = logging.getLogger(__name__)
 
 import contextlib
 
-from .additional_data import CONF_ADDITIONAL_DATA, DEFAULT_NEW_HUB_ADDITIONAL_DATA, STUDENT_RESOURCES
 from .const import (
     CONF_API_BASE,
     CONF_HOMEWORK_DAYS_BACK,
@@ -58,7 +57,29 @@ from .const import (
     DEFAULT_SCHEDULE_TYPE,
     DOMAIN,
 )
+from .data_selection import (
+    CONF_ENABLED_DATA,
+    CONF_MAILBOX_FULL_CONTENT,
+    CONF_MAILBOX_LIMIT,
+    DATA_KEYS,
+    DEFAULT_MAILBOX_LIMIT,
+    enabled_data,
+    merge_selection_options,
+)
 from .mashov_client import MashovAuthError, MashovClient, MashovError
+
+
+def _data_fields(selected, full_content=False, limit=DEFAULT_MAILBOX_LIMIT):
+    """Shared explicit choices for new hubs and existing hubs' Configure form."""
+    return {
+        vol.Optional(CONF_ENABLED_DATA, default=list(selected)): SelectSelector(
+            SelectSelectorConfig(
+                options=list(DATA_KEYS), multiple=True, mode=SelectSelectorMode.DROPDOWN, translation_key="enabled_data"
+            )
+        ),
+        vol.Optional(CONF_MAILBOX_FULL_CONTENT, default=full_content): bool,
+        vol.Optional(CONF_MAILBOX_LIMIT, default=limit): vol.All(int, vol.Range(min=1, max=50)),
+    }
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -150,7 +171,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 }
             )
 
+        # Credentials discover the account's students; only selected data is fetched.
+        schema = schema.extend(_data_fields([]))
+
         if user_input is not None:
+            if user_input.get(CONF_MAILBOX_FULL_CONTENT) and "mailbox" not in user_input.get(CONF_ENABLED_DATA, []):
+                errors[CONF_MAILBOX_FULL_CONTENT] = "mailbox_required"
+                return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
             # Determine school id from autocomplete or manual input
             school_raw = user_input[CONF_SCHOOL_NAME].strip()
             _LOGGER.debug("School input: %s", school_raw)
@@ -265,13 +292,17 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.debug("Creating entry with title: %s (%s)", school_name, school_semel)
                 # Save school name in data for later use (e.g., title updates)
                 user_input[CONF_SCHOOL_NAME] = school_name
-                # New hubs start with the noticeboard enabled (v1.0.15+). It is written into this
-                # entry's options rather than changing the code default, so existing hubs are
-                # unaffected; users can turn it off in Configure.
+                selection = {
+                    key: user_input.pop(key)
+                    for key in (CONF_ENABLED_DATA, CONF_MAILBOX_FULL_CONTENT, CONF_MAILBOX_LIMIT)
+                    if key in user_input
+                }
+                selection.setdefault(CONF_ENABLED_DATA, [])
+                selection.setdefault(CONF_MAILBOX_FULL_CONTENT, False)
                 return self.async_create_entry(
                     title=f"{school_name} ({school_semel})",
                     data=user_input,
-                    options={CONF_ADDITIONAL_DATA: list(DEFAULT_NEW_HUB_ADDITIONAL_DATA)},
+                    options=merge_selection_options({}, selection),
                 )
 
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
@@ -354,6 +385,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         )
         if user_input is not None:
             errors = {}
+            if user_input.get(CONF_MAILBOX_FULL_CONTENT) and "mailbox" not in user_input.get(
+                CONF_ENABLED_DATA, enabled_data(self.config_entry.options)
+            ):
+                errors[CONF_MAILBOX_FULL_CONTENT] = "mailbox_required"
             # Validate schedule_time format if present
             import re
 
@@ -383,7 +418,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             if not errors:
                 # Normalize: accept both legacy single day and new multi-days selector.
                 # Start from the existing options so keys not on the form are kept.
-                normalized = {**self.config_entry.options, **user_input}
+                normalized = merge_selection_options(self.config_entry.options, user_input)
                 try:
                     if CONF_SCHEDULE_DAYS in normalized:
                         # The selector returns strings; store sorted unique ints clamped to 0-6.
@@ -485,15 +520,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     "automatic_school_year",
                     default=current_options.get("automatic_school_year", not self.config_entry.data.get(CONF_YEAR)),
                 ): bool,
-                vol.Optional(
-                    CONF_ADDITIONAL_DATA, default=current_options.get(CONF_ADDITIONAL_DATA, [])
-                ): SelectSelector(
-                    SelectSelectorConfig(
-                        options=list(STUDENT_RESOURCES),
-                        multiple=True,
-                        mode=SelectSelectorMode.DROPDOWN,
-                        translation_key="additional_data",
-                    )
+                **_data_fields(
+                    enabled_data(current_options),
+                    current_options.get(CONF_MAILBOX_FULL_CONTENT, False),
+                    current_options.get(CONF_MAILBOX_LIMIT, DEFAULT_MAILBOX_LIMIT),
                 ),
                 # Never prefilled with the stored password; leave empty to keep it.
                 vol.Optional(CONF_PASSWORD, description={"suggested_value": ""}): str,
