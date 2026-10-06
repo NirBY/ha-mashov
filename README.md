@@ -9,7 +9,7 @@ Unofficial integration for **משו"ב (Mashov)** that logs into the student por
 - **Grades**
 - **Holidays** (sensor and calendar per school hub, with the school name in the device and entity display names)
 
-Current release: **v1.0.14**. Requires **Home Assistant 2025.3 or newer**.
+Current release: **v1.0.15**. Requires **Home Assistant 2025.3 or newer**.
 See [release notes](RELEASE_NOTES.md) for fixes and upgrade compatibility.
 
 > This project is **community-made** and not affiliated with Mashov. Use at your own risk and follow your school's policies.
@@ -27,6 +27,7 @@ See [release notes](RELEASE_NOTES.md) for fixes and upgrade compatibility.
 - **Calendar entity** for school holidays - integrates with Home Assistant calendar view 📅
 - **Diagnostics** endpoint for safe issue reporting (redacts credentials).
 - **Mashov Live dashboard** (Bubble Card) built by a script blueprint, with person photos and per-person card visibility.
+- **Noticeboard notices**: optional sensor (on by default for new hubs) plus a blueprint that notifies and reads new notices aloud, with built-in quiet hours.
 
 ---
 
@@ -81,23 +82,65 @@ an explicitly configured year; that year remains pinned until you enable
 
 ### Additional student data (optional)
 
-In **Mashov → Configure → Additional student data**, select resources separately
-for each school. Nothing extra is fetched by default. Changing this selection
-reloads that integration entry; data arrives at the next scheduled or manual refresh.
+Besides the six main sensors (homework, behavior, weekly plan, timetable, lessons history,
+grades), Mashov can expose nine more kinds of student data. They are **off by default**,
+because each one is an extra request per child on every refresh, and many schools block
+some of them.
 
-Available sensors count noticeboard posts, daily behavior, behavior outside lessons,
-follow-up notes, term grades, report cards, study materials, student files, and
-absence justification requests. Their `items` attributes contain API records or
-file metadata, with the configured item limit and a 12 KB item-array limit.
-`total_items` and `stored_items` show when records were omitted for size.
-Files are not downloaded, messages are not marked read, and requests/forms are
-never submitted. Dated resources use the configured days-back/days-forward window.
+**What changed, and since which version**
 
-School permissions and published data vary. An empty successful result has state
-`0`; access failures are `unknown` with a visible `source_status` attribute. Forbidden
-or unsupported resources are retried after 24 hours (or an integration reload),
-independently for each student and school. The external Shahaf exam calendar,
-mail, and parent approvals are not included in these sensors.
+| Version | Change |
+| --- | --- |
+| v1.0.7 | The nine additional data types became available. Turn them on per school hub, as described below. |
+| v1.0.15 | **New** hubs start with **Noticeboard** turned on. Hubs that existed before keep their current selection: nothing changes until you change it. |
+| v1.0.15 | New blueprint that notifies you about new noticeboard notices and reads them aloud (see [below](#-automation-blueprint-new-noticeboard-notice)). |
+
+**How to turn them on**
+
+1. Go to **Settings → Devices & services → Mashov**.
+2. Next to the school hub, click **Configure** (with several hubs, do this for each one).
+3. In **Additional student data (optional)** (Hebrew UI: **נתוני תלמיד נוספים (לבחירה)**), select what you want.
+4. Click **Submit**. The hub reloads, and the new sensors fill in at the next refresh. To get data right away,
+   call the `mashov.refresh_now` action, or use the refresh button card.
+
+From an automation or script you can do the same with the `mashov.set_options` action:
+
+```yaml
+action: mashov.set_options
+data:
+  entry_id: <your hub's entry id>   # optional with a single hub
+  additional_data: [message_board, periodic_grades]
+```
+
+The list replaces the current selection, so include everything you want to keep.
+
+**What each one gives you** (one sensor per child; the state is the number of items)
+
+| Option (English / Hebrew) | Key | Contents |
+| --- | --- | --- |
+| Noticeboard / לוח מודעות | `message_board` | Notices the school posts for parents: text (`eventtext`, HTML), ID (`eventid`), expiration date |
+| Daily behavior / התנהגות יומית | `daily_behavior` | Daily behavior records within the homework date window |
+| Outside lesson behavior / התנהגות מחוץ לשיעור | `outside_behavior` | Behavior events outside lessons (breaks, trips), within the date window |
+| Follow-up notes / הערות מעקב | `follow_up` | Staff follow-up notes, within the date window |
+| Term grades / ציונים תקופתיים | `periodic_grades` | Term (period) grades |
+| Report cards / תעודות | `report_cards` | Report card records (metadata only) |
+| Study materials / חומרי לימוד | `study_materials` | Study material records (metadata only, files are not downloaded) |
+| Student files / קובצי תלמיד | `student_files` | Student file records (metadata only, files are not downloaded) |
+| Absence justification requests / בקשות להצדקת היעדרות | `justification_requests` | Absence justification requests, within the date window |
+
+The "date window" is the homework days-back/days-forward setting. Find the new sensors in
+**Developer Tools → States** by searching for the option name; the records are in the `items` attribute.
+
+**Good to know**
+- Nothing is changed in Mashov: files are not downloaded, messages are not marked as read, and no form or
+  request is submitted.
+- Each school decides what parents can see. A type your school does not allow shows state `unknown` with
+  `source_status: forbidden` (or `unsupported`). It is checked again after 24 hours, separately for each child.
+  An allowed type with no records shows `0`.
+- Attributes are limited in size. When records are left out, `stored_items` is smaller than `total_items`.
+- Not available in any of these sensors: Mashov **messages (mail)**, parent approvals, and the Shahaf exam calendar.
+  The noticeboard holds the school's general notices; personal messages from teachers arrive in Mashov's messages
+  area, which the integration does not read.
 
 ### Configuration via configuration.yaml (optional)
 You can also configure the refresh schedule via YAML. Scheduling values in YAML
@@ -213,6 +256,43 @@ Blueprint file location: `blueprints/automation/mashov/bag_reminder_tomorrow.yam
 How to use
 1. Click the import button above, pick your Mashov timetable sensor, (optional) weekly plan sensor, holiday sensor, media player and voice settings.
 2. Save the automation. Defaults: 18:00, Hebrew, night guard 22:00–07:00.
+
+---
+
+## 📌 Automation Blueprint: New Noticeboard Notice
+
+Get a phone notification, and optionally hear it on a speaker, when the school posts a new notice
+on a child's Mashov noticeboard. Added in v1.0.15.
+
+One‑click import (My Home Assistant):
+
+[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint URL.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FNirBY%2Fha-mashov%2Fmain%2Fblueprints%2Fautomation%2Fmashov%2Fmashov_noticeboard_announce.yaml)
+
+Blueprint file location: `blueprints/automation/mashov/mashov_noticeboard_announce.yaml`.
+
+Requirements
+- **Noticeboard** turned on for the hub ([how](#additional-student-data-optional)). It is on by default for hubs added in v1.0.15 or later.
+
+What does it do?
+- Watches one or more noticeboard sensors (one per child). A notice counts as new when its Mashov notice ID was not
+  there before, so a notice that replaces another is announced, and a removed notice is not.
+- Sends a Home Assistant notification (on by default) and, if you enter one, a phone notification
+  (for example `notify.mobile_app_my_phone`). HTML is removed and long notices are shortened.
+- Optionally reads the notice aloud in Hebrew: turns the speaker on, raises the volume, speaks with `tts.speak`,
+  then restores the previous volume (or a fallback volume if it was unknown).
+- **Never speaks during quiet hours, 22:00–07:00.** This is built in and cannot be turned off, so there are no
+  surprise announcements at night. A notice that arrives then is still sent as a notification.
+- Never re-announces existing notices after a Home Assistant restart, a reload, or a temporary outage.
+- Logs every decision to the logbook (announced, quiet hours, nothing new), like the other Mashov blueprints.
+
+Timing: notices arrive with the integration's refresh, not instantly. With the default daily refresh at 14:00,
+a morning notice is announced at 14:00. For faster updates, switch the hub to interval mode (for example every
+60 minutes) in Configure.
+
+How to use
+1. Click the import button above and create an automation from the blueprint.
+2. Select the noticeboard sensors, and optionally a phone notify action, a speaker and a TTS engine.
+3. Save. Nothing is announced right away; the next new notice triggers it.
 
 ---
 

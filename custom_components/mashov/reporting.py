@@ -30,7 +30,7 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 from .additional_data import STUDENT_RESOURCES
 from .mashov_client import MashovError
 
-VERSION = "1.0.14"
+VERSION = "1.0.15"
 # Notification title -> stable event code. Only the code is exported, never the title text.
 _EVENTS = {
     "Mashov password change required": "password_change_required",

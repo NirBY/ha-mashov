@@ -9,6 +9,10 @@ from dataclasses import dataclass
 
 # Options key holding the list of STUDENT_RESOURCES keys the user enabled.
 CONF_ADDITIONAL_DATA = "additional_data"
+# Resources enabled for hubs created in v1.0.15 and later. Stored in the new entry's
+# options at creation time; the runtime default stays empty, so existing hubs never
+# start fetching something they did not opt into.
+DEFAULT_NEW_HUB_ADDITIONAL_DATA = ("message_board",)
 
 
 @dataclass(frozen=True)

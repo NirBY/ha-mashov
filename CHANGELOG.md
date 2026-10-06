@@ -1,6 +1,17 @@
 # Changelog
 
-## [Unreleased]
+## [1.0.15] - 2026-10-06
+
+### Added
+- Blueprint `mashov_noticeboard_announce.yaml`: notifies about new noticeboard notices and can read them aloud in Hebrew. Quiet hours (22:00–07:00) are built in; notices are never re-announced after a restart or outage.
+- New hubs start with the Noticeboard enabled. Existing hubs keep their current selection.
+
+### Fixed
+- Noticeboard speech restores the speaker volume even when TTS fails, and rechecks quiet hours immediately before starting speech after speaker preparation.
+- A re-login during a refresh could pair one child's data with another child (when the order of children changed) or fail the refresh with `IndexError` (when a child was added). Each refresh now uses one fixed student list; a changed list applies on the next refresh.
+
+### Documentation
+- README explains exactly how to enable additional student data, what each type contains, and in which version each change arrived.
 
 ## [1.0.14] - 2026-09-26
 
