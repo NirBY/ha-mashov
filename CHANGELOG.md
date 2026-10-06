@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.0.16] - 2026-10-06
+
+### Added
+- Opt-in account mailbox sensor with unread count, bounded recent inbox headers and a separate full-content option, off by default. Full-content fetching marks conversations read in Mashov; both setup and Configure explain this side effect.
+- Individual lessons (`specialHoursLessons`) as an optional student source. The live endpoint was reachable but empty in the tested account.
+
+### Changed
+- Every dataset, including core sensors and holidays/calendar, can be selected independently. New hubs start with no datasets selected.
+- Existing installations (including v1.0.7 onward) retain their core data, optional choices, entity IDs and user customizations. Deselecting data disables its entities without deleting their registry entries/history. Legacy `additional_data` service calls remain supported.
+- Selection changes refresh immediately, filter disabled data from restored caches, and never probe an unselected timetable for session validation.
+- Mailbox bodies are plain text, attribute storage is bounded with visible truncation flags, and diagnostics export only technical statuses. Attachments are not downloaded.
+
 ## [1.0.15] - 2026-10-06
 
 ### Added

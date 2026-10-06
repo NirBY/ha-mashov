@@ -1,8 +1,37 @@
 """Shared cache visibility and student device metadata."""
 
 from homeassistant.core import callback
-from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
+from .const import DOMAIN
+from .data_selection import DATA_KEYS, enabled_data
+
+
+@callback
+def sync_selected_entities(hass, entry):
+    """Disable deselected entities without deleting IDs, customizations or history."""
+    selected = set(enabled_data(entry.options))
+    registry = er.async_get(hass)
+    prefix = f"mashov_{entry.entry_id}_"
+    for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if entity.platform != DOMAIN or not entity.unique_id.startswith(prefix):
+            continue
+        tail = entity.unique_id[len(prefix) :]
+        key = (
+            "holidays"
+            if tail == "holidays_calendar"
+            else next(
+                (key for key in sorted(DATA_KEYS, key=len, reverse=True) if tail == key or tail.endswith(f"_{key}")),
+                None,
+            )
+        )
+        if key is None:
+            continue
+        if key not in selected and entity.disabled_by is None:
+            registry.async_update_entity(entity.entity_id, disabled_by=er.RegistryEntryDisabler.INTEGRATION)
+        elif key in selected and entity.disabled_by == er.RegistryEntryDisabler.INTEGRATION:
+            registry.async_update_entity(entity.entity_id, disabled_by=None)
 
 
 class MashovEntity(CoordinatorEntity):

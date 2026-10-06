@@ -93,7 +93,7 @@ set_options:
           max: 500
           mode: box
     additional_data:
-      name: "Additional student data"
+      name: "Additional student data (legacy selection)"
       selector:
         select:
           multiple: true
@@ -108,6 +108,46 @@ set_options:
             - study_materials
             - student_files
             - justification_requests
+            - special_hours
+    enabled_data:
+      name: "Data to fetch"
+      description: "Replaces the complete selection for this hub. Existing hubs retain their choices until changed."
+      selector:
+        select:
+          multiple: true
+          translation_key: enabled_data
+          options:
+            - homework
+            - behavior
+            - weekly_plan
+            - timetable
+            - lessons_history
+            - grades
+            - holidays
+            - message_board
+            - daily_behavior
+            - outside_behavior
+            - follow_up
+            - periodic_grades
+            - report_cards
+            - study_materials
+            - student_files
+            - justification_requests
+            - special_hours
+            - mailbox
+    mailbox_full_content:
+      name: "Full message content (marks conversations read)"
+      description: "Off by default. Fetched conversations are marked read in Mashov even if you have not opened them yourself. Mailbox must be selected."
+      selector:
+        boolean: {}
+    mailbox_limit:
+      name: "Recent inbox conversations"
+      description: "At most this many recent conversations are fetched (default 20). Attachments are not downloaded."
+      selector:
+        number:
+          min: 1
+          max: 50
+          mode: box
 
 create_live_dashboard:
   name: "Create Mashov Live dashboard"

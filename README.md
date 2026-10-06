@@ -9,7 +9,7 @@ Unofficial integration for **משו"ב (Mashov)** that logs into the student por
 - **Grades**
 - **Holidays** (sensor and calendar per school hub, with the school name in the device and entity display names)
 
-Current release: **v1.0.15**. Requires **Home Assistant 2025.3 or newer**.
+Current release: **v1.0.16**. Requires **Home Assistant 2025.3 or newer**.
 See [release notes](RELEASE_NOTES.md) for fixes and upgrade compatibility.
 
 > This project is **community-made** and not affiliated with Mashov. Use at your own risk and follow your school's policies.
@@ -27,7 +27,9 @@ See [release notes](RELEASE_NOTES.md) for fixes and upgrade compatibility.
 - **Calendar entity** for school holidays - integrates with Home Assistant calendar view 📅
 - **Diagnostics** endpoint for safe issue reporting (redacts credentials).
 - **Mashov Live dashboard** (Bubble Card) built by a script blueprint, with person photos and per-person card visibility.
-- **Noticeboard notices**: optional sensor (on by default for new hubs) plus a blueprint that notifies and reads new notices aloud, with built-in quiet hours.
+- **Choose each data source** per school hub, including homework, timetable, grades, holidays and additional student data. New hubs start with no datasets selected; existing hubs keep their choices.
+- **Mailbox**: opt-in unread count and recent inbox headers, with a separate, default-off full-content option that marks fetched conversations read in Mashov.
+- **Noticeboard notices**: optional sensor plus a blueprint that notifies and reads new notices aloud, with built-in quiet hours.
 
 ---
 
@@ -82,26 +84,30 @@ an explicitly configured year; that year remains pinned until you enable
 
 ### Additional student data (optional)
 
-Besides the six main sensors (homework, behavior, weekly plan, timetable, lessons history,
-grades), Mashov can expose nine more kinds of student data. They are **off by default**,
-because each one is an extra request per child on every refresh, and many schools block
-some of them.
+Every dataset is now selectable, including the six main sensors (homework, behavior,
+weekly plan, timetable, lessons history, grades), holidays and ten additional student
+resources below. Deselecting a type stops its requests and disables its entities.
+New installations select only what they need. Existing installations retain their
+previous core data and optional selections; no mailbox or newly added source is enabled
+by upgrading. Disabled entities retain their entity IDs, user customizations and history
+and can be enabled again. Entities disabled manually in Home Assistant remain disabled.
 
 **What changed, and since which version**
 
 | Version | Change |
 | --- | --- |
 | v1.0.7 | The nine additional data types became available. Turn them on per school hub, as described below. |
-| v1.0.15 | **New** hubs start with **Noticeboard** turned on. Hubs that existed before keep their current selection: nothing changes until you change it. |
+| v1.0.15 | Hubs created in this version started with **Noticeboard** turned on; that choice is preserved when upgrading. |
 | v1.0.15 | New blueprint that notifies you about new noticeboard notices and reads them aloud (see [below](#-automation-blueprint-new-noticeboard-notice)). |
+| v1.0.16 | All datasets are selectable. Existing hubs, including those configured since v1.0.7, retain their selections and entity IDs. New setups start with an empty selection. Adds mailbox and individual lessons. |
 
 **How to turn them on**
 
 1. Go to **Settings → Devices & services → Mashov**.
 2. Next to the school hub, click **Configure** (with several hubs, do this for each one).
-3. In **Additional student data (optional)** (Hebrew UI: **נתוני תלמיד נוספים (לבחירה)**), select what you want.
-4. Click **Submit**. The hub reloads, and the new sensors fill in at the next refresh. To get data right away,
-   call the `mashov.refresh_now` action, or use the refresh button card.
+3. In **Data to fetch** (Hebrew UI: **סוגי מידע לשליפה**), select what you want to keep enabled.
+4. Click **Submit**. A changed selection reloads the hub and fetches the selected data immediately.
+   An empty selection stops dataset polling; credentials and student discovery remain part of account setup.
 
 From an automation or script you can do the same with the `mashov.set_options` action:
 
@@ -109,10 +115,12 @@ From an automation or script you can do the same with the `mashov.set_options` a
 action: mashov.set_options
 data:
   entry_id: <your hub's entry id>   # optional with a single hub
-  additional_data: [message_board, periodic_grades]
+  enabled_data: [homework, timetable, message_board, periodic_grades]
 ```
 
-The list replaces the current selection, so include everything you want to keep.
+The list replaces the entire selection, so include everything you want to keep.
+Older automations using `additional_data` still work: that key changes only the optional
+student sources and preserves the selected core data and mailbox.
 
 **What each one gives you** (one sensor per child; the state is the number of items)
 
@@ -127,20 +135,57 @@ The list replaces the current selection, so include everything you want to keep.
 | Study materials / חומרי לימוד | `study_materials` | Study material records (metadata only, files are not downloaded) |
 | Student files / קובצי תלמיד | `student_files` | Student file records (metadata only, files are not downloaded) |
 | Absence justification requests / בקשות להצדקת היעדרות | `justification_requests` | Absence justification requests, within the date window |
+| Individual lessons / שעות פרטניות | `special_hours` | Individual-lesson records (`specialHoursLessons`), when published by the school |
 
 The "date window" is the homework days-back/days-forward setting. Find the new sensors in
 **Developer Tools → States** by searching for the option name; the records are in the `items` attribute.
 
 **Good to know**
-- Nothing is changed in Mashov: files are not downloaded, messages are not marked as read, and no form or
-  request is submitted.
+- These student resources do not submit forms or download files. The separate mailbox full-content option
+  below has read-status side effects and requires explicit opt-in.
 - Each school decides what parents can see. A type your school does not allow shows state `unknown` with
   `source_status: forbidden` (or `unsupported`). It is checked again after 24 hours, separately for each child.
   An allowed type with no records shows `0`.
 - Attributes are limited in size. When records are left out, `stored_items` is smaller than `total_items`.
-- Not available in any of these sensors: Mashov **messages (mail)**, parent approvals, and the Shahaf exam calendar.
-  The noticeboard holds the school's general notices; personal messages from teachers arrive in Mashov's messages
-  area, which the integration does not read.
+- Parent approvals and the Shahaf exam calendar are not integrated. A read-only online-form list is also
+  exposed by the portal (`user/forms?isParentsConsent=false`); its route was verified on 2026-10-06 but the
+  tested account had no records, so form content/answer status has not been validated or added.
+
+### Mailbox (optional)
+
+Select **Mailbox — headers and unread count** to create one sensor per account/school hub,
+not one per child. Its state is the current number of unread conversations. Attributes
+contain the inbox count and the latest **20 conversations** (configurable from 1 to 50),
+with conversation/message IDs, subject, sender, date, read status and attachment indicator.
+Header-only mode does not open conversations or mark them read.
+
+**Full message content is off by default. Enabling it marks fetched conversations as read
+in Mashov, even if you have not opened them yourself.** This behavior was confirmed against
+the live portal: the conversation GET alone changed the unread count from 1 to 0.
+Only the fetched recent inbox conversations are opened; older inbox pages, sent mail,
+drafts and archived conversations are not fetched. Turning off Mailbox also resets
+full-content consent; selecting it again starts in header-only mode.
+
+Bodies are exposed as plain text in `items[].messages[].body`; HTML is not executed and
+images/attachments are never downloaded. Attributes stay below Home Assistant's recorder
+budget. Long bodies can be shortened in sensor attributes (`body_truncated: true` and
+`content_truncated: true`); the coordinator retains the fetched full text. Check
+`stored_conversations` versus `fetched_conversations` for omitted records. Per-conversation
+`content_status` shows failed body fetches, and `counts_status` shows unread-count failures;
+failures are never presented as zero unread. The unread count is refreshed after body fetching.
+
+```yaml
+action: mashov.set_options
+data:
+  entry_id: <your hub's entry id>
+  enabled_data: [homework, timetable, mailbox]
+  mailbox_full_content: false
+  mailbox_limit: 20
+```
+
+Message content stays in your Home Assistant instance/cache and may be recorded in sensor
+history. Diagnostics contain technical statuses only, never message bodies, subjects, senders
+or conversation IDs. Selection changes do not delete existing Recorder history.
 
 ### Configuration via configuration.yaml (optional)
 You can also configure the refresh schedule via YAML. Scheduling values in YAML
@@ -271,7 +316,7 @@ One‑click import (My Home Assistant):
 Blueprint file location: `blueprints/automation/mashov/mashov_noticeboard_announce.yaml`.
 
 Requirements
-- **Noticeboard** turned on for the hub ([how](#additional-student-data-optional)). It is on by default for hubs added in v1.0.15 or later.
+- **Noticeboard** turned on for the hub ([how](#additional-student-data-optional)). Hubs created in v1.0.15 keep it enabled; new setups choose it explicitly.
 
 What does it do?
 - Watches one or more noticeboard sensors (one per child). A notice counts as new when its Mashov notice ID was not
@@ -553,7 +598,8 @@ After a failed refresh, cached values remain visible with `data_stale: true` and
 original `last_update`. Holiday failures retain the previous holidays, when available,
 and expose their own failure status without discarding fresh student data.
 
-`mashov.set_options` accepts `max_items_in_attributes`, `additional_data`,
+`mashov.set_options` accepts `max_items_in_attributes`, `enabled_data`, legacy `additional_data`,
+`mailbox_full_content`, `mailbox_limit`,
 `automatic_school_year`, and `HH:MM:SS` as well as `HH:MM`. Legacy unknown fields are
 ignored rather than persisted; invalid known values are rejected. Calls without
 `entry_id` retain their first-loaded-hub behavior and log a warning if ambiguous.

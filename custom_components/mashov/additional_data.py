@@ -1,18 +1,13 @@
 """Optional, read-only student resources exposed by the Mashov parent portal.
 
-Users opt into these per config entry through the "additional_data" option;
-the core resources (homework, behavior, timetable, grades, ...) are always fetched
-elsewhere and are not listed here.
+Users choose these per config entry through "enabled_data". The legacy
+"additional_data" option remains supported when upgrading older entries.
 """
 
 from dataclasses import dataclass
 
 # Options key holding the list of STUDENT_RESOURCES keys the user enabled.
 CONF_ADDITIONAL_DATA = "additional_data"
-# Resources enabled for hubs created in v1.0.15 and later. Stored in the new entry's
-# options at creation time; the runtime default stays empty, so existing hubs never
-# start fetching something they did not opt into.
-DEFAULT_NEW_HUB_ADDITIONAL_DATA = ("message_board",)
 
 
 @dataclass(frozen=True)
@@ -42,4 +37,5 @@ STUDENT_RESOURCES = {
     "study_materials": StudentResource("Study Materials", "studyFiles"),
     "student_files": StudentResource("Student Files", "files"),
     "justification_requests": StudentResource("Absence Justification Requests", "justificationrequests", True),
+    "special_hours": StudentResource("Individual Lessons", "specialHoursLessons"),
 }

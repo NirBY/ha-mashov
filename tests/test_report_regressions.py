@@ -234,7 +234,8 @@ async def test_orphan_cleanup_requires_live_roster_and_keeps_active_optional_sen
         "sensor", DOMAIN, f"mashov_{mock_config_entry.entry_id}_departed_homework", config_entry=mock_config_entry
     )
     # outside_behavior is an enabled optional resource, so its sensor must survive cleanup;
-    # message_board is not enabled, so a live roster refresh removes its leftover sensor.
+    # message_board is not enabled, so its registry entry is disabled without
+    # deleting the entity ID/history, independently of a live roster refresh.
     hass.config_entries.async_update_entry(mock_config_entry, options={"additional_data": ["outside_behavior"]})
     retained = registry.async_get_or_create(
         "sensor",
@@ -256,7 +257,7 @@ async def test_orphan_cleanup_requires_live_roster_and_keeps_active_optional_sen
             assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
             await hass.async_block_till_done()
         assert (registry.async_get(old.entity_id) is None) == authoritative
-        assert (registry.async_get(disabled.entity_id) is None) == authoritative
+        assert registry.async_get(disabled.entity_id).disabled_by == er.RegistryEntryDisabler.INTEGRATION
         assert registry.async_get(retained.entity_id) is not None
         coordinator = hass.data[DOMAIN][mock_config_entry.entry_id]["coordinator"]
         updated = deepcopy(DATA)

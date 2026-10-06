@@ -186,6 +186,17 @@ async def test_discovers_every_child_and_keeps_unlisted_ones_private(hass: HomeA
     assert matched["visibility"] == [{"condition": "user", "users": ["parent", "kid-user"]}]
 
 
+async def test_discovery_omits_deselected_entities(hass: HomeAssistant):
+    registry = er.async_get(hass)
+    _register_child(registry, "hub", "student")
+    grade_id = registry.async_get_entity_id("sensor", DOMAIN, "mashov_hub_student_grades")
+    registry.async_update_entity(grade_id, disabled_by=er.RegistryEntryDisabler.INTEGRATION)
+    hass.data[DOMAIN] = {
+        "hub": {"coordinator": SimpleNamespace(data={"students": [{"id": "student", "name": "Example"}]})}
+    }
+    assert resolve_students(hass, [])[0]["grades"] is None
+
+
 async def test_unknown_or_ambiguous_customization_is_rejected(hass: HomeAssistant):
     """A customization matching no student or several students is rejected; an exact match applies."""
     registry = er.async_get(hass)

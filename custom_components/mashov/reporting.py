@@ -30,7 +30,7 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 from .additional_data import STUDENT_RESOURCES
 from .mashov_client import MashovError
 
-VERSION = "1.0.15"
+VERSION = "1.0.16"
 # Notification title -> stable event code. Only the code is exported, never the title text.
 _EVENTS = {
     "Mashov password change required": "password_change_required",
@@ -39,7 +39,16 @@ _EVENTS = {
     "Mashov refresh failed": "refresh_failed",
 }
 # Known resource status values; anything else is exported as "other_error" so free text can't leak.
-_STATUSES = {"ok", "forbidden", "unsupported", "unauthorized", "invalid_response", "fetch_failed"}
+_STATUSES = {
+    "ok",
+    "forbidden",
+    "unsupported",
+    "unauthorized",
+    "invalid_response",
+    "fetch_failed",
+    "disabled",
+    "not_fetched",
+}
 # Exception classes that indicate a bug in the integration (and may be reported).
 # technical_log() relies on the error being one of these to name its type.
 _INTERNAL_ERRORS = (
@@ -61,6 +70,8 @@ _SOURCE_FILES = {
     "entity.py",
     "config_flow.py",
     "holidays_utils.py",
+    "mailbox.py",
+    "data_selection.py",
 }
 
 
@@ -151,6 +162,12 @@ def diagnostic_summary(coordinator=None, technical_logs=None):
             bucket = counts.setdefault(key, {})
             bucket[status] = bucket.get(status, 0) + 1
     result["optional_resource_status_counts"] = counts
+    mailbox = data.get("mailbox")
+    if isinstance(mailbox, dict):
+        result["mailbox_status"] = {
+            key: mailbox.get(key) if mailbox.get(key) in _STATUSES else "other_error"
+            for key in ("status", "counts_status")
+        }
     return result
 
 
