@@ -12,6 +12,7 @@
 
 ### Documentation
 - README explains exactly how to enable additional student data, what each type contains, and in which version each change arrived.
+- Device-removal regression tests support Home Assistant's newer single-owner device registry without accessing its deprecated multi-entry property.
 
 ## [1.0.14] - 2026-09-26
 

@@ -97,10 +97,16 @@ async def test_automatic_cleanup_detaches_only_confirmed_departed_device(
         removed = authoritative and not stale
         assert (entities.async_get(old.entity_id) is None) == removed
         remaining = devices.async_get(departed.id)
-        if removed:
-            assert remaining is None or mock_config_entry.entry_id not in remaining.config_entries
+        if remaining is None:
+            belongs_to_entry = False
+        elif hasattr(remaining, "config_entry_id"):
+            belongs_to_entry = remaining.config_entry_id == mock_config_entry.entry_id
         else:
-            assert mock_config_entry.entry_id in remaining.config_entries
+            belongs_to_entry = mock_config_entry.entry_id in remaining.config_entries
+        if removed:
+            assert not belongs_to_entry
+        else:
+            assert belongs_to_entry
         if shared:
             assert devices.async_get(other_device.id) is not None
             assert entities.async_get(retained.entity_id) is not None

@@ -30,3 +30,4 @@ are preserved. No new optional resources are enabled for existing hubs.
 
 Validation includes the full regression suite, Ruff, GitHub CI on Python 3.13 and 3.14,
 hassfest/HACS checks, and installation with per-hub refresh and diagnostics on Home Assistant.
+Device-removal test assertions also support the newer single-owner device registry.
