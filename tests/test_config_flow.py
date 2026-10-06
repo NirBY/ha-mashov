@@ -9,13 +9,18 @@ from unittest.mock import AsyncMock, patch
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+import pytest
 
 from custom_components.mashov.const import DOMAIN
 
 from .const import TEST_PASSWORD, TEST_SCHOOL_ID, TEST_STUDENT, TEST_USERNAME
 
 
-async def test_user_flow_success(hass: HomeAssistant):
+@pytest.mark.parametrize(
+    "selection",
+    [{}, {"enabled_data": ["homework", "special_hours"]}, {"enabled_data": ["mailbox"], "mailbox_full_content": True}],
+)
+async def test_user_flow_success(hass: HomeAssistant, selection):
     """Submitting credentials and a numeric school ID creates an entry with that school ID."""
     # Prevent actual setup and network calls - patch BEFORE async_init
     with (
@@ -64,6 +69,7 @@ async def test_user_flow_success(hass: HomeAssistant):
                 "username": TEST_USERNAME,
                 "password": TEST_PASSWORD,
                 "school_name": TEST_SCHOOL_ID,  # Can be school ID or name
+                **selection,
             },
         )
 
@@ -74,9 +80,10 @@ async def test_user_flow_success(hass: HomeAssistant):
         assert result2["data"]["password"] == TEST_PASSWORD
         assert result2["data"]["school_id"] == int(TEST_SCHOOL_ID)
         # New hubs start with an explicit, empty selection, including no mailbox.
-        assert result2["options"]["enabled_data"] == []
-        assert result2["options"]["additional_data"] == []
-        assert result2["options"]["mailbox_full_content"] is False
+        assert result2["options"]["enabled_data"] == selection.get("enabled_data", [])
+        assert result2["options"]["mailbox_full_content"] == selection.get("mailbox_full_content", False)
+        assert "enabled_data" not in result2["data"]
+        assert "mailbox_full_content" not in result2["data"]
 
 
 async def test_user_flow_auth_failed(hass: HomeAssistant):

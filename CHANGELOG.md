@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.17] - 2026-10-06
+
+### Fixed
+- Opting out removes disabled datasets and message bodies from the disk cache before login, even when refresh/authentication fails. Reducing the inbox limit also trims the restored cache.
+- Removing Mailbox in Configure resets a previously checked full-content option without blocking the submission. Re-enabling Mailbox starts with headers only.
+- Validation errors retain submitted data selections. Holidays has a meaningful category label in all five languages.
+
+### Documentation
+- Front-page table lists every dataset, initial and upgrade defaults, with a red full-content read-status warning.
+- Step-by-step setup and upgrade instructions include actual Home Assistant screenshots. Documents opt-out behavior, cache retention, Recorder history and backup boundaries.
+
 ## [1.0.16] - 2026-10-06
 
 ### Added

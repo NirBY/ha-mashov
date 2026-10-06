@@ -1,33 +1,20 @@
-# Mashov v1.0.15
+# Mashov v1.0.17
 
-## Fix: keep student data paired during reauthentication
+Disabling data now removes it from the integration's disk cache before authentication,
+even if the subsequent refresh fails. Turning off full message content removes cached
+bodies; reducing the inbox limit also removes excess cached conversations. Recorder
+history and backups remain governed by their own retention settings.
 
-A login expiring during a refresh could replace the student list before results were
-assembled. If children changed order, data could be assigned to the wrong child; adding
-a child could fail the refresh with `IndexError`. Each refresh now uses a fixed roster
-for requests, results and metadata. A changed roster takes effect on the next refresh.
-Regression tests cover reordering, additions and removals, including the next refresh.
+Removing Mailbox in Configure automatically resets a previously checked full-content
+option. Re-enabling it starts with headers only. Validation errors preserve the submitted
+data selection, and the Holidays category is clearly named in all five languages.
 
-## Noticeboard notifications
-
-- New hubs enable the existing Noticeboard resource by default. Existing hubs keep their
-  current selection; enable it in Configure → Additional student data if wanted.
-- New automation blueprint: `blueprints/automation/mashov/mashov_noticeboard_announce.yaml`.
-  It compares notice IDs, so a replacement is detected even when the notice count stays
-  unchanged. Startup and recovery states establish a baseline without repeating notices.
-- Supports phone and Home Assistant notifications, plus optional Hebrew TTS. Speech is
-  not started during 22:00–07:00; notifications are still sent. Quiet hours are rechecked
-  after speaker preparation. Speaker volume is restored even after a TTS service failure.
-- The blueprint is available for import; installing the integration does not create or
-  enable an automation automatically. Notifications arrive at the configured refresh interval.
-- Mashov's mail inbox and unread-message count remain unsupported. The Noticeboard
-  exposes general school notices only and does not change mail read/unread status.
+The README now starts with all 18 datasets and their new-installation/upgrade defaults,
+a red warning about full-content fetching marking conversations read, actual Home Assistant
+screenshots, and exact instructions for selecting and disabling data.
 
 ## Upgrade
 
-Update through HACS and restart Home Assistant. Existing hub settings and entity IDs
-are preserved. No new optional resources are enabled for existing hubs.
-
-Validation includes the full regression suite, Ruff, GitHub CI on Python 3.13 and 3.14,
-hassfest/HACS checks, and installation with per-hub refresh and diagnostics on Home Assistant.
-Device-removal test assertions also support the newer single-owner device registry.
+Update through HACS and restart Home Assistant. Existing selections, entity IDs and user
+customizations are preserved, including configurations from v1.0.7 onward. New hubs start
+with no datasets selected. Mailbox and full content remain opt-in.

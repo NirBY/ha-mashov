@@ -70,11 +70,16 @@ def filter_cached_data(data, options):
         result.pop("holidays_last_update", None)
     if "mailbox" not in selected:
         result.pop("mailbox", None)
-    elif not options.get(CONF_MAILBOX_FULL_CONTENT, False):
+    else:
         mailbox = result.get("mailbox", {})
-        mailbox["full_content"] = False
-        for conversation in mailbox.get("items", []):
-            conversation.pop("content_status", None)
-            for message in conversation.get("messages", []):
-                message.pop("body", None)
+        if "items" in mailbox:
+            mailbox["items"] = mailbox["items"][: options.get(CONF_MAILBOX_LIMIT, DEFAULT_MAILBOX_LIMIT)]
+            mailbox["limit"] = options.get(CONF_MAILBOX_LIMIT, DEFAULT_MAILBOX_LIMIT)
+        if not options.get(CONF_MAILBOX_FULL_CONTENT, False):
+            mailbox["full_content"] = False
+            mailbox.pop("unread_before_fetch", None)
+            for conversation in mailbox.get("items", []):
+                conversation.pop("content_status", None)
+                for message in conversation.get("messages", []):
+                    message.pop("body", None)
     return result

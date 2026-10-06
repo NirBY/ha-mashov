@@ -172,7 +172,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
 
         # Credentials discover the account's students; only selected data is fetched.
-        schema = schema.extend(_data_fields([]))
+        submitted = user_input or {}
+        schema = schema.extend(
+            _data_fields(
+                submitted.get(CONF_ENABLED_DATA, []),
+                submitted.get(CONF_MAILBOX_FULL_CONTENT, False),
+                submitted.get(CONF_MAILBOX_LIMIT, DEFAULT_MAILBOX_LIMIT),
+            )
+        )
 
         if user_input is not None:
             if user_input.get(CONF_MAILBOX_FULL_CONTENT) and "mailbox" not in user_input.get(CONF_ENABLED_DATA, []):
@@ -388,7 +395,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             if user_input.get(CONF_MAILBOX_FULL_CONTENT) and "mailbox" not in user_input.get(
                 CONF_ENABLED_DATA, enabled_data(self.config_entry.options)
             ):
-                errors[CONF_MAILBOX_FULL_CONTENT] = "mailbox_required"
+                if "mailbox" in enabled_data(self.config_entry.options):
+                    # Removing mailbox takes precedence over its old checked
+                    # full-content box. Re-enabling starts with no read consent.
+                    user_input = {**user_input, CONF_MAILBOX_FULL_CONTENT: False}
+                else:
+                    errors[CONF_MAILBOX_FULL_CONTENT] = "mailbox_required"
             # Validate schedule_time format if present
             import re
 
@@ -491,7 +503,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 )
                 return self.async_create_entry(title="", data=normalized)
 
-        current_options = dict(self.config_entry.options or {})
+        current_options = dict(self.config_entry.options)
+        for key in (CONF_ENABLED_DATA, CONF_MAILBOX_FULL_CONTENT, CONF_MAILBOX_LIMIT):
+            if user_input is not None and key in user_input:
+                current_options[key] = user_input[key]
         _LOGGER.debug("Building options schema from current options: %s", current_options)
 
         options = {
