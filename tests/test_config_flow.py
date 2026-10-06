@@ -73,6 +73,8 @@ async def test_user_flow_success(hass: HomeAssistant):
         assert result2["data"]["username"] == TEST_USERNAME
         assert result2["data"]["password"] == TEST_PASSWORD
         assert result2["data"]["school_id"] == int(TEST_SCHOOL_ID)
+        # New hubs (v1.0.15+) start with the noticeboard enabled in their options.
+        assert result2["options"] == {"additional_data": ["message_board"]}
 
 
 async def test_user_flow_auth_failed(hass: HomeAssistant):

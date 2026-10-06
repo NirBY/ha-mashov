@@ -32,7 +32,7 @@ _LOGGER = logging.getLogger(__name__)
 
 import contextlib
 
-from .additional_data import CONF_ADDITIONAL_DATA, STUDENT_RESOURCES
+from .additional_data import CONF_ADDITIONAL_DATA, DEFAULT_NEW_HUB_ADDITIONAL_DATA, STUDENT_RESOURCES
 from .const import (
     CONF_API_BASE,
     CONF_HOMEWORK_DAYS_BACK,
@@ -265,7 +265,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.debug("Creating entry with title: %s (%s)", school_name, school_semel)
                 # Save school name in data for later use (e.g., title updates)
                 user_input[CONF_SCHOOL_NAME] = school_name
-                return self.async_create_entry(title=f"{school_name} ({school_semel})", data=user_input)
+                # New hubs start with the noticeboard enabled (v1.0.15+). It is written into this
+                # entry's options rather than changing the code default, so existing hubs are
+                # unaffected; users can turn it off in Configure.
+                return self.async_create_entry(
+                    title=f"{school_name} ({school_semel})",
+                    data=user_input,
+                    options={CONF_ADDITIONAL_DATA: list(DEFAULT_NEW_HUB_ADDITIONAL_DATA)},
+                )
 
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
 

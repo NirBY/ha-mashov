@@ -776,19 +776,25 @@ class MashovClient:
         if "X-Csrf-Token" not in self._headers:
             _LOGGER.warning("No CSRF token found in headers for data fetching")
 
+        # Freeze the roster for this refresh. A 401 mid-refresh triggers a re-login that
+        # replaces self._students; results must stay paired with the roster they were
+        # fetched for, or one child's data could be shown under another (or an added child
+        # would cause an IndexError). A changed roster takes effect on the next refresh.
+        students = list(self._students)
+
         # --- Date window for the dated resources (homework, behavior, optional resources).
         today = date.today()
         from_dt = (today - timedelta(days=self.homework_days_back)).isoformat()
         to_dt = (today + timedelta(days=self.homework_days_forward)).isoformat()
         today.isoformat()  # Result unused (leftover); harmless.
 
-        _LOGGER.info("Fetching data for %d students from %s to %s", len(self._students), from_dt, to_dt)
+        _LOGGER.info("Fetching data for %d students from %s to %s", len(students), from_dt, to_dt)
 
         # No pre-flight session check (this block is intentionally a no-op).
         # A stale session is handled reactively: if parallel requests all get 401,
         # the first one re-logs in under _login_lock, the others wait on the lock,
         # see the fresh login and retry once.
-        if self._students:
+        if students:
             with contextlib.suppress(Exception):
                 pass
 
@@ -900,7 +906,7 @@ class MashovClient:
 
         _LOGGER.debug("Fetching data for all students in parallel")
         # Use asyncio.gather for parallel execution
-        results = await asyncio.gather(*(fetch_for_student(s) for s in self._students))
+        results = await asyncio.gather(*(fetch_for_student(s) for s in students))
 
         # --- Holidays (school-wide, not per student). A holiday failure must not
         # discard successfully fetched student data; only auth errors propagate.
@@ -932,7 +938,9 @@ class MashovClient:
             _LOGGER.warning("Holidays refresh failed (%s); student data is retained", holidays_status)
 
         holidays = self._normalize_holidays(holidays_raw)
-        by_slug = {self._students[i]["slug"]: results[i] for i in range(len(self._students))}
+        by_slug = {student["slug"]: data for student, data in zip(students, results, strict=True)}
+        if [s["id"] for s in self._students] != [s["id"] for s in students]:
+            _LOGGER.info("Student list changed during a re-login; the update applies on the next refresh")
 
         result = {
             "students": [
@@ -943,14 +951,14 @@ class MashovClient:
                     "year": self.year,
                     "school_id": self.school_id,
                 }
-                for s in self._students
+                for s in students
             ],
             "by_slug": by_slug,
             "holidays": holidays,
             "holidays_status": holidays_status,
         }
 
-        _LOGGER.debug("Data fetch completed for %d students", len(self._students))
+        _LOGGER.debug("Data fetch completed for %d students", len(students))
         return result
 
     # Normalizers: map Mashov's camelCase (sometimes lowercase) API fields to the

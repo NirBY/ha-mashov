@@ -1,0 +1,333 @@
+blueprint:
+  name: Mashov – New Noticeboard Notice (notify & announce)
+  description: >
+    Version v1.0.0. When a new notice appears on a student's Mashov noticeboard, sends a phone
+    notification and/or a persistent notification, and can read it aloud in Hebrew on a speaker
+    (raises the volume, speaks with tts.speak, then restores the volume).
+    Never reads aloud during quiet hours (22:00–07:00, fixed, like the other Mashov blueprints);
+    a notice that arrives then is still sent as a notification, only the speech is skipped.
+    Requirements: Mashov integration 1.0.7+ with **Noticeboard** enabled in
+    Settings → Devices & services → Mashov → Configure → Additional student data
+    (on by default for hubs added in 1.0.15+). Notices arrive with the integration's refresh,
+    not in real time; the default schedule is once a day at 14:00. A notice is "new" when its
+    Mashov notice ID was not on the noticeboard before, so a restart or a reload never
+    re-announces existing notices.
+  source_url: https://raw.githubusercontent.com/NirBY/ha-mashov/main/blueprints/automation/mashov/mashov_noticeboard_announce.yaml
+  domain: automation
+  input:
+    noticeboard_sensors:
+      name: Noticeboard sensors (Mashov)
+      description: >
+        One or more Mashov noticeboard sensors (one per student), named "Noticeboard" or
+        "לוח מודעות". If none are listed, enable Noticeboard in the integration's Configure dialog first.
+      selector:
+        entity:
+          filter:
+            - integration: mashov
+              domain: sensor
+          multiple: true
+
+    notify_service:
+      name: Phone notification action (optional)
+      description: >
+        A notify action such as notify.mobile_app_my_phone (Developer Tools → Actions, search "notify").
+        Leave empty for no phone notification.
+      default: ""
+      selector:
+        text:
+
+    persistent_notification:
+      name: Show a Home Assistant notification
+      description: Adds the notice to the notification bell in the Home Assistant sidebar.
+      default: true
+      selector:
+        boolean: {}
+
+    media_player:
+      name: Speaker for reading aloud (optional)
+      description: Leave empty to skip reading the notice aloud.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: media_player
+
+    tts_engine:
+      name: TTS engine entity (needed for reading aloud)
+      description: "For example tts.google_translate_iw_com"
+      default: ""
+      selector:
+        entity:
+          filter:
+            - domain: tts
+
+    tts_language:
+      name: TTS language
+      description: Google Translate Hebrew is "iw" (also accepts "he")
+      default: iw
+      selector:
+        text:
+
+    max_volume:
+      name: Temporary volume for reading aloud
+      default: 0.7
+      selector:
+        number:
+          min: 0.1
+          max: 1.0
+          step: 0.05
+          mode: slider
+
+    restore_volume_default:
+      name: Fallback volume after reading
+      description: Used when the speaker's previous volume is unknown (for example it was off).
+      default: 0.3
+      selector:
+        number:
+          min: 0.0
+          max: 1.0
+          step: 0.05
+          mode: slider
+
+    max_chars:
+      name: Maximum characters per notice
+      description: Long notices are shortened in the notification and in speech.
+      default: 300
+      selector:
+        number:
+          min: 50
+          max: 1000
+          step: 50
+          mode: slider
+
+    tts_finish_timeout:
+      name: TTS finish timeout (seconds)
+      description: How long to wait for the speaker to finish before restoring the volume.
+      default: 120
+      selector:
+        number:
+          min: 30
+          max: 600
+          step: 10
+          mode: slider
+
+    bp_version_info:
+      name: Blueprint version
+      description: Informational only; used in traces. Do not change.
+      default: "mashov_noticeboard_announce v1.0.0"
+      selector:
+        text:
+
+# queued: several students' noticeboards can change in the same refresh.
+mode: queued
+max: 10
+
+# Fires when the list of notices changes, including when one notice replaces another
+# (the count stays the same, but the items differ).
+trigger:
+  - alias: "Noticeboard items changed"
+    platform: state
+    entity_id: !input noticeboard_sensors
+    attribute: items
+
+variables:
+  notify_service: !input notify_service
+  show_persistent: !input persistent_notification
+  media_player: !input media_player
+  tts_engine: !input tts_engine
+  tts_language: !input tts_language
+  max_volume: !input max_volume
+  restore_volume_default: !input restore_volume_default
+  max_chars: !input max_chars
+  tts_finish_timeout: !input tts_finish_timeout
+  blueprint_version: !input bp_version_info
+
+  sensor_id: "{{ trigger.entity_id }}"
+  student_name: "{{ state_attr(trigger.entity_id, 'student_name') or 'התלמיד/ה' }}"
+  # A first state (startup) or a state coming back from unavailable is a baseline, not news.
+  is_baseline: >
+    {{ trigger.from_state is none
+       or trigger.from_state.state in ['unknown', 'unavailable']
+       or trigger.from_state.attributes.get('source_status', 'ok') != 'ok' }}
+  source_ok: >
+    {{ trigger.to_state is not none and trigger.to_state.attributes.get('source_status', 'ok') == 'ok' }}
+
+  # Notices whose Mashov ID was not on the noticeboard before, as plain text (HTML removed).
+  new_notices: >
+    {% set before = (trigger.from_state.attributes.get('items') if trigger.from_state else none) or [] %}
+    {% set after = (trigger.to_state.attributes.get('items') if trigger.to_state else none) or [] %}
+    {% set ns = namespace(seen=[], out=[]) %}
+    {% for it in before %}
+      {% set ns.seen = ns.seen + [((it.eventid if it.eventid is defined else it.eventtext) ~ '')] %}
+    {% endfor %}
+    {% for it in after %}
+      {% set key = (it.eventid if it.eventid is defined else it.eventtext) ~ '' %}
+      {% set text = (it.eventtext or '') | replace('<br', ' <br') | replace('</p>', ' </p>') | striptags
+         | replace('&nbsp;', ' ') | replace('&quot;', '"') | replace('&#39;', "'") | replace('&amp;', '&')
+         | regex_replace('\\s+', ' ') | trim %}
+      {% if key not in ns.seen and text %}
+        {% set ns.out = ns.out + [text | truncate(max_chars | int, true, '…')] %}
+      {% endif %}
+    {% endfor %}
+    {{ ns.out }}
+
+  title: "משו\"ב – {{ 'מודעה חדשה' if new_notices | count == 1 else (new_notices | count ~ ' מודעות חדשות') }} ל{{ student_name }}"
+  message: "{{ new_notices | join('\n\n') }}"
+  speech: >
+    {{ 'הודעה חדשה מבית הספר עבור ' ~ student_name ~ '. ' ~ (new_notices | join('. הודעה נוספת: ')) }}
+  # Internal quiet hours (not configurable, so a misconfiguration can never cause speech at night).
+  # Same window as the daily homework announcement: speech only between 07:00 and 22:00.
+  quiet_start: "22:00:00"
+  quiet_end: "07:00:00"
+  can_speak: "{{ (media_player | length > 0) and (tts_engine | length > 0) }}"
+
+action:
+  - alias: "Decision tree (why/what chosen) – see Traces"
+    choose:
+      - alias: "Skip: first state after startup/reload, or the sensor was unavailable"
+        conditions:
+          - condition: template
+            value_template: "{{ is_baseline }}"
+        sequence:
+          - action: logbook.log
+            data:
+              name: "Mashov noticeboard"
+              message: "{{ blueprint_version }} | Skipped: baseline state for {{ sensor_id }} (startup, reload or recovery)."
+              entity_id: "{{ sensor_id }}"
+          - stop: "Baseline state"
+
+      - alias: "Skip: the noticeboard could not be read"
+        conditions:
+          - condition: template
+            value_template: "{{ not source_ok }}"
+        sequence:
+          - action: logbook.log
+            data:
+              name: "Mashov noticeboard"
+              message: "{{ blueprint_version }} | Skipped: source_status={{ state_attr(sensor_id, 'source_status') }}."
+              entity_id: "{{ sensor_id }}"
+          - stop: "Source not available"
+
+      - alias: "Skip: no new notices (removed or unchanged notices only)"
+        conditions:
+          - condition: template
+            value_template: "{{ new_notices | count == 0 }}"
+        sequence:
+          - action: logbook.log
+            data:
+              name: "Mashov noticeboard"
+              message: "{{ blueprint_version }} | Skipped: no new notices for {{ student_name }}."
+              entity_id: "{{ sensor_id }}"
+          - stop: "No new notices"
+
+    default:
+      - action: logbook.log
+        data:
+          name: "Mashov noticeboard"
+          message: "{{ blueprint_version }} | {{ new_notices | count }} new notice(s) for {{ student_name }}."
+          entity_id: "{{ sensor_id }}"
+
+      - alias: "Home Assistant notification"
+        if:
+          - condition: template
+            value_template: "{{ show_persistent }}"
+        then:
+          - action: persistent_notification.create
+            data:
+              title: "{{ title }}"
+              message: "{{ message }}"
+
+      - alias: "Phone notification"
+        if:
+          - condition: template
+            value_template: "{{ notify_service | trim | length > 0 }}"
+        then:
+          - action: "{{ notify_service | trim }}"
+            continue_on_error: true
+            data:
+              title: "{{ title }}"
+              message: "{{ message }}"
+
+      # Evaluate when this queued run reaches the speaker, not when it was triggered.
+      - variables:
+          now_tod: "{{ now().strftime('%H:%M:%S') }}"
+          in_quiet_hours: "{{ now_tod >= quiet_start or now_tod < quiet_end }}"
+
+      - alias: "Speech skipped: quiet hours (22:00–07:00)"
+        if:
+          - condition: template
+            value_template: "{{ can_speak and in_quiet_hours }}"
+        then:
+          - action: logbook.log
+            data:
+              name: "Mashov noticeboard"
+              message: "{{ blueprint_version }} | Not read aloud: quiet hours (now {{ now_tod }}). Notifications were sent."
+              entity_id: "{{ sensor_id }}"
+
+      - alias: "Read aloud"
+        if:
+          - condition: template
+            alias: "Speaker and TTS configured, outside quiet hours"
+            value_template: "{{ can_speak and not in_quiet_hours }}"
+        then:
+          - variables:
+              prev_vol: "{{ state_attr(media_player, 'volume_level') }}"
+          - alias: "Turn the speaker on (some speakers are off between uses)"
+            action: media_player.turn_on
+            continue_on_error: true
+            target:
+              entity_id: "{{ media_player }}"
+          - wait_template: "{{ states(media_player) != 'off' }}"
+            timeout: "00:00:10"
+            continue_on_timeout: true
+          - action: media_player.volume_set
+            continue_on_error: true
+            target:
+              entity_id: "{{ media_player }}"
+            data:
+              volume_level: "{{ max_volume }}"
+          - alias: "Wait for the volume to apply (≤5s)"
+            wait_template: "{{ (state_attr(media_player, 'volume_level') or 0) >= (max_volume | float - 0.02) }}"
+            timeout: "00:00:05"
+            continue_on_timeout: true
+          # Speaker startup/volume waits can cross into quiet hours. Check again at TTS.
+          - if:
+              - condition: template
+                value_template: "{{ quiet_end <= now().strftime('%H:%M:%S') < quiet_start }}"
+            then:
+              - action: tts.speak
+                continue_on_error: true
+                target:
+                  entity_id: "{{ tts_engine }}"
+                data:
+                  media_player_entity_id: "{{ media_player }}"
+                  message: "{{ speech }}"
+                  language: "{{ tts_language }}"
+              - alias: "Wait for the speaker to start"
+                wait_template: "{{ is_state(media_player, 'playing') }}"
+                timeout: "00:00:10"
+                continue_on_timeout: true
+              - if: "{{ wait.completed }}"
+                then:
+                  - alias: "Wait for the speaker to finish"
+                    wait_template: "{{ states(media_player) in ['idle', 'paused', 'off', 'standby', 'on'] }}"
+                    timeout: "{{ tts_finish_timeout | int }}"
+                    continue_on_timeout: true
+            else:
+              - action: logbook.log
+                data:
+                  name: "Mashov noticeboard"
+                  message: "{{ blueprint_version }} | Not read aloud: quiet hours began while preparing the speaker."
+                  entity_id: "{{ sensor_id }}"
+          - alias: "Restore the volume (previous if known, else the fallback)"
+            action: media_player.volume_set
+            continue_on_error: true
+            target:
+              entity_id: "{{ media_player }}"
+            data:
+              volume_level: "{{ prev_vol if prev_vol is number else restore_volume_default }}"
+          - action: logbook.log
+            data:
+              name: "Mashov noticeboard"
+              message: "{{ blueprint_version }} | Speech step finished for {{ student_name }}; volume restore requested."
+              entity_id: "{{ sensor_id }}"
