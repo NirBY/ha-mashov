@@ -20,13 +20,11 @@ Community project; not affiliated with Mashov. See [release notes](RELEASE_NOTES
 
 Upgrades preserve existing selections, entity IDs and customizations. New sources and mailbox content are never enabled by an upgrade. Hubs created in v1.0.15 retain their previously enabled Noticeboard selection.
 
-## Available data
+## Data to fetch
 
-Choose what to fetch in **Data to fetch**. New hubs start with nothing selected; upgrades keep your selections.
+Available in **v1.1.0**. Choose the data you want to fetch. New hubs start with nothing selected; upgrades keep your selections.
 
-**Data to fetch — v1.1.0**
-
-| Group | Available data |
+| Group | Data types |
 | --- | --- |
 | Lessons | Homework, weekly plan, timetable, lesson history |
 | Grades | Grades, term grades, report cards |
