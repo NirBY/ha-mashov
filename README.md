@@ -83,11 +83,6 @@ Unavailable sources show `unknown` with `source_status: forbidden` or `unsupport
 
 In **Configure → Data to fetch**, add categories from the list or remove selected chips with **×**, then **Submit**. Configure each hub separately. A selection change reloads the hub and attempts an immediate refresh; the default daily refresh is at 14:00.
 
-![Initial setup: empty selection and full content off](docs/images/initial-data-selection.jpg)
-
-![Existing hub: saved selections and full content off](docs/images/existing-data-selection.jpg)
-
-Screenshots show the English Home Assistant forms without credentials or student names.
 
 Removing a category clears its active and disk cache **before login**, even if the next refresh fails, and disables its entities while preserving IDs and history. Disabling an entity in HA does not stop fetching its category; remove it in Configure to stop requests. An empty selection retains authentication and the student roster.
 
@@ -444,10 +439,6 @@ One‑click import (My Home Assistant):
 
 [![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint URL.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FNirBY%2Fha-mashov%2Fmain%2Fblueprints%2Fscript%2Fmashov%2Fmashov_live_dashboard.yaml)
 
-![Mashov Live dashboard on desktop](docs/images/mashov_live_desktop.png)
-
-<img src="docs/images/mashov_live_mobile.png" alt="Mashov Live dashboard on mobile" width="320">
-
 What does it build?
 - A greeting card with the current holiday countdown (or days until the next holiday) and a refresh button.
 - One quiet card per student, showing the linked person's photo, a live "tomorrow" line (holiday, Saturday, or the number of lessons and first subjects), behavior, grades and notice counts, and a homework bar.
@@ -561,9 +552,6 @@ For the weekly cards, use the holiday sensor of the student's own school hub.
 
 Example previews:
 
-<p align="left"><img src="examples/screenshots/weekly_plan_table_advanced.png" alt="Weekly timetable + plan + holidays" width="50%" style="max-width:50%; height:auto;" /></p>
-<p align="left"><img src="examples/screenshots/behavior_list_by_date.png" alt="Behavior grouped by date" width="30%" style="max-width:30%; height:auto;" /> <img src="examples/screenshots/homework_list_by_date.png" alt="Homework grouped by date" width="30%" style="max-width:30%; height:auto;" /></p>
-
 ## 🔍 Troubleshooting
 
 - **401 / authentication failures**: check credentials and school choice, and update credentials through **Configure**. Password-change responses display a link to the Mashov login page.
@@ -613,12 +601,10 @@ logger:
 ## 📄 License
 MIT © 2025
 
-
 ---
 
 ## 📜 Changelog
 See the full changelog in `CHANGELOG.md`.
-
 
 ## v1.0.8: holidays, diagnostics and reporting
 
@@ -674,7 +660,6 @@ compatibility, omitting it targets the first loaded hub. `mashov.refresh_now`
 continues to refresh every hub when `entry_id` is omitted. The legacy
 `schedule_day` service field remains supported and replaces the selected days.
 
-
 ## v1.0.10: languages, cache visibility and report fixes
 
 Setup, options, service labels, weekdays and entity names support English, Hebrew,
@@ -711,7 +696,6 @@ a matching HA backup; a downgrade does not reverse the unique-ID migration.
 
 See the [17-item review disposition](docs/review-v1.0.10.md) and [release notes](RELEASE_NOTES.md).
 
-
 ## v1.0.11: internal-error reports and optional technical logs
 
 Account/password problems, school-denied resources, timeouts, connection failures,
@@ -737,7 +721,6 @@ reviewing and redacting them. Nothing is posted to GitHub automatically.
 Internal errors notify immediately, once per failure sequence. A successful refresh
 resets this suppression. The three-failure threshold for transient errors with cached
 data is unchanged, and those operational alerts contain no reporting links.
-
 
 ## Removing a departed student and old data (v1.0.12)
 

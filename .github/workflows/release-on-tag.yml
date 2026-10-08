@@ -33,7 +33,20 @@ jobs:
             echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Extract CHANGELOG section for this tag (pre-release notes)
+      - name: Preserve an existing published release description
+        id: existing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.vars.outputs.tag }}
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]] && gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "preserve=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "preserve=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Extract CHANGELOG section for this tag (release notes)
         id: changelog
         shell: bash
         run: |
@@ -74,7 +87,7 @@ jobs:
           fi
 
       - name: Create or update GitHub Release
-        if: ${{ steps.flags.outputs.prerelease == 'false' }}
+        if: ${{ steps.flags.outputs.prerelease == 'false' && steps.existing.outputs.preserve != 'true' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.vars.outputs.tag }}
@@ -85,7 +98,7 @@ jobs:
           generate_release_notes: false
 
       - name: Ensure prerelease flag when needed (edit existing)
-        if: ${{ steps.flags.outputs.prerelease == 'true' }}
+        if: ${{ steps.flags.outputs.prerelease == 'true' && steps.existing.outputs.preserve != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
