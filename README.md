@@ -18,30 +18,6 @@ Requires **Home Assistant 2025.3 or newer**.
 
 Upgrades preserve existing selections, entity IDs and customizations. New sources and mailbox content are never enabled by an upgrade. Hubs created in v1.0.15 retain their previously enabled Noticeboard selection.
 
-## Data to fetch
-
-Available in **v1.1.0**. Choose the data you want to fetch. New hubs start with nothing selected; upgrades keep your selections.
-
-| Group | Data types |
-| --- | --- |
-| Lessons | Homework, weekly plan, timetable, lesson history |
-| Grades | Grades, term grades, report cards |
-| Behavior | Behavior, daily behavior, outside lesson behavior, follow-up notes |
-| Student records | Study materials, student files, absence justification requests, individual lessons |
-| School | Noticeboard, holidays and calendar |
-| Mailbox | Unread count and recent headers; message content is optional |
-
-Selections apply to all students in the hub. Mailbox belongs to the account; holidays belong to the school. Availability depends on school permissions. Files are listed, not downloaded.
-
-**Fetching full mailbox content marks conversations as read in Mashov.** It requires separate consent.
-
-### Selecting and disabling data
-
-In **Configure → Data to fetch**, add categories from the list or remove selected chips with **×**, then **Submit**. Configure each hub separately. A selection change reloads the hub and attempts an immediate refresh; the default daily refresh is at 14:00.
-
-
-Removing a category clears its active and disk cache **before login**, even if the next refresh fails, and disables its entities while preserving IDs and history. Disabling an entity in HA does not stop fetching its category; remove it in Configure to stop requests. An empty selection retains authentication and the student roster.
-
 ## Refresh schedules
 
 In **Configure → Refresh schedules**, edit schedules directly inside the form. Select **Student**, then **General — default schedule** or a data type. Controls update immediately; switching types or students preserves the draft. Uncheck inheritance to customize a schedule. The form’s **Submit** saves all settings and all students together. No separate editor link is needed.
@@ -156,6 +132,32 @@ an explicitly configured year; that year remains pinned until you enable
   - Prefer scheduling the daily/weekly refresh to daytime hours (e.g., `14:00`).
   - Use the Options screen or YAML to set `schedule_type` and `schedule_time` accordingly.
   - Avoid long-running `interval` mode during overnight hours.
+
+<a id="data-to-fetch-1"></a>
+
+### Data to fetch
+
+Available in **v1.1.0**. Choose the data you want to fetch. New hubs start with nothing selected; upgrades keep your selections.
+
+| Group | Data types |
+| --- | --- |
+| Lessons | Homework, weekly plan, timetable, lesson history |
+| Grades | Grades, term grades, report cards |
+| Behavior | Behavior, daily behavior, outside lesson behavior, follow-up notes |
+| Student records | Study materials, student files, absence justification requests, individual lessons |
+| School | Noticeboard, holidays and calendar |
+| Mailbox | Unread count and recent headers; message content is optional |
+
+Selections apply to all students in the hub. Mailbox belongs to the account; holidays belong to the school. Availability depends on school permissions. Files are listed, not downloaded.
+
+**Fetching full mailbox content marks conversations as read in Mashov.** It requires separate consent.
+
+### Selecting and disabling data
+
+In **Configure → Data to fetch**, add categories from the list or remove selected chips with **×**, then **Submit**. Configure each hub separately. A selection change reloads the hub and attempts an immediate refresh; the default daily refresh is at 14:00.
+
+
+Removing a category clears its active and disk cache **before login**, even if the next refresh fails, and disables its entities while preserving IDs and history. Disabling an entity in HA does not stop fetching its category; remove it in Configure to stop requests. An empty selection retains authentication and the student roster.
 
 ### Mailbox (optional)
 
