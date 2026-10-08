@@ -2,14 +2,13 @@
 
 ## [Unreleased]
 
-### Added
-- TBD
-
 ### Changed
-- TBD
+- Shortened Available data in both READMEs to six groups covering all 18 data types, labeled Data to fetch — v1.1.0.
+- Removed README screenshots and inline release history; linked the standalone Changelog instead.
+- Restored English screenshots in the v1.1.0 release description with verified absolute image URLs.
 
 ### Fixed
-- TBD
+- Tag-triggered release automation preserves an existing release description, preventing manually added screenshots from being overwritten. Explicit workflow dispatch can still update release notes.
 
 ## [1.1.0] - 2026-10-08
 
