@@ -1,5 +1,44 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- TBD
+
+### Changed
+- TBD
+
+### Fixed
+- TBD
+
+## [1.1.0] - 2026-10-08
+
+### Added
+- Student-specific General and per-resource schedules, keyed by stable student ID. The editor retains drafts across students and saves all student schedules together. Due timers request only the appropriate student/resource pairs, preserving sibling data, timestamps and failure flags. Existing account schedules remain inherited; holidays and mailbox retain school/account scope.
+- Hub registration uses the same interactive General/per-data editor, with one Submit creating the hub and all schedules together. Registration and editing share native labels and validation messages in all five supported languages; language changes preserve drafts and Hebrew/Arabic use RTL layout.
+- Interactive admin schedule editor with General and all data types in one screen. Controls update on selection, drafts survive switching types, and one Submit atomically saves the whole schedule map. Setup and Configure embed the editor directly in Refresh schedules; stale drafts are rejected if settings changed elsewhere.
+- Compact native sections for data, refresh schedules, account and advanced options. The schedule table and accessible ⓘ instructions start collapsed; validation opens the affected section.
+- Optional per-data daily, weekly or interval schedules, with all 18 categories visible in setup/options overviews and a reusable editor. No overrides means the previous shared schedule remains in effect.
+- The editor first asks for the schedule mode, then shows only its relevant controls. Overview labels follow the signed-in HA user's language, and calendars expose their effective schedule too.
+- Selective, serialized refreshes retain other datasets and their last-successful timestamps, batch identical schedules and never fetch disabled categories. Manual and initial warm-up refreshes still fetch all selected data.
+- A single FIFO queue serializes refresh jobs across every hub, including manual and scheduled refreshes. Unload drains active work and prevents queued jobs from reopening a closed client.
+- `mashov.set_options` accepts a validated `data_schedules` map; `{}` resets shared inheritance. Schedule-only changes reschedule without re-authentication or changing entity IDs.
+
+### Fixed
+- Discard draft reloads current server settings and revision after a restored draft conflicts with changed settings, without requiring a page reload.
+- Declare panel_custom as an optional dependency and omit account option values from debug schema logs.
+- Standalone schedule drafts survive navigation within Home Assistant and reconnect their leave warning on return.
+- Hub shutdown waits only for its own active request. Background roster timer rebuilds ignore removed or replaced hubs.
+- Cached startup data remains marked stale after login, password-change or network failures. Successful groups do not reset the notification counter while other groups are failing, and never-fetched sources do not inherit a misleading last-update timestamp.
+- Mailbox `items` (subjects, senders and message bodies) are excluded from new Recorder history automatically. Live sensor attributes, the integration cache and existing history remain available.
+- Closed sessions during account mailbox fetches are operational fetch failures; unrelated runtime errors remain reportable.
+- Noticeboard announcements allow the configured timeout for slow playback startup before waiting for playback to finish and restoring volume.
+
+### Documentation
+- Separate English and Hebrew READMEs with language navigation, setup guidance and mailbox access/retention warnings.
+- Setup and options forms warn in all five supported languages that an empty selection creates no school-data sensors.
+- Noticeboard blueprint description uses Data to fetch and explains the actual new-hub and v1.0.15 defaults.
+
 ## [1.0.17] - 2026-10-06
 
 ### Fixed

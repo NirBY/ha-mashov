@@ -1,0 +1,26 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "sections": {
+          "data": "mdi:database-outline",
+          "refresh": "mdi:clock-outline",
+          "account": "mdi:account-outline",
+          "advanced": "mdi:tune"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "sections": {
+          "data": "mdi:database-outline",
+          "refresh": "mdi:clock-outline",
+          "account": "mdi:account-outline",
+          "advanced": "mdi:tune"
+        }
+      }
+    }
+  }
+}

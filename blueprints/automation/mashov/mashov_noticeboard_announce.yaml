@@ -7,8 +7,9 @@ blueprint:
     Never reads aloud during quiet hours (22:00–07:00, fixed, like the other Mashov blueprints);
     a notice that arrives then is still sent as a notification, only the speech is skipped.
     Requirements: Mashov integration 1.0.7+ with **Noticeboard** enabled in
-    Settings → Devices & services → Mashov → Configure → Additional student data
-    (on by default for hubs added in 1.0.15+). Notices arrive with the integration's refresh,
+    Settings → Devices & services → Mashov → Configure → Data to fetch.
+    New hubs start with no data selected; hubs added in v1.0.15 retain their previously
+    enabled Noticeboard selection. Notices arrive with the integration's refresh,
     not in real time; the default schedule is once a day at 14:00. A notice is "new" when its
     Mashov notice ID was not on the noticeboard before, so a restart or a reload never
     re-announces existing notices.
@@ -102,7 +103,7 @@ blueprint:
 
     tts_finish_timeout:
       name: TTS finish timeout (seconds)
-      description: How long to wait for the speaker to finish before restoring the volume.
+      description: Maximum wait for playback to start, and then to finish, before restoring the volume.
       default: 120
       selector:
         number:
@@ -305,7 +306,7 @@ action:
                   language: "{{ tts_language }}"
               - alias: "Wait for the speaker to start"
                 wait_template: "{{ is_state(media_player, 'playing') }}"
-                timeout: "00:00:10"
+                timeout: "{{ tts_finish_timeout | int }}"
                 continue_on_timeout: true
               - if: "{{ wait.completed }}"
                 then:

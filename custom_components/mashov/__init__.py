@@ -21,7 +21,7 @@ from homeassistant.helpers import (
     config_validation as cv,  # type: ignore
     device_registry as dr,
 )
-from homeassistant.helpers.event import async_track_time_change  # type: ignore
+from homeassistant.helpers.event import async_track_time_change, async_track_time_interval  # type: ignore
 from homeassistant.helpers.service import async_register_admin_service  # type: ignore
 from homeassistant.helpers.storage import Store  # type: ignore
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed  # type: ignore
@@ -54,6 +54,15 @@ from .const import (
     DEFAULT_SCHEDULE_TYPE,
     DOMAIN,
     PLATFORMS,
+)
+from .data_schedule import (
+    CONF_DATA_SCHEDULES,
+    CONF_STUDENT_SCHEDULES,
+    DATA_SCHEDULES_SCHEMA,
+    STUDENT_SCHEDULES_SCHEMA,
+    merge_partial_data,
+    schedule_groups,
+    student_schedule_groups,
 )
 from .data_selection import (
     CONF_ENABLED_DATA,
@@ -207,6 +216,10 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     else:
         _LOGGER.debug("No YAML options provided for Mashov")
     _async_register_services(hass)
+    if {"frontend", "http", "websocket_api"}.issubset(hass.config.components):
+        from .schedule_panel import async_setup_panel
+
+        await async_setup_panel(hass)
     return True
 
 
@@ -237,6 +250,8 @@ SET_OPTIONS_SCHEMA = vol.Schema(
             cv.ensure_list, [_int_in(0, 6)], vol.Length(min=1), lambda days: sorted(set(days))
         ),
         vol.Optional(CONF_SCHEDULE_INTERVAL): _int_in(5, 1440),
+        vol.Optional(CONF_DATA_SCHEDULES): DATA_SCHEDULES_SCHEMA,
+        vol.Optional(CONF_STUDENT_SCHEDULES): STUDENT_SCHEDULES_SCHEMA,
         vol.Optional(CONF_HOMEWORK_DAYS_BACK): _int_in(0, 60),
         vol.Optional(CONF_HOMEWORK_DAYS_FORWARD): _int_in(1, 120),
         vol.Optional(CONF_API_BASE): vol.Match(r"^https?://"),
@@ -522,8 +537,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                 with contextlib.suppress(Exception):
                     casted.append(max(0, min(6, int(v))))
             if casted:
-                merged_opts[CONF_SCHEDULE_DAYS] = sorted(set(casted))
-                migrated = True
+                normalized_days = sorted(set(casted))
+                if normalized_days != merged_opts[CONF_SCHEDULE_DAYS]:
+                    merged_opts[CONF_SCHEDULE_DAYS] = normalized_days
+                    migrated = True
         # Remove legacy key if we have schedule_days
         if CONF_SCHEDULE_DAYS in merged_opts and CONF_SCHEDULE_DAY in merged_opts:
             merged_opts.pop(CONF_SCHEDULE_DAY, None)
@@ -594,10 +611,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     # there is one, otherwise close the client and fail setup (see docstring).
     if do_startup_refresh:
         try:
-            await asyncio.create_task(client.async_init(hass))
+            async with coordinator._fetch_lock:
+                await asyncio.create_task(client.async_init(hass))
             await coordinator.async_config_entry_first_refresh()
         except MashovPasswordChangeRequiredError as e:
             coordinator.data_stale = True
+            coordinator.failed_datasets = set(enabled_data(entry.options))
             _async_show_password_change_notification(hass, entry, e)
             if coordinator.data:
                 _LOGGER.warning(
@@ -610,6 +629,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                 raise ConfigEntryError(str(e)) from e
         except MashovAuthError as e:
             coordinator.data_stale = True
+            coordinator.failed_datasets = set(enabled_data(entry.options))
             _async_show_auth_notification(hass, entry, e, getattr(client, "login_page_url", None))
             if coordinator.data:
                 _LOGGER.warning("Mashov authentication failed for %s; keeping cached data", entry.title)
@@ -620,6 +640,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                 raise ConfigEntryError(str(e)) from e
         except Exception as e:
             coordinator.data_stale = True
+            coordinator.failed_datasets = set(enabled_data(entry.options))
             # Notify when setup is about to fail (no cache) or for an internal error, but
             # at most once per internal error streak (the flag is reset on success).
             # Transient failures with a cache stay silent here; the coordinator's
@@ -713,6 +734,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
                     unsub()
             except Exception as e:
                 _LOGGER.debug("Error while unsubscribing timers: %s", e)
+        if data.get("coordinator"):
+            await data["coordinator"].async_shutdown()
         if data.get("client"):
             await data["client"].async_close()
     return True
@@ -767,7 +790,7 @@ def async_get_options_flow(config_entry: ConfigEntry):
     return OptionsFlowHandler(config_entry)
 
 
-async def _async_setup_scheduler(hass: HomeAssistant, entry: ConfigEntry):
+async def _async_setup_scheduler(hass: HomeAssistant, entry: ConfigEntry, expected_coordinator=None):
     """Apply merged (YAML-overriding-UI) options and configure polling/timers.
 
     - interval: coordinator polling only (update_interval), no time triggers
@@ -786,7 +809,13 @@ async def _async_setup_scheduler(hass: HomeAssistant, entry: ConfigEntry):
         DEFAULT_SCHEDULE_TYPE,
     )
 
-    data = hass.data[DOMAIN][entry.entry_id]
+    data = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if (
+        not data
+        or (expected_coordinator is not None and data.get("coordinator") is not expected_coordinator)
+        or getattr(data.get("coordinator"), "_stopped", False)
+    ):
+        return
 
     # Cancel previous timers
     prev = data.get("unsub_daily")
@@ -859,6 +888,39 @@ async def _async_setup_scheduler(hass: HomeAssistant, entry: ConfigEntry):
     coordinator: MashovCoordinator = data["coordinator"]
     unsubs = []
 
+    if merged.get(CONF_DATA_SCHEDULES) or merged.get(CONF_STUDENT_SCHEDULES):
+        # A single serialized coordinator merges selective results. No all-data
+        # polling may run alongside these per-resource timers.
+        coordinator.set_interval_minutes(None)
+        students = getattr(coordinator.client, "_students", None) or (coordinator.data or {}).get("students", [])
+        groups = (
+            student_schedule_groups(merged, students)
+            if merged.get(CONF_STUDENT_SCHEDULES)
+            else [(schedule, keys, None) for schedule, keys in schedule_groups(merged)]
+        )
+        for schedule, keys, student_data in groups:
+
+            async def refresh_group(now=None, keys=tuple(keys), schedule=schedule, student_data=student_data):
+                if (
+                    schedule[CONF_SCHEDULE_TYPE] == "weekly"
+                    and dt_util.now().weekday() not in schedule[CONF_SCHEDULE_DAYS]
+                ):
+                    return
+                if student_data is None:
+                    await coordinator.async_refresh_datasets(keys)
+                else:
+                    await coordinator.async_refresh_datasets(keys, student_data=student_data)
+
+            if schedule[CONF_SCHEDULE_TYPE] == "interval":
+                unsubs.append(
+                    async_track_time_interval(hass, refresh_group, timedelta(minutes=schedule[CONF_SCHEDULE_INTERVAL]))
+                )
+            else:
+                hour, minute, second = map(int, schedule[CONF_SCHEDULE_TIME].split(":"))
+                unsubs.append(async_track_time_change(hass, refresh_group, hour=hour, minute=minute, second=second))
+        data["unsub_daily"] = unsubs
+        return
+
     async def _refresh_data(now=None):
         _LOGGER.debug("Scheduled refresh fired at %s", now)
         await coordinator.async_request_refresh()
@@ -928,6 +990,13 @@ class MashovCoordinator(DataUpdateCoordinator):
         self._consecutive_failures = 0
         # Internal errors notify once per failure streak; reset on the next success.
         self._internal_error_notified = False
+        # One FIFO refresh queue across all Mashov accounts, including manual,
+        # startup and per-dataset jobs. Never overlap two account refreshes.
+        self._fetch_lock = hass.data.setdefault(DOMAIN, {}).setdefault("refresh_lock", asyncio.Lock())
+        self._stopped = False
+        self._active_done = asyncio.Event()
+        self._active_done.set()
+        self.failed_datasets = set()
 
     def set_interval_minutes(self, minutes: int | None):
         """Set/clear periodic polling interval.
@@ -946,25 +1015,140 @@ class MashovCoordinator(DataUpdateCoordinator):
                 self._schedule_refresh()
 
     async def _async_update_data(self):
+        """Manual/startup/legacy polling refreshes all enabled sources."""
+        if not hasattr(self, "_fetch_lock"):
+            self._fetch_lock = asyncio.Lock()
+        async with self._refresh_slot():
+            if getattr(self, "_stopped", False):
+                return self.data
+            try:
+                return await self._async_fetch_data()
+            except UpdateFailed:
+                self.failed_datasets = set(enabled_data(getattr(self.entry, "options", {})))
+                raise
+
+    async def async_refresh_datasets(self, keys, student_data=None):
+        """Serialize scheduled groups and publish a merged snapshot atomically."""
+        async with self._refresh_slot():
+            if self._stopped:
+                return
+            requested = set(keys) & set(enabled_data(self.entry.options))
+            if student_data is not None:
+                students = (self.data or {}).get("students", [])
+                for key in set(self.failed_datasets) - {"holidays", "mailbox"}:
+                    if isinstance(key, str):
+                        self.failed_datasets.remove(key)
+                        self.failed_datasets.update((student["id"], key) for student in students)
+            if not requested:
+                return
+            try:
+                data = await self._async_fetch_data(requested, student_data=student_data)
+            except UpdateFailed:
+                self.failed_datasets.update(self._failure_keys(requested, student_data))
+                if self.data:
+                    self.async_set_updated_data(self.data)
+                return
+            self.async_set_updated_data(data)
+
+    @contextlib.asynccontextmanager
+    async def _refresh_slot(self):
+        async with self._fetch_lock:
+            done = getattr(self, "_active_done", None)
+            if done is None:
+                self._active_done = done = asyncio.Event()
+            done.clear()
+            try:
+                yield
+            finally:
+                done.set()
+
+    async def async_shutdown(self):
+        """Stop accepting queued work and drain an active request before closing its client."""
+        self._stopped = True
+        await super().async_shutdown()
+        if done := getattr(self, "_active_done", None):
+            await done.wait()
+
+    def _failure_keys(self, requested, student_data=None):
+        if student_data is None:
+            return set(requested)
+        return (set(requested) & {"holidays", "mailbox"}) | {
+            (sid, key) for sid, keys in student_data.items() for key in keys if key in requested
+        }
+
+    async def _async_fetch_data(self, requested=None, student_data=None):
         """Fetch everything, merge cached holidays if needed, persist the cache, notify on failure."""
+        if not hasattr(self, "failed_datasets"):
+            self.failed_datasets = set()
         _LOGGER.debug("Coordinator update started: %s", self.name)
         try:
-            data = await asyncio.create_task(self.client.async_fetch_all())
+            if requested is None:
+                data = await asyncio.create_task(self.client.async_fetch_all())
+                requested = set(enabled_data(self.entry.options))
+            else:
+                kwargs = {"selected_data": requested}
+                if student_data is not None:
+                    kwargs["student_data"] = student_data
+                data = await asyncio.create_task(self.client.async_fetch_all(**kwargs))
+            # Merge by student identity even across a changed roster. An older
+            # cache without per-source timestamps inherits its last known refresh.
+            previous = self.data or {}
+            data = merge_partial_data(previous, data, requested, student_data)
+            old_slugs = {student["id"]: student.get("slug") for student in previous.get("students", [])}
+            for student in data.get("students", []):
+                if student["id"] in old_slugs:
+                    updates = data["by_slug"][student["slug"]].setdefault("source_last_update", {})
+                    old_group = previous.get("by_slug", {}).get(old_slugs[student["id"]], {})
+                    for key in enabled_data(self.entry.options):
+                        resource = old_group.get("additional_data", {}).get(key)
+                        was_fetched = (
+                            isinstance(resource, dict) and resource.get("status") == "ok"
+                            if key in STUDENT_RESOURCES
+                            else key in old_group and old_group.get("source_status", {}).get(key, "ok") == "ok"
+                        )
+                        if was_fetched:
+                            updates.setdefault(key, self.last_successful_update)
             # Options may change while a request is in flight. Never reintroduce
             # opted-out data if that old request completes during the reload.
             data = filter_cached_data(data, self.entry.options)
             self.data_stale = False
-            self._consecutive_failures = 0
-            self._internal_error_notified = False
             previous_update = self.last_successful_update
             self.last_successful_update = time.time()
+            if not hasattr(self, "failed_datasets"):
+                self.failed_datasets = set()
+            self.failed_datasets.difference_update(self._failure_keys(requested, student_data))
+            if student_data is None:
+                self.failed_datasets = {
+                    failure
+                    for failure in self.failed_datasets
+                    if not (isinstance(failure, tuple) and failure[1] in requested)
+                }
+            # A healthy group's refresh must not suppress another group's
+            # ongoing failure notification. Reset only when all failed sources recover.
+            if not self.failed_datasets:
+                self._consecutive_failures = 0
+                self._internal_error_notified = False
+            student_ids = {student["slug"]: student["id"] for student in data.get("students", [])}
+            for slug, group in data.get("by_slug", {}).items():
+                updates = group.setdefault("source_last_update", {})
+                for key in requested if student_data is None else student_data.get(student_ids.get(slug), set()):
+                    status = (
+                        group.get("additional_data", {}).get(key, {}).get("status")
+                        if key in STUDENT_RESOURCES
+                        else group.get("source_status", {}).get(key)
+                    )
+                    if status == "ok":
+                        updates[key] = self.last_successful_update
+            if "mailbox" in requested and data.get("mailbox", {}).get("status") == "ok":
+                data["mailbox"]["last_update"] = self.last_successful_update
             # Holidays come from a separate endpoint that may fail on its own. If it
             # failed, keep the previous holidays (fresh or already cached) and flag
             # them as cached, preserving when they were last actually fetched.
-            if data.get("holidays_status", "ok") == "ok":
+            if "holidays" in requested and data.get("holidays_status", "ok") == "ok":
                 data["holidays_last_update"] = self.last_successful_update
             elif (
-                self.data
+                "holidays" in requested
+                and self.data
                 and data.get("holidays_status") != "disabled"
                 and "holidays" in self.data
                 and (self.data.get("holidays_status", "ok") == "ok" or self.data.get("holidays_cached"))
@@ -972,7 +1156,8 @@ class MashovCoordinator(DataUpdateCoordinator):
                 data["holidays"] = self.data["holidays"]
                 data["holidays_cached"] = True
                 data["holidays_last_update"] = self.data.get("holidays_last_update", previous_update)
-            _async_clear_issue_notification(self.hass, self.entry)
+            if not self.failed_datasets:
+                _async_clear_issue_notification(self.hass, self.entry)
             _LOGGER.debug("Coordinator update completed; students=%d", len(data.get("students", [])))
             # Persist cache after every successful data update (interval, daily, or manual refresh)
             try:
@@ -986,11 +1171,18 @@ class MashovCoordinator(DataUpdateCoordinator):
                 )
             except Exception as e:
                 _LOGGER.debug("Failed saving cache after coordinator update: %s", e)
+            if self.entry.options.get(CONF_STUDENT_SCHEDULES) and {
+                student["id"] for student in previous.get("students", [])
+            } != {student["id"] for student in data.get("students", [])}:
+                self.hass.async_create_task(_async_setup_scheduler(self.hass, self.entry, expected_coordinator=self))
             return data
         # Auth problems need user action, so they notify every time and, with cached
         # data, return it instead of failing (entities stay available, marked stale).
         except MashovPasswordChangeRequiredError as exc:
             self.data_stale = True
+            self.failed_datasets.update(
+                self._failure_keys(requested or enabled_data(getattr(self.entry, "options", {})), student_data)
+            )
             _async_show_password_change_notification(self.hass, self.entry, exc)
             if self.data:
                 _LOGGER.warning(
@@ -1002,6 +1194,9 @@ class MashovCoordinator(DataUpdateCoordinator):
             raise UpdateFailed(f"Password change required: {exc}") from exc
         except MashovAuthError as exc:
             self.data_stale = True
+            self.failed_datasets.update(
+                self._failure_keys(requested or enabled_data(getattr(self.entry, "options", {})), student_data)
+            )
             _async_show_auth_notification(
                 self.hass,
                 self.entry,

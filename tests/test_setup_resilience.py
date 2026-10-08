@@ -18,7 +18,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 import voluptuous as vol
 
 from custom_components.mashov.const import DOMAIN
-from custom_components.mashov.mashov_client import MashovAuthError, MashovError
+from custom_components.mashov.mashov_client import MashovAuthError, MashovError, MashovPasswordChangeRequiredError
 
 DATA = {
     "students": [{"id": "student-123", "name": "Test Student", "slug": "test_student", "year": 2027}],
@@ -148,7 +148,14 @@ async def test_bad_credentials_without_cache_are_not_retried(hass: HomeAssistant
     assert mock_config_entry.state is ConfigEntryState.SETUP_ERROR
 
 
-@pytest.mark.parametrize("error", [MashovError("Login timeout"), MashovAuthError("Authentication failed")])
+@pytest.mark.parametrize(
+    "error",
+    [
+        MashovError("Login timeout"),
+        MashovAuthError("Authentication failed"),
+        MashovPasswordChangeRequiredError("Change password", "https://web.mashov.info/students/login"),
+    ],
+)
 async def test_startup_failure_keeps_cached_data(hass: HomeAssistant, error):
     """With a cached snapshot, a startup login failure still loads the entry and serves the cache."""
     entry = MockConfigEntry(
@@ -168,6 +175,9 @@ async def test_startup_failure_keeps_cached_data(hass: HomeAssistant, error):
         patcher.stop()
     assert entry.state is ConfigEntryState.LOADED
     assert hass.data[DOMAIN][entry.entry_id]["coordinator"].data == DATA
+    states = [state for state in hass.states.async_all("sensor") if state.entity_id.startswith("sensor.mashov")]
+    assert states
+    assert all(state.attributes["data_stale"] for state in states)
     await hass.config_entries.async_unload(entry.entry_id)
 
 

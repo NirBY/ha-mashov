@@ -766,7 +766,7 @@ class MashovClient:
             _LOGGER.warning("Unable to fetch optional Mashov resource %s", key)
             return {"items": [], "status": "fetch_failed"}
 
-    async def async_fetch_all(self) -> dict[str, Any]:
+    async def async_fetch_all(self, selected_data=None, student_data=None) -> dict[str, Any]:
         """Fetch and normalize data for every student plus school holidays.
 
         Returns ``{"students", "by_slug", "holidays", "holidays_status"}``.
@@ -777,7 +777,8 @@ class MashovClient:
         Auth errors and password-change errors propagate; per-resource 400/403/404
         and holiday failures are absorbed so partial data is still returned.
         """
-        _LOGGER.info("=== FETCHING ALL DATA ===")
+        selected = set(self.enabled_data) if selected_data is None else set(selected_data) & set(self.enabled_data)
+        _LOGGER.info("Fetching %d selected data sources", len(selected))
         # --- Session / login. Ensure session and authentication are available (lazy login)
         if not self._session or self._session.closed:
             await self.async_open_session()
@@ -822,6 +823,7 @@ class MashovClient:
         # --- Per-student fetch: the six core resources in parallel, then optional ones.
         async def fetch_for_student(stu):
             sid = stu["id"]
+            student_selected = selected if student_data is None else set(student_data.get(sid, ())) & selected
             source_status = {}
 
             urls = {
@@ -846,6 +848,9 @@ class MashovClient:
                 """
                 if url_key not in self.enabled_data:
                     source_status[url_key] = "disabled"
+                    return []
+                if url_key not in student_selected:
+                    source_status[url_key] = "not_fetched"
                     return []
                 url = urls[url_key]
                 cooldown_key = (sid, url_key)
@@ -916,6 +921,8 @@ class MashovClient:
             # Sequential optional requests bound the extra load for each student.
             additional = {}
             for key in self.additional_data:
+                if key not in student_selected:
+                    continue
                 additional[key] = await self._fetch_student_resource(sid, key, from_dt, to_dt)
             return {
                 "homework": self._normalize_homework(homework),
@@ -938,7 +945,7 @@ class MashovClient:
         holidays_status = "not_fetched" if "holidays" in self.enabled_data else "disabled"
         try:
             url = self._endpoints.get("holidays")
-            if url and "holidays" in self.enabled_data:
+            if url and "holidays" in selected:
                 for attempt in range(2):
                     async with self._session.get(url, headers=self._headers) as resp:
                         if resp.status == 401 and attempt == 0:
@@ -958,7 +965,7 @@ class MashovClient:
             raise
         except Exception:
             holidays_status = "fetch_failed"
-        if holidays_status not in ("ok", "disabled"):
+        if "holidays" in selected and holidays_status not in ("ok", "disabled"):
             _LOGGER.warning("Holidays refresh failed (%s); student data is retained", holidays_status)
 
         holidays = self._normalize_holidays(holidays_raw)
@@ -985,7 +992,7 @@ class MashovClient:
             "mailbox_limit": self.mailbox_limit,
         }
 
-        if "mailbox" in self.enabled_data:
+        if "mailbox" in selected:
             result["mailbox"] = await fetch_mailbox(
                 self._fetch_account_json, full_content=self.mailbox_full_content, limit=self.mailbox_limit
             )
@@ -1030,6 +1037,11 @@ class MashovClient:
                     return "ok", payload
         except MashovPasswordChangeRequiredError:
             raise
+        except RuntimeError:
+            if not getattr(self._session, "closed", False):
+                raise
+            _LOGGER.warning("Mashov session closed while fetching account resource %s", key)
+            return "fetch_failed", None
         except (aiohttp.ClientError, TimeoutError, ValueError):
             _LOGGER.warning("Unable to fetch Mashov account resource %s", key)
             return "fetch_failed", None

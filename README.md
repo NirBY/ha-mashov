@@ -1,83 +1,116 @@
-# Mashov – Home Assistant Integration (HACS)
+[**English**](README.md) · [**עברית**](README.he.md)
 
-Unofficial integration for **משו"ב (Mashov)**. Choose which school data Home Assistant fetches, per account and school hub.
+# Mashov — Home Assistant Integration (HACS)
 
-Current release: **v1.0.17**. Requires **Home Assistant 2025.3 or newer**.
-See [release notes](RELEASE_NOTES.md) for fixes and upgrade compatibility.
+Unofficial integration for **משו״ב (Mashov)**. Bring school information into Home Assistant and choose the data fetched for each account and school hub.
 
-> This project is **community-made** and not affiliated with Mashov.
+**Current release: v1.1.0 · Requires Home Assistant 2025.3 or newer.**
 
-## בחירת המידע — מה זמין ומה מופעל כברירת מחדל
+**v1.1.0** adds student-specific refresh schedules and an editor embedded in Setup and Configure. Update through HACS and restart Home Assistant.
 
-**בהתקנה חדשה כל 18 הקטגוריות כבויות.** בוחרים ידנית רק את המידע הדרוש, בהגדרה הראשונית או בהגדרות האינטגרציה בהמשך. בחירת הקטגוריות חלה על כל התלמידים באותו חשבון ובאותו מוסד. חופשות הן ברמת המוסד ותיבת הדואר היא ברמת החשבון.
+Community project; not affiliated with Mashov. See [release notes](RELEASE_NOTES.md) for upgrade details.
 
-**בעדכון נשמרת הבחירה הקודמת.** במעבר מגרסאות 1.0.7–1.0.15, שבע קטגוריות הבסיס שהיו פעילות ממשיכות לפעול, ונשמרים גם סוגי המידע הנוספים שבחרתם. מי שהוסיף חשבון ב־1.0.15 עם לוח מודעות פעיל ממשיך לקבל אותו. החל מ־1.0.16 נשמרת גם בחירה ריקה או חלקית. עדכון אינו מפעיל תיבת דואר, תוכן מלא או שעות פרטניות. מזהי הישויות, השמות וההתאמות האישיות נשמרים; ישות שהמשתמש השבית ידנית נשארת מושבתת.
+## Quick start
 
-| קטגוריה / שם באנגלית | מה מתקבל | חשבון חדש | שדרוג מ־1.0.7–1.0.15 |
-| ---: | ---: | ---: | ---: |
-| שיעורי בית / Homework | מטלות בחלון התאריכים שנבחר (`homework`) | כבוי — בחירה ידנית | בסיס — נשאר פעיל |
-| התנהגות / Behavior | אירועי התנהגות בחלון התאריכים (`behavior`) | כבוי — בחירה ידנית | בסיס — נשאר פעיל |
-| תכנון שבועי / Weekly plan | תכנון שיעורים שפורסם (`weekly_plan`) | כבוי — בחירה ידנית | בסיס — נשאר פעיל |
-| מערכת שעות / Timetable | מערכת שבועית (`timetable`) | כבוי — בחירה ידנית | בסיס — נשאר פעיל |
-| היסטוריית שיעורים / Lesson history | יומן שיעורים שהשרת מחזיר (`lessons_history`) | כבוי — בחירה ידנית | בסיס — נשאר פעיל |
-| ציונים / Grades | רשימת ציונים (`grades`) | כבוי — בחירה ידנית | בסיס — נשאר פעיל |
-| חופשות / Holidays | חיישן חופשות וישות לוח שנה (`holidays`) | כבוי — בחירה ידנית | בסיס — נשאר פעיל |
-| לוח מודעות / Noticeboard | הודעות כלליות מבית הספר ותאריכי תפוגה (`message_board`) | כבוי — בחירה ידנית | נשמרת הבחירה הקודמת, כולל ברירת המחדל של חשבון שנוצר ב־1.0.15 |
-| התנהגות יומית / Daily behavior | רשומות יומיות בחלון התאריכים (`daily_behavior`) | כבוי — בחירה ידנית | נשמרת הבחירה הקודמת |
-| התנהגות מחוץ לשיעור / Outside lesson behavior | אירועים מחוץ לשיעורים בחלון התאריכים (`outside_behavior`) | כבוי — בחירה ידנית | נשמרת הבחירה הקודמת |
-| הערות מעקב / Follow-up notes | הערות צוות בחלון התאריכים (`follow_up`) | כבוי — בחירה ידנית | נשמרת הבחירה הקודמת |
-| ציונים תקופתיים / Term grades | ציונים לפי תקופה (`periodic_grades`) | כבוי — בחירה ידנית | נשמרת הבחירה הקודמת |
-| תעודות / Report cards | רשומות תעודות; ללא הורדת קבצים (`report_cards`) | כבוי — בחירה ידנית | נשמרת הבחירה הקודמת |
-| חומרי לימוד / Study materials | רשומות חומרי לימוד; ללא הורדת קבצים (`study_materials`) | כבוי — בחירה ידנית | נשמרת הבחירה הקודמת |
-| קובצי תלמיד / Student files | רשומות קבצים; ללא הורדת הקבצים עצמם (`student_files`) | כבוי — בחירה ידנית | נשמרת הבחירה הקודמת |
-| בקשות להצדקת היעדרות / Absence justification requests | בקשות קיימות בחלון התאריכים; לא מגיש בקשות (`justification_requests`) | כבוי — בחירה ידנית | נשמרת הבחירה הקודמת |
-| שעות פרטניות / Individual lessons | רשומות שיעורים פרטניים שהמוסד מפרסם (`special_hours`) | כבוי — בחירה ידנית | כבוי — נוסף ב־1.0.16 |
-| תיבת דואר / Mailbox — headers and unread count | מספר שיחות שלא נקראו וכותרות השיחות האחרונות, ללא סימון כנקראו (`mailbox`) | כבוי — בחירה ידנית | כבוי — נוסף ב־1.0.16 |
-| ↳ תוכן מלא של הודעות / Full message content | תוספת לתיבת הדואר: גוף ההודעות כטקסט בלבד, ללא קבצים מצורפים. ![אזהרה: שליפת תוכן מלא מסמנת באתר משו״ב את השיחות שנשלפו כנקראו, גם אם לא פתחתם אותן בעצמכם. Full-content retrieval marks conversations read.](docs/images/mailbox-read-warning.svg) | כבוי — דורש סימון נפרד | כבוי — דורש הסכמה מפורשת |
+1. In **HACS → Integrations → ⋯ → Custom repositories**, add `https://github.com/NirBY/ha-mashov` as an **Integration**. Install Mashov and restart Home Assistant.
+2. Open **Settings → Devices & services → Add integration → Mashov** and enter your credentials and school.
+3. Select categories in **Data to fetch**, then **Submit**. You can change them later in **Mashov → Configure**.
 
-זמינות המידע תלויה בהרשאות המוסד. חוסר הרשאה מוצג כ־`unknown` עם `source_status: forbidden` או `unsupported`; מקור תקין ללא רשומות מציג `0`. לוח המודעות נפרד מתיבת הדואר. שאלונים, אישורי הורים, שליחת הודעות, טיוטות, ארכיון וקבצים מצורפים אינם נתמכים כרגע.
+> **New hubs start with all 18 categories off.** Submitting an empty selection connects the account but creates no school-data sensors. Dashboards and blueprints need their corresponding categories enabled. For a basic student dashboard, select Homework, Behavior, Weekly plan, Timetable, Lesson history and Grades; add Holidays for the calendar and holiday-aware automations.
 
-### איך בוחרים בהתקנה ראשונית
+Upgrades preserve existing selections, entity IDs and customizations. New sources and mailbox content are never enabled by an upgrade. Hubs created in v1.0.15 retain their previously enabled Noticeboard selection.
 
-1. לאחר התקנה דרך HACS והפעלה מחדש: **הגדרות → מכשירים ושירותים → הוספת אינטגרציה → Mashov** (בממשק אנגלי: **Settings → Devices & services → Add integration → Mashov**).
-2. הזינו משתמש, סיסמה ומוסד. בשדה **סוגי מידע לשליפה / Data to fetch** פתחו את הרשימה ובחרו קטגוריה. חזרו על הפעולה לכל קטגוריה נוספת. קטגוריה שנבחרה מופיעה כתגית; לחיצה על **×** מסירה אותה. הרשימה מציגה רק קטגוריות שעדיין לא נבחרו.
-3. לתיבת דואר בחרו **Mailbox — headers and unread count**. רק אם דרוש גוף ההודעות, סמנו בנפרד **שליפת תוכן מלא של הודעות / Full message content (marks conversations read)**, לאחר קריאת האזהרה. מספר השיחות האחרונות הוא **20 כברירת מחדל**, בטווח **1–50**.
-4. לחצו **שליחה / Submit**. אין צורך להוסיף חיישנים ידנית: נוצרות ישויות לסוגים שנבחרו. שמירה בלי בחירה לא יוצרת חיישני מידע; החשבון עדיין מתחבר ומזהה את התלמידים.
+## Available data
 
-![מסך הגדרה ראשונית אמיתי ב־Home Assistant: בחירת מידע ריקה ותוכן מלא כבוי](docs/images/initial-data-selection.jpg)
+### Separate schedules for each data type (v1.1.0)
 
-### איך משנים חשבון קיים לאחר עדכון
+In **Configure → Refresh schedules**, edit schedules directly inside the form. Select **Student**, then **General — default schedule** or a data type. Controls update immediately; switching types or students preserves the draft. Uncheck inheritance to customize a schedule. The form’s **Submit** saves all settings and all students together. No separate editor link is needed.
 
-1. עדכנו דרך HACS והפעילו מחדש את Home Assistant.
-2. פתחו **הגדרות → מכשירים ושירותים → Mashov**, ולחצו על גלגל השיניים **הגדרה / Configure** ליד המוסד הרצוי. אין צורך למחוק ולהוסיף מחדש את האינטגרציה.
-3. התגיות מציגות את הבחירה הקיימת. הוסיפו דרך **סוגי מידע לשליפה / Data to fetch** והסירו באמצעות **×**. בחשבונות מרובים מגדירים כל חשבון בנפרד.
-4. לחצו **שליחה / Submit**. שינוי קטגוריות, תוכן מלא או מגבלת השיחות טוען מחדש את החשבון ומנסה לרענן מיד. לאחר מכן פועל לוח הרענון הקיים — ברירת המחדל היא כל יום ב־14:00. בקשת מידע שמוסד חסם עשויה להמתין לתום ההשהיה של אותו מקור.
+Select **Student** in the interactive editor to edit that child's schedules. **General** is this student's default; individual data types can override it. Switching students preserves drafts, and one Submit saves all students in the selected account together. Existing account schedules remain inherited until overridden, so upgrading does not change current refresh times. Holidays remain school-wide and Mailbox account-wide; select **Shared account / school data and defaults** to edit those resources. A student's timer requests only that student's due resources and preserves siblings' values and timestamps. Manual refresh still updates all selected data. New students inherit existing account defaults; schedules use stable student IDs, so name changes do not swap schedules. In registration, initial defaults are saved first; students become selectable after authentication loads the roster.
 
-![מסך אפשרויות אמיתי: הבחירות הקיימות נשמרות ותוכן מלא נשאר כבוי](docs/images/existing-data-selection.jpg)
+Hub registration embeds the same schedule controls in **Refresh schedules**. Enter account details, select data and set initial General/per-data schedules before one **Submit**. Students become available after authentication loads the roster. Setup and Configure follow Home Assistant’s language, including Hebrew and English.
 
-הצילומים מציגים את השדות בממשק האנגלי של Home Assistant. צולמו מתוך הטפסים עצמם, ללא פרטי כניסה או שמות תלמידים; פתיחת הטופס לצילום אינה משנה את ההגדרות.
+The collapsed **Current schedules** overview shows all 18 categories and their effective schedule. In **Refresh schedules**, choose a student and data type, then select Daily, Weekly or Interval. Daily shows a time, Weekly adds weekdays, and Interval shows minutes (5–1440). Keep inheritance checked to use existing defaults. Finish with the main form’s Submit; cancelling leaves saved settings unchanged.
 
-### מה קורה בכיבוי וכמה זמן המידע נשמר
+Times use Home Assistant's timezone. Disabled categories never fetch data, even if they have a schedule. Equal schedules are batched; different schedules fetch only their due categories. Other categories retain their values and their actual last-fetch timestamps. Manual refresh and initial cache warm-up still fetch all enabled data. Existing daily, weekly, interval and legacy single-weekday configurations keep their schedules without requiring migration or re-adding the integration. YAML shared schedule settings still override the shared UI schedule; separate overrides remain independent.
 
-| פעולה / מקום שמירה | מה קורה בפועל |
-| ---: | ---: |
-| הסרת קטגוריה ולחיצה על Submit | לאחר טעינה מחדש נעצרות הבקשות למקור הזה. נתוניו מוסרים מהמטמון הפעיל ומהקובץ המקומי **לפני ניסיון התחברות**, גם אם משו״ב אינו זמין. הישויות מושבתות אך מזהיהן ושמותיהן נשמרים להפעלה חוזרת. כרטיס ידני שמפנה אליהן עשוי להציג „לא זמין”. |
-| כיבוי תוכן מלא בלבד | גופי ההודעות נמחקים מהמטמון הפעיל ומהקובץ המקומי; כותרות וספירת שיחות ממשיכות להתעדכן אם תיבת הדואר נבחרה. הודעות שכבר סומנו באתר כנקראו אינן חוזרות למצב „לא נקרא”. |
-| הסרת תיבת הדואר | מוסרת גם את הכותרות מהמטמון ומאפסת את סימון התוכן המלא. הוספת תיבת הדואר מחדש מתחילה בכותרות בלבד. |
-| השבתת ישות ידנית במסך Entities | אינה משנה את בחירת הקטגוריה ואינה עוצרת את שליפתה עבור החשבון. להפסקת שליפה יש להסיר את הקטגוריה מתוך Configure. |
-| השבתת כל חשבון האינטגרציה דרך התפריט | עוצרת את הפעילות, אך משאירה את המטמון וההזדהות להפעלה חוזרת. להסרת הנתונים מהמטמון יש לבטל קטגוריות ולשמור לפני ההשבתה, או למחוק את חשבון האינטגרציה. |
-| בחירה ריקה | אין בקשות לקטגוריות המידע. רשימת התלמידים וההזדהות נשמרות לצורך החשבון; זו אינה מחיקה של החשבון. |
-| המטמון של האינטגרציה | נשמרת תמונת המצב האחרונה, **ללא מספר ימים קבוע וללא מחיקה לפי גיל**. רענון מוצלח מחליף אותה; כשל יכול להשאיר נתונים קודמים ללא הגבלת זמן עם סימון מידע לא עדכני. כיבוי קטגוריה מסיר אותה מהמטמון בטעינה מחדש. מחיקת חשבון האינטגרציה מוחקת את קובץ המטמון וההזדהות שלו. |
-| כותרות ותוכן תיבת הדואר | עד מספר השיחות שנבחר, כברירת מחדל 20; זו מגבלת כמות ולא זמן. הקטנת המספר מצמצמת גם את המטמון בטעינה מחדש. אין תאריך תפוגה נפרד לתוכן שנשאר במטמון. |
-| חלון תאריכים | שיעורי בית, התנהגות והמקורות שמסומנים בטבלה ככאלה משתמשים כברירת מחדל ב־7 ימים אחורה ו־21 קדימה. זהו חלון בקשה מהשרת, **לא מחיקת היסטוריה**. יתר המקורות תלויים במה שמשו״ב מחזיר לשנת הלימודים. |
-| היסטוריית Home Assistant | נשמרת בנפרד לפי Recorder. ברירת המחדל של HA היא **10 ימים** וניקוי אוטומטי מדי לילה; הגדרה אישית יכולה להיות ארוכה יותר או לבטל ניקוי. ימי ההיסטוריה נספרים מזמן רישום מצב החיישן, לא מתאריך ההודעה; הודעה ישנה שנשלפת שוב עשויה להירשם שוב. ביטול קטגוריה או מחיקת חשבון אינם מוחקים היסטוריה שכבר נרשמה, כולל טקסט הודעות במאפייני החיישן. ראו [תיעוד Recorder](https://www.home-assistant.io/integrations/recorder/). |
-| גיבויים, ייצוא ואוטומציות | עותקים בגיבויי HA/NAS, בקבצים או בהודעות שאוטומציה שלחה נשמרים לפי המדיניות שלהם. כיבוי באינטגרציה אינו מוחק אותם. המידע באתר משו״ב עצמו אינו נמחק. |
+Example action: fetch homework every 30 minutes and grades weekly on Friday (0=Monday); all other selected types keep the shared schedule:
 
-להפסקת רישום **עתידי** של תוכן הודעות להיסטוריה ניתן להחריג את מזהה חיישן תיבת הדואר תחת `recorder.exclude.entities` ב־`configuration.yaml` ולהפעיל מחדש. ההחרגה אינה מוחקת היסטוריה קיימת ואינה מבטלת את המטמון הנוכחי. אין לבצע מחיקת היסטוריה או שינוי מדיניות גיבוי כחלק מעדכון רגיל של האינטגרציה.
+```yaml
+action: mashov.set_options
+data:
+  entry_id: YOUR_ENTRY_ID
+  data_schedules:
+    homework:
+      schedule_type: interval
+      schedule_interval: 30
+    grades:
+      schedule_type: weekly
+      schedule_time: "18:00"
+      schedule_days: [4]
+```
 
-**English quick reference:** All 18 datasets start off for new hubs; existing hubs keep their previous choices. Open **Configure → Data to fetch**, add categories from the list or remove selected chips with **×**, then **Submit**. Mailbox headers do not mark messages read; the separate default-off full-content checkbox does. Opt-outs scrub the integration cache before login, including when a refresh fails. Cache snapshots have no age-based expiry; Recorder history and backups follow their own retention policies.
+`data_schedules` replaces the complete override map. Send `{}` to return every type to the shared schedule. Reducing intervals increases portal requests and can generate more login/activity emails.
 
----
+Refresh jobs use one queue across all Mashov hubs: a scheduled or manual refresh waits for the active job to finish. Reloading a hub drains its active request and skips its queued jobs before closing the connection.
+
+All categories below are **off for new hubs**. Selections apply to all students in that account and school; Holidays is school-level and Mailbox is account-level.
+
+| Category | Data key | What you receive |
+| --- | --- | --- |
+| Homework | `homework` | Tasks in the configured date window |
+| Behavior | `behavior` | Behavior events in the date window |
+| Weekly plan | `weekly_plan` | Published lesson plans |
+| Timetable | `timetable` | Weekly timetable |
+| Lesson history | `lessons_history` | Lesson journal records |
+| Grades | `grades` | Grade records |
+| Holidays | `holidays` | School holiday sensor and calendar |
+| Noticeboard | `message_board` | School notices and expiry dates |
+| Daily behavior | `daily_behavior` | Daily records in the date window |
+| Outside lesson behavior | `outside_behavior` | Events outside lessons in the date window |
+| Follow-up notes | `follow_up` | Staff notes in the date window |
+| Term grades | `periodic_grades` | Grades by term |
+| Report cards | `report_cards` | Records, without downloading files |
+| Study materials | `study_materials` | Records, without downloading files |
+| Student files | `student_files` | Records, without downloading files |
+| Absence justification requests | `justification_requests` | Existing requests; does not submit requests |
+| Individual lessons | `special_hours` | Published individual lesson records |
+| Mailbox | `mailbox` | Unread conversation count and recent inbox headers |
+
+Unavailable sources show `unknown` with `source_status: forbidden` or `unsupported`; a successful empty response shows `0`. Noticeboard and Mailbox are separate sources.
+
+### Selecting and disabling data
+
+In **Configure → Data to fetch**, add categories from the list or remove selected chips with **×**, then **Submit**. Configure each hub separately. A selection change reloads the hub and attempts an immediate refresh; the default daily refresh is at 14:00.
+
+![Initial setup: empty selection and full content off](docs/images/initial-data-selection.jpg)
+
+![Existing hub: saved selections and full content off](docs/images/existing-data-selection.jpg)
+
+Screenshots show the English Home Assistant forms without credentials or student names.
+
+Removing a category clears its active and disk cache **before login**, even if the next refresh fails, and disables its entities while preserving IDs and history. Disabling an entity in HA does not stop fetching its category; remove it in Configure to stop requests. An empty selection retains authentication and the student roster.
+
+### Mailbox consent and retention
+
+Headers do not mark conversations read. The separate, default-off **Full message content (marks conversations read)** checkbox fetches plain-text bodies and **marks fetched conversations read in Mashov**, even if you have not opened them. Attachments are not downloaded. The conversation limit defaults to **20**, range **1–50**.
+
+Turning off full content removes cached bodies. Removing Mailbox also resets full-content consent; adding it again starts with headers only. Previously marked conversations do not become unread again.
+
+The cache stores the last snapshot **without age-based expiry**; failures can leave older data visible as stale. The default request window of 7 days back and 21 forward is not a history deletion policy. Recorder history and backups have independent retention policies; disabling data or deleting a hub does not purge them. Deleting a hub removes its integration cache and saved authentication.
+
+> **Mailbox privacy:** Home Assistant users, including non-admin child accounts, can read mailbox sensor attributes. Dashboard card visibility does not restrict access to these entities. With the privacy fix in this working tree, the mailbox `items` attribute (headers and bodies) is excluded from future Recorder history automatically. Existing history is not purged. Enable mailbox access only if everyone with access to your HA instance may see this information.
+
+To also exclude the unread count and other mailbox metadata from future history, exclude the actual mailbox sensor ID in `configuration.yaml`, then restart Home Assistant:
+
+```yaml
+recorder:
+  exclude:
+    entities:
+      - sensor.REPLACE_WITH_YOUR_MAILBOX_ENTITY_ID
+```
+
+Merge this into your existing `recorder` configuration. This does not remove existing history, the integration cache or backups, and does not restrict live access to the sensor.
 
 ## 🧩 Features
 - Simple **Config Flow (UI)** via Settings → Devices & Services → Add Integration → **Mashov**.
@@ -141,7 +174,7 @@ an explicitly configured year; that year remains pinned until you enable
   - Use the Options screen or YAML to set `schedule_type` and `schedule_time` accordingly.
   - Avoid long-running `interval` mode during overnight hours.
 
-### Additional student data (optional)
+### Data to fetch
 
 Every dataset is now selectable, including the six main sensors (homework, behavior,
 weekly plan, timetable, lessons history, grades), holidays and ten additional student
@@ -242,13 +275,14 @@ data:
   mailbox_limit: 20
 ```
 
-Message content stays in your Home Assistant instance/cache and may be recorded in sensor
-history. Diagnostics contain technical statuses only, never message bodies, subjects, senders
+Message content stays in your Home Assistant instance/cache. The privacy fix excludes
+`items` from future Recorder history; previously recorded content is not deleted. Diagnostics contain technical statuses only, never message bodies, subjects, senders
 or conversation IDs. Selection changes do not delete existing Recorder history.
 
 ### Configuration via configuration.yaml (optional)
-You can also configure the refresh schedule via YAML. Scheduling values in YAML
-override the Options UI. Configure the API base, homework window, and item limit
+You can also configure the shared refresh schedule via YAML. Scheduling values in YAML
+override the shared Options UI schedule, but do not override separate per-data schedules.
+Configure the API base, homework window, and item limit
 through the Options UI.
 
 ```yaml
@@ -265,7 +299,7 @@ mashov:
 
 ## 🧠 Entities (per child)
 
-For each child **N**, these sensors are created:
+For each child **N**, these sensors are created when their categories are selected:
 
 The IDs below are illustrative. Home Assistant assigns entity IDs from entity names
 and its registry; select your actual IDs in **Settings → Devices & Services → Entities**.
@@ -298,7 +332,7 @@ actual last successful refresh time in Home Assistant's timezone, or null for le
 
 ### School hub entities
 
-Each hub has its own holiday sensor and calendar. Select the matching school's
+Each hub with Holidays selected has its own holiday sensor and calendar. Select the matching school's
 entities in cards and automations; IDs can have suffixes on installations with multiple hubs.
 - **Holidays Sensor** – `sensor.mashov_<school>_holidays_count` on new installations (older: `sensor.mashov_holidays`, `sensor.mashov_holidays_2`, …)
   State = number of holidays. Attributes: `items`, `formatted_summary`, `formatted_by_date`.
@@ -375,7 +409,7 @@ One‑click import (My Home Assistant):
 Blueprint file location: `blueprints/automation/mashov/mashov_noticeboard_announce.yaml`.
 
 Requirements
-- **Noticeboard** turned on for the hub ([how](#additional-student-data-optional)). Hubs created in v1.0.15 keep it enabled; new setups choose it explicitly.
+- **Noticeboard** turned on for the hub ([how](#data-to-fetch)). Hubs created in v1.0.15 keep it enabled; new setups choose it explicitly.
 
 What does it do?
 - Watches one or more noticeboard sensors (one per child). A notice counts as new when its Mashov notice ID was not
@@ -397,6 +431,10 @@ How to use
 1. Click the import button above and create an automation from the blueprint.
 2. Select the noticeboard sensors, and optionally a phone notify action, a speaker and a TTS engine.
 3. Save. Nothing is announced right away; the next new notice triggers it.
+
+Playback waits up to the configured TTS timeout for a slow speaker to start, then waits
+up to that timeout for playback to finish before restoring volume (120 seconds each by default).
+If playback never starts or never finishes, the timeout bounds the wait.
 
 ---
 
@@ -537,6 +575,7 @@ Example previews:
 - **Autocomplete not working**: suggestions are limited to 50 schools; type the school name or Semel to search beyond those suggestions.
 - **Multiple kids missing**: ensure your account actually lists multiple students in Mashov. Check HA logs for `custom_components.mashov` debug entries.
 - **Session errors**: if you see "Unclosed client session" errors, restart Home Assistant to clear any stale connections.
+- **Mailbox reload race**: a closed session during mailbox fetching is treated as an operational fetch failure. Other unexpected runtime errors remain reportable.
 - **"New Device" emails**: session persistence reduces unnecessary logins but cannot prevent fresh authentication after a server-side session expiry. Authentication is saved after successful refreshes in `.storage/mashov.<entry_id>.cache`. Avoid unnecessary reloads and never share this file; it contains authentication data.
 
 ### Notifications, GitHub, Telegram and GreenAPI

@@ -157,7 +157,7 @@ async def test_options_cannot_enable_full_content_without_mailbox(hass, mock_con
     result = await hass.config_entries.options.async_configure(
         flow["flow_id"], {"enabled_data": ["homework"], "mailbox_full_content": True}
     )
-    assert result["errors"]["mailbox_full_content"] == "mailbox_required"
+    assert result["errors"]["data"]["mailbox_full_content"] == "mailbox_required"
     assert not mock_config_entry.options.get("mailbox_full_content")
 
 
@@ -191,9 +191,10 @@ async def test_invalid_options_keep_submitted_selection(hass, mock_config_entry,
             "password": "never-log-this-password",
         },
     )
-    assert result["errors"]["schedule_time"] == "invalid_time_format"
+    assert result["errors"]["refresh"]["schedule_time"] == "invalid_time_format"
+    data_section = next(value for key, value in result["data_schema"].schema.items() if str(key) == "data")
     defaults = {
-        str(key): key.default() for key in result["data_schema"].schema if str(key) in ("enabled_data", "mailbox_limit")
+        str(key): key.default() for key in data_section.schema.schema if str(key) in ("enabled_data", "mailbox_limit")
     }
     assert defaults == {"enabled_data": ["mailbox"], "mailbox_limit": 3}
     assert "never-log-this-password" not in caplog.text
@@ -212,8 +213,9 @@ async def test_initial_validation_keeps_selection(hass):
                 "mailbox_full_content": True,
             },
         )
-    assert result["errors"]["mailbox_full_content"] == "mailbox_required"
-    field = next(key for key in result["data_schema"].schema if str(key) == "enabled_data")
+    assert result["errors"]["data"]["mailbox_full_content"] == "mailbox_required"
+    data_section = next(value for key, value in result["data_schema"].schema.items() if str(key) == "data")
+    field = next(key for key in data_section.schema.schema if str(key) == "enabled_data")
     assert field.default() == ["homework"]
 
 

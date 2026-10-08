@@ -57,6 +57,7 @@ from .const import (
     DEFAULT_SCHEDULE_TYPE,
     DOMAIN,
 )
+from .data_schedule import CONF_DATA_SCHEDULES, CONF_EDIT_DATA_SCHEDULES, CONF_STUDENT_SCHEDULES, SCHEDULE_SCHEMA
 from .data_selection import (
     CONF_ENABLED_DATA,
     CONF_MAILBOX_FULL_CONTENT,
@@ -67,6 +68,7 @@ from .data_selection import (
     merge_selection_options,
 )
 from .mashov_client import MashovAuthError, MashovClient, MashovError
+from .schedule_flow import DataScheduleFlow, schedule_fields
 
 
 def _data_fields(selected, full_content=False, limit=DEFAULT_MAILBOX_LIMIT):
@@ -82,7 +84,7 @@ def _data_fields(selected, full_content=False, limit=DEFAULT_MAILBOX_LIMIT):
     }
 
 
-class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class ConfigFlow(DataScheduleFlow, config_entries.ConfigFlow, domain=DOMAIN):
     """Initial setup flow: credentials + school, validated by a real login."""
 
     VERSION = 1
@@ -173,6 +175,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # Credentials discover the account's students; only selected data is fetched.
         submitted = user_input or {}
+        self._inline_schedule_options = submitted
         schema = schema.extend(
             _data_fields(
                 submitted.get(CONF_ENABLED_DATA, []),
@@ -181,10 +184,35 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
         )
 
+        schema = schema.extend(
+            {**schedule_fields(submitted), vol.Optional(CONF_EDIT_DATA_SCHEDULES, default=False): bool}
+        )
         if user_input is not None:
+            try:
+                SCHEDULE_SCHEMA(
+                    {
+                        key: user_input[key]
+                        for key in (CONF_SCHEDULE_TYPE, CONF_SCHEDULE_TIME, CONF_SCHEDULE_DAYS, CONF_SCHEDULE_INTERVAL)
+                        if key in user_input
+                    }
+                    | {CONF_SCHEDULE_TYPE: user_input.get(CONF_SCHEDULE_TYPE, DEFAULT_SCHEDULE_TYPE)}
+                )
+            except vol.Invalid:
+                errors["base"] = "invalid_data_schedule"
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=schema,
+                    errors=errors,
+                    description_placeholders={"schedule_summary": await self._schedule_summary(submitted)},
+                )
             if user_input.get(CONF_MAILBOX_FULL_CONTENT) and "mailbox" not in user_input.get(CONF_ENABLED_DATA, []):
                 errors[CONF_MAILBOX_FULL_CONTENT] = "mailbox_required"
-                return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=schema,
+                    errors=errors,
+                    description_placeholders={"schedule_summary": await self._schedule_summary(submitted)},
+                )
             # Determine school id from autocomplete or manual input
             school_raw = user_input[CONF_SCHOOL_NAME].strip()
             _LOGGER.debug("School input: %s", school_raw)
@@ -223,7 +251,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                         if not results:
                             errors["base"] = "school_not_found"
-                            return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+                            return self.async_show_form(
+                                step_id="user",
+                                data_schema=schema,
+                                errors=errors,
+                                description_placeholders={"schedule_summary": await self._schedule_summary(submitted)},
+                            )
 
                         if len(results) > 1:
                             # Ambiguous name: remember the input and let the user choose.
@@ -250,7 +283,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     except Exception as e:
                         _LOGGER.error("Error searching for schools: %s", e)
                         errors["base"] = "cannot_connect"
-                        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+                        return self.async_show_form(
+                            step_id="user",
+                            data_schema=schema,
+                            errors=errors,
+                            description_placeholders={"schedule_summary": await self._schedule_summary(submitted)},
+                        )
 
             # Validate login; client will fetch all kids. The client is only used for
             # validation and is closed right away; the coordinator creates its own.
@@ -301,18 +339,40 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 user_input[CONF_SCHOOL_NAME] = school_name
                 selection = {
                     key: user_input.pop(key)
-                    for key in (CONF_ENABLED_DATA, CONF_MAILBOX_FULL_CONTENT, CONF_MAILBOX_LIMIT)
+                    for key in (
+                        CONF_ENABLED_DATA,
+                        CONF_MAILBOX_FULL_CONTENT,
+                        CONF_MAILBOX_LIMIT,
+                        CONF_SCHEDULE_TYPE,
+                        CONF_SCHEDULE_TIME,
+                        CONF_SCHEDULE_DAYS,
+                        CONF_SCHEDULE_INTERVAL,
+                        CONF_DATA_SCHEDULES,
+                        CONF_STUDENT_SCHEDULES,
+                    )
                     if key in user_input
                 }
                 selection.setdefault(CONF_ENABLED_DATA, [])
                 selection.setdefault(CONF_MAILBOX_FULL_CONTENT, False)
-                return self.async_create_entry(
-                    title=f"{school_name} ({school_semel})",
-                    data=user_input,
-                    options=merge_selection_options({}, selection),
-                )
+                customize = user_input.pop(CONF_EDIT_DATA_SCHEDULES, False)
+                self._schedule_options = merge_selection_options({}, selection)
+                self._schedule_data = user_input
+                self._schedule_title = f"{school_name} ({school_semel})"
+                if customize:
+                    return await self.async_step_data_schedules()
+                return await self._async_finish_schedules()
 
-        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+        return self.async_show_form(
+            step_id="user",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={"schedule_summary": await self._schedule_summary(submitted)},
+        )
+
+    async def _async_finish_schedules(self):
+        return self.async_create_entry(
+            title=self._schedule_title, data=self._schedule_data, options=self._schedule_options
+        )
 
     async def async_step_pick_school(self, user_input=None) -> FlowResult:
         """Let the user choose among several schools matching the typed name.
@@ -361,7 +421,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return OptionsFlowHandler(config_entry)
 
 
-class OptionsFlowHandler(config_entries.OptionsFlow):
+class OptionsFlowHandler(DataScheduleFlow, config_entries.OptionsFlow):
     """Options flow: schedule/fetch options plus optional credential changes."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
@@ -407,6 +467,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             time_val = user_input.get(CONF_SCHEDULE_TIME, "")
             if time_val and not re.match(r"^([0-1]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$", time_val):
                 errors[CONF_SCHEDULE_TIME] = "invalid_time_format"
+            if (
+                user_input.get(CONF_SCHEDULE_TYPE, self.config_entry.options.get(CONF_SCHEDULE_TYPE)) == "weekly"
+                and CONF_SCHEDULE_DAYS in user_input
+                and not user_input[CONF_SCHEDULE_DAYS]
+            ):
+                errors[CONF_SCHEDULE_DAYS] = "invalid_data_schedule"
 
             # Validate API URL
             api_val = user_input.get(CONF_API_BASE, "").strip()
@@ -464,64 +530,29 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 if new_password:
                     updated_data[CONF_PASSWORD] = new_password
 
-                # Move the entry to the unique_id matching the new username, unless another
-                # entry (by unique_id or, for legacy entries, by school + username) already
-                # represents that account; then keep the current unique_id to avoid a clash.
-                candidate_id = f"{updated_data[CONF_SCHOOL_ID]}_{updated_data[CONF_USERNAME].strip().lower()}"
-                duplicate = any(
-                    other.entry_id != self.config_entry.entry_id
-                    and (
-                        other.unique_id == candidate_id
-                        or (
-                            str(other.data.get(CONF_SCHOOL_ID)) == str(updated_data[CONF_SCHOOL_ID])
-                            and str(other.data.get(CONF_USERNAME, "")).strip().lower()
-                            == updated_data[CONF_USERNAME].strip().lower()
-                        )
-                    )
-                    for other in self.hass.config_entries.async_entries(DOMAIN)
-                )
-                if updated_data != dict(self.config_entry.data):
-                    # Save credentials and options together so the update listener reloads once;
-                    # the create_entry below then finds identical options and does not fire again.
-                    self.hass.config_entries.async_update_entry(
-                        self.config_entry,
-                        data=updated_data,
-                        options=normalized,
-                        unique_id=self.config_entry.unique_id if duplicate else candidate_id,
-                    )
-                    _LOGGER.info(
-                        "Credentials updated for '%s' (id=%s)",
-                        getattr(self.config_entry, "title", ""),
-                        getattr(self.config_entry, "entry_id", ""),
-                    )
-
-                _LOGGER.info(
-                    "Options submitted for '%s' (id=%s): %s",
-                    getattr(self.config_entry, "title", ""),
-                    getattr(self.config_entry, "entry_id", ""),
-                    normalized,
-                )
-                return self.async_create_entry(title="", data=normalized)
+                customize = normalized.pop(CONF_EDIT_DATA_SCHEDULES, False)
+                self._schedule_options = normalized
+                self._schedule_data = updated_data
+                if customize:
+                    return await self.async_step_data_schedules()
+                return await self._async_finish_schedules()
 
         current_options = dict(self.config_entry.options)
-        for key in (CONF_ENABLED_DATA, CONF_MAILBOX_FULL_CONTENT, CONF_MAILBOX_LIMIT):
-            if user_input is not None and key in user_input:
-                current_options[key] = user_input[key]
-        _LOGGER.debug("Building options schema from current options: %s", current_options)
+        if user_input is not None:
+            current_options.update({key: value for key, value in user_input.items() if key != CONF_PASSWORD})
+        _LOGGER.debug("Building options schema from current options (values omitted)")
 
         options = {
             CONF_USERNAME: self.config_entry.data.get(CONF_USERNAME, ""),
-            CONF_HOMEWORK_DAYS_BACK: self.config_entry.options.get(CONF_HOMEWORK_DAYS_BACK, DEFAULT_HOMEWORK_DAYS_BACK),
-            CONF_HOMEWORK_DAYS_FORWARD: self.config_entry.options.get(
-                CONF_HOMEWORK_DAYS_FORWARD, DEFAULT_HOMEWORK_DAYS_FORWARD
-            ),
-            CONF_API_BASE: self.config_entry.options.get(CONF_API_BASE, DEFAULT_API_BASE),
-            CONF_SCHEDULE_TYPE: self.config_entry.options.get(CONF_SCHEDULE_TYPE, DEFAULT_SCHEDULE_TYPE),
-            CONF_SCHEDULE_TIME: self.config_entry.options.get(CONF_SCHEDULE_TIME, DEFAULT_SCHEDULE_TIME),
-            CONF_SCHEDULE_DAY: self.config_entry.options.get(CONF_SCHEDULE_DAY, DEFAULT_SCHEDULE_DAY),
-            CONF_SCHEDULE_DAYS: self.config_entry.options.get(CONF_SCHEDULE_DAYS, [DEFAULT_SCHEDULE_DAY]),
-            CONF_SCHEDULE_INTERVAL: self.config_entry.options.get(CONF_SCHEDULE_INTERVAL, DEFAULT_SCHEDULE_INTERVAL),
-            CONF_MAX_ITEMS_IN_ATTRIBUTES: self.config_entry.options.get(
+            CONF_HOMEWORK_DAYS_BACK: current_options.get(CONF_HOMEWORK_DAYS_BACK, DEFAULT_HOMEWORK_DAYS_BACK),
+            CONF_HOMEWORK_DAYS_FORWARD: current_options.get(CONF_HOMEWORK_DAYS_FORWARD, DEFAULT_HOMEWORK_DAYS_FORWARD),
+            CONF_API_BASE: current_options.get(CONF_API_BASE, DEFAULT_API_BASE),
+            CONF_SCHEDULE_TYPE: current_options.get(CONF_SCHEDULE_TYPE, DEFAULT_SCHEDULE_TYPE),
+            CONF_SCHEDULE_TIME: current_options.get(CONF_SCHEDULE_TIME, DEFAULT_SCHEDULE_TIME),
+            CONF_SCHEDULE_DAY: current_options.get(CONF_SCHEDULE_DAY, DEFAULT_SCHEDULE_DAY),
+            CONF_SCHEDULE_DAYS: current_options.get(CONF_SCHEDULE_DAYS, [DEFAULT_SCHEDULE_DAY]),
+            CONF_SCHEDULE_INTERVAL: current_options.get(CONF_SCHEDULE_INTERVAL, DEFAULT_SCHEDULE_INTERVAL),
+            CONF_MAX_ITEMS_IN_ATTRIBUTES: current_options.get(
                 CONF_MAX_ITEMS_IN_ATTRIBUTES, DEFAULT_MAX_ITEMS_IN_ATTRIBUTES
             ),
         }
@@ -566,17 +597,66 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Optional(CONF_SCHEDULE_INTERVAL, default=options[CONF_SCHEDULE_INTERVAL]): vol.All(
                     int, vol.Range(min=5, max=1440)
                 ),
+                vol.Optional(CONF_EDIT_DATA_SCHEDULES, default=False): bool,
                 vol.Optional(CONF_MAX_ITEMS_IN_ATTRIBUTES, default=options[CONF_MAX_ITEMS_IN_ATTRIBUTES]): vol.All(
                     int, vol.Range(min=10, max=500)
                 ),
             }
         )
+        self._inline_schedule_options = current_options
         _LOGGER.debug(
             "Options schema built for entry '%s' (id=%s)",
             getattr(self.config_entry, "title", ""),
             getattr(self.config_entry, "entry_id", ""),
         )
-        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={"schedule_summary": await self._schedule_summary(current_options)},
+        )
+
+    async def _async_finish_schedules(self):
+        normalized = self._schedule_options
+        updated_data = self._schedule_data
+        # Move the entry to the unique_id matching the new username, unless another
+        # entry (by unique_id or, for legacy entries, by school + username) already
+        # represents that account; then keep the current unique_id to avoid a clash.
+        candidate_id = f"{updated_data[CONF_SCHOOL_ID]}_{updated_data[CONF_USERNAME].strip().lower()}"
+        duplicate = any(
+            other.entry_id != self.config_entry.entry_id
+            and (
+                other.unique_id == candidate_id
+                or (
+                    str(other.data.get(CONF_SCHOOL_ID)) == str(updated_data[CONF_SCHOOL_ID])
+                    and str(other.data.get(CONF_USERNAME, "")).strip().lower()
+                    == updated_data[CONF_USERNAME].strip().lower()
+                )
+            )
+            for other in self.hass.config_entries.async_entries(DOMAIN)
+        )
+        if updated_data != dict(self.config_entry.data):
+            # Save credentials and options together so the update listener reloads once;
+            # the create_entry below then finds identical options and does not fire again.
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                data=updated_data,
+                options=normalized,
+                unique_id=self.config_entry.unique_id if duplicate else candidate_id,
+            )
+            _LOGGER.info(
+                "Credentials updated for '%s' (id=%s)",
+                getattr(self.config_entry, "title", ""),
+                getattr(self.config_entry, "entry_id", ""),
+            )
+
+        _LOGGER.info(
+            "Options submitted for '%s' (id=%s): %s",
+            getattr(self.config_entry, "title", ""),
+            getattr(self.config_entry, "entry_id", ""),
+            normalized,
+        )
+        return self.async_create_entry(title="", data=normalized)
 
 
 # Backward/compatibility helper: expose options flow factory from this module as well

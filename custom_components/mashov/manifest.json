@@ -2,7 +2,11 @@
   "domain": "mashov",
   "name": "Mashov",
   "after_dependencies": [
-    "lovelace"
+    "frontend",
+    "http",
+    "lovelace",
+    "panel_custom",
+    "websocket_api"
   ],
   "codeowners": [
     "@nirby"
@@ -19,5 +23,5 @@
   "requirements": [
     "voluptuous"
   ],
-  "version": "1.0.17"
+  "version": "1.1.0"
 }

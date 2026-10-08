@@ -168,7 +168,7 @@ async def test_failed_tts_restores_volume(hass, calls, freezer):
     # Let the script enter its playback-start timeout before advancing the frozen clock.
     for _ in range(10):
         await asyncio.sleep(0)
-    freezer.tick(11)
+    freezer.tick(121)
     async_fire_time_changed(hass, dt_util.utcnow(), fire_all=True)
     await hass.async_block_till_done()
 
@@ -190,3 +190,31 @@ async def test_quiet_hours_begin_while_preparing_speaker(hass, calls, freezer):
     assert "tts.speak" not in calls
     assert [c["volume_level"] for c in calls["media_player.volume_set"]] == [0.7, 0.2]
     assert any("quiet hours began" in c["message"] for c in calls["logbook.log"])
+
+
+async def test_slow_speaker_keeps_volume_until_playback_finishes(hass, calls, freezer):
+    """A Cast-like delayed start must not restore volume at the old ten-second deadline."""
+    freezer.move_to("2026-10-06 07:30:00+00:00")
+    attempted = asyncio.Event()
+
+    async def delayed_tts(call):
+        attempted.set()
+
+    hass.services.async_register("tts", "speak", delayed_tts)
+    _set_board(hass, [_notice("76", "Slow speaker notice")])
+    await attempted.wait()
+    for _ in range(10):
+        await asyncio.sleep(0)
+    freezer.tick(15)
+    async_fire_time_changed(hass, dt_util.utcnow())
+    for _ in range(20):
+        await asyncio.sleep(0)
+    assert [c["volume_level"] for c in calls["media_player.volume_set"]] == [0.7]
+
+    hass.states.async_set(SPEAKER, "playing", {"volume_level": 0.7})
+    for _ in range(20):
+        await asyncio.sleep(0)
+    assert [c["volume_level"] for c in calls["media_player.volume_set"]] == [0.7]
+    hass.states.async_set(SPEAKER, "idle", {"volume_level": 0.7})
+    await hass.async_block_till_done()
+    assert [c["volume_level"] for c in calls["media_player.volume_set"]] == [0.7, 0.2]

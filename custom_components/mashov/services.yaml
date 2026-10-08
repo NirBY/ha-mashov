@@ -135,6 +135,11 @@ set_options:
             - justification_requests
             - special_hours
             - mailbox
+    data_schedules:
+      name: "Schedules by data type"
+      description: "Replaces the override map for this hub. Keys are data types; each schedule uses schedule_type, schedule_time, schedule_days and schedule_interval. Omit a type to follow the shared schedule; use {} to reset all overrides. Disabled data is never fetched."
+      selector:
+        object: {}
     mailbox_full_content:
       name: "Full message content (marks conversations read)"
       description: "Off by default. Fetched conversations are marked read in Mashov even if you have not opened them yourself. Mailbox must be selected."

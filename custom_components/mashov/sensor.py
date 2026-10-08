@@ -65,6 +65,7 @@ from .const import (
     SENSOR_KEY_TIMETABLE,
     SENSOR_KEY_WEEKLY_PLAN,
 )
+from .data_schedule import effective_schedule
 from .data_selection import LEGACY_CORE_DATA, enabled_data
 from .entity import MashovEntity, MashovStudentEntity, sync_selected_entities
 from .holidays_utils import (
@@ -233,6 +234,7 @@ class MashovMailboxSensor(MashovEntity, SensorEntity):
 
     _attr_icon = "mdi:email-outline"
     _attr_translation_key = "mailbox"
+    _unrecorded_attributes = frozenset({"items"})
 
     def __init__(self, coordinator, entry_id):
         super().__init__(coordinator)
@@ -280,7 +282,10 @@ class MashovMailboxSensor(MashovEntity, SensorEntity):
             "stored_conversations": 0,
             "content_truncated": False,
             "items": [],
-            "last_update": _local_timestamp(getattr(self.coordinator, "last_successful_update", None)),
+            "last_update": _local_timestamp(
+                resource.get("last_update", getattr(self.coordinator, "last_successful_update", None))
+            ),
+            **self.schedule_attributes("mailbox"),
         }
         if "unread_before_fetch" in resource:
             attributes["unread_before_fetch"] = resource["unread_before_fetch"]
@@ -403,7 +408,12 @@ class MashovAdditionalSensor(MashovStudentEntity, SensorEntity):
             "total_items": len(items),
             "stored_items": len(stored),
             "items": stored,
-            "last_update": _local_timestamp(getattr(self.coordinator, "last_successful_update", None)),
+            "last_update": _local_timestamp(
+                _student_group(self.coordinator.data or {}, self._student_id, self._slug)
+                .get("source_last_update", {self._key: getattr(self.coordinator, "last_successful_update", None)})
+                .get(self._key)
+            ),
+            **self.schedule_attributes(self._key),
         }
 
 
@@ -478,7 +488,12 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
             "student_id": self._student_id,
             "year": student_meta.get("year"),
             "school_id": student_meta.get("school_id"),
-            "last_update": _local_timestamp(getattr(self.coordinator, "last_successful_update", None)),
+            "last_update": _local_timestamp(
+                group.get(
+                    "source_last_update", {self._data_key: getattr(self.coordinator, "last_successful_update", None)}
+                ).get(self._data_key)
+            ),
+            **self.schedule_attributes(self._data_key),
             "total_items": total_count,  # Total number of items available
             "stored_items": stored_count,  # Number of items in attributes
             "items": items_for_attributes,  # Limited items (most recent)
@@ -821,6 +836,7 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
             merged = dict(opts)
             if yaml_opts:
                 merged.update({k: v for k, v in yaml_opts.items() if v is not None})
+            merged = effective_schedule(merged, self._data_key)
             # Basic sanitization for attributes display
             # Time must be HH:MM or HH:MM:SS; seconds are kept for the next-run estimate.
             schedule_type = merged.get(CONF_SCHEDULE_TYPE, DEFAULT_SCHEDULE_TYPE)
@@ -1364,6 +1380,7 @@ class MashovHolidaysSensor(MashovEntity, SensorEntity):
             "formatted_by_date": by_date,
             "items": items,
             "last_update": _local_timestamp(last_update),
+            **self.schedule_attributes("holidays"),
         }
 
     @property

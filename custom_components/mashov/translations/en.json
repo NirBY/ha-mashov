@@ -4,19 +4,60 @@
     "step": {
       "user": {
         "title": "Mashov",
-        "description": "Enter your credentials. Pick your school from the dropdown (type to filter).\n\nChoose only the data you need. Existing hubs retain their previous selection.\n\nFull message content is off by default. Enabling it marks fetched conversations as read in Mashov, even if you have not opened them yourself.",
+        "description": "Choose the data you need. Open a section to change its settings.\n\n{schedule_summary}",
         "data": {
           "username": "Username/ID",
           "password": "Password",
           "school_name": "School",
           "enabled_data": "Data to fetch",
           "mailbox_full_content": "Full message content (marks conversations read)",
-          "mailbox_limit": "Recent inbox conversations"
+          "mailbox_limit": "Recent inbox conversations",
+          "schedule_type": "Schedule type (daily/weekly/interval)",
+          "schedule_time": "Refresh time (HH:MM or HH:MM:SS)",
+          "schedule_days": "Weekdays (0=Mon ... 6=Sun)",
+          "schedule_interval": "Interval minutes (interval mode)",
+          "edit_data_schedules": "Edit schedules by data type"
         },
         "data_description": {
-          "enabled_data": "Choose only the data you need. Existing hubs retain their previous selection.",
+          "enabled_data": "Choose only the data you need. Existing hubs retain their previous selection. Warning: an empty selection creates no school-data sensors. Dashboards and blueprints require their corresponding categories to be selected.",
           "mailbox_full_content": "Full message content is off by default. Enabling it marks fetched conversations as read in Mashov, even if you have not opened them yourself.",
           "mailbox_limit": "Up to 50 recent inbox conversations. Older conversations and attachment files are not fetched."
+        },
+        "sections": {
+          "data": {
+            "name": "Data to fetch",
+            "data": {
+              "enabled_data": "Data to fetch",
+              "mailbox_full_content": "Full message content (marks conversations read)",
+              "mailbox_limit": "Recent inbox conversations"
+            },
+            "data_description": {
+              "enabled_data": "Choose only the data you need. Existing hubs retain their previous selection. Warning: an empty selection creates no school-data sensors. Dashboards and blueprints require their corresponding categories to be selected.",
+              "mailbox_full_content": "Full message content is off by default. Enabling it marks fetched conversations as read in Mashov, even if you have not opened them yourself.",
+              "mailbox_limit": "Up to 50 recent inbox conversations. Older conversations and attachment files are not fetched."
+            }
+          },
+          "refresh": {
+            "name": "Refresh schedules",
+            "data": {
+              "schedule_type": "Schedule type (daily/weekly/interval)",
+              "schedule_time": "Refresh time (HH:MM or HH:MM:SS)",
+              "schedule_days": "Weekdays (0=Mon ... 6=Sun)",
+              "schedule_interval": "Interval minutes (interval mode)",
+              "edit_data_schedules": "Edit schedules by data type"
+            },
+            "data_description": {
+              "edit_data_schedules": "Select a data type, submit, then choose its schedule. Apply returns to this screen. Select Save all changes and finish to save. Shared schedule follows the hub; custom schedules are independent."
+            }
+          },
+          "account": {
+            "name": "Account and school",
+            "data": {
+              "username": "Username/ID",
+              "password": "Password",
+              "school_name": "School"
+            }
+          }
         }
       },
       "pick_school": {
@@ -25,13 +66,42 @@
         "data": {
           "selected_school": "School"
         }
+      },
+      "data_schedules": {
+        "title": "Data schedules",
+        "description": "{schedule_summary}",
+        "data": {
+          "dataset": "Data type / Save and finish"
+        }
+      },
+      "data_schedule": {
+        "title": "Schedule for {dataset}",
+        "description": "Current: {current_schedule}\n\nChoose one mode. Shared schedule follows the hub automatically; the other modes open only the relevant time controls.",
+        "data": {
+          "schedule_type": "Schedule type (daily/weekly/interval)",
+          "schedule_time": "Refresh time (HH:MM or HH:MM:SS)",
+          "schedule_days": "Weekdays (0=Mon ... 6=Sun)",
+          "schedule_interval": "Interval minutes (interval mode)"
+        }
+      },
+      "data_schedule_settings": {
+        "title": "Schedule for {dataset}",
+        "description": "{schedule_kind} schedule for {dataset}. Set the values below. Applying returns to the overview; nothing is saved until Save all changes and finish.",
+        "data": {
+          "schedule_type": "Schedule type (daily/weekly/interval)",
+          "schedule_time": "Refresh time (HH:MM or HH:MM:SS)",
+          "schedule_days": "Weekdays (0=Mon ... 6=Sun)",
+          "schedule_interval": "Interval minutes (interval mode)",
+          "schedule_action": "After submitting"
+        }
       }
     },
     "error": {
       "auth": "Authentication failed. Check credentials/school.",
       "cannot_connect": "Cannot reach Mashov.",
       "school_not_found": "No school matched that name.",
-      "mailbox_required": "Select Mailbox before enabling full message content."
+      "mailbox_required": "Select Mailbox before enabling full message content.",
+      "invalid_data_schedule": "Enter a valid time (HH:MM[:SS]), interval (5–1440 minutes), and at least one weekday for a weekly schedule."
     },
     "abort": {
       "already_configured": "This Mashov account is already configured."
@@ -41,7 +111,7 @@
     "step": {
       "init": {
         "title": "Mashov Options",
-        "description": "Configure homework ranges and refresh schedule.\n\nChoose only the data you need. Existing hubs retain their previous selection.\n\nFull message content is off by default. Enabling it marks fetched conversations as read in Mashov, even if you have not opened them yourself.",
+        "description": "Choose the data you need. Open a section to change its settings.\n\n{schedule_summary}",
         "data": {
           "username": "Username/ID",
           "password": "Password (leave blank to keep current)",
@@ -57,12 +127,87 @@
           "automatic_school_year": "Automatic school year (changes on September 1)",
           "enabled_data": "Data to fetch",
           "mailbox_full_content": "Full message content (marks conversations read)",
-          "mailbox_limit": "Recent inbox conversations"
+          "mailbox_limit": "Recent inbox conversations",
+          "edit_data_schedules": "Edit schedules by data type"
         },
         "data_description": {
-          "enabled_data": "Choose only the data you need. Existing hubs retain their previous selection.",
+          "enabled_data": "Choose only the data you need. Existing hubs retain their previous selection. Warning: an empty selection creates no school-data sensors. Dashboards and blueprints require their corresponding categories to be selected.",
           "mailbox_full_content": "Full message content is off by default. Enabling it marks fetched conversations as read in Mashov, even if you have not opened them yourself.",
           "mailbox_limit": "Up to 50 recent inbox conversations. Older conversations and attachment files are not fetched."
+        },
+        "sections": {
+          "data": {
+            "name": "Data to fetch",
+            "data": {
+              "enabled_data": "Data to fetch",
+              "mailbox_full_content": "Full message content (marks conversations read)",
+              "mailbox_limit": "Recent inbox conversations"
+            },
+            "data_description": {
+              "enabled_data": "Choose only the data you need. Existing hubs retain their previous selection. Warning: an empty selection creates no school-data sensors. Dashboards and blueprints require their corresponding categories to be selected.",
+              "mailbox_full_content": "Full message content is off by default. Enabling it marks fetched conversations as read in Mashov, even if you have not opened them yourself.",
+              "mailbox_limit": "Up to 50 recent inbox conversations. Older conversations and attachment files are not fetched."
+            }
+          },
+          "refresh": {
+            "name": "Refresh schedules",
+            "data": {
+              "schedule_type": "Schedule type (daily/weekly/interval)",
+              "schedule_time": "Refresh time (HH:MM or HH:MM:SS)",
+              "schedule_days": "Weekdays (0=Mon ... 6=Sun)",
+              "schedule_interval": "Interval minutes (interval mode)",
+              "edit_data_schedules": "Edit schedules by data type"
+            },
+            "data_description": {
+              "edit_data_schedules": "Select a data type, submit, then choose its schedule. Apply returns to this screen. Select Save all changes and finish to save. Shared schedule follows the hub; custom schedules are independent.",
+              "schedule_type": "[Open interactive Refresh schedules editor]({schedule_editor_url})"
+            }
+          },
+          "account": {
+            "name": "Account and school",
+            "data": {
+              "username": "Username/ID",
+              "password": "Password (leave blank to keep current)",
+              "automatic_school_year": "Automatic school year (changes on September 1)"
+            }
+          },
+          "advanced": {
+            "name": "Advanced settings",
+            "data": {
+              "homework_days_back": "Homework days back",
+              "homework_days_forward": "Homework days forward",
+              "api_base": "API base (advanced)",
+              "max_items_in_attributes": "Max items stored in attributes"
+            }
+          }
+        }
+      },
+      "data_schedules": {
+        "title": "Data schedules",
+        "description": "{schedule_summary}",
+        "data": {
+          "dataset": "Data type / Save and finish"
+        }
+      },
+      "data_schedule": {
+        "title": "Schedule for {dataset}",
+        "description": "Current: {current_schedule}\n\nChoose one mode. Shared schedule follows the hub automatically; the other modes open only the relevant time controls.",
+        "data": {
+          "schedule_type": "Schedule type (daily/weekly/interval)",
+          "schedule_time": "Refresh time (HH:MM or HH:MM:SS)",
+          "schedule_days": "Weekdays (0=Mon ... 6=Sun)",
+          "schedule_interval": "Interval minutes (interval mode)"
+        }
+      },
+      "data_schedule_settings": {
+        "title": "Schedule for {dataset}",
+        "description": "{schedule_kind} schedule for {dataset}. Set the values below. Applying returns to the overview; nothing is saved until Save all changes and finish.",
+        "data": {
+          "schedule_type": "Schedule type (daily/weekly/interval)",
+          "schedule_time": "Refresh time (HH:MM or HH:MM:SS)",
+          "schedule_days": "Weekdays (0=Mon ... 6=Sun)",
+          "schedule_interval": "Interval minutes (interval mode)",
+          "schedule_action": "After submitting"
         }
       }
     },
@@ -70,7 +215,8 @@
       "invalid_time_format": "Invalid time (HH:MM or HH:MM:SS)",
       "invalid_api_url": "Invalid URL (must start with http/https)",
       "already_configured": "This Mashov account is already configured.",
-      "mailbox_required": "Select Mailbox before enabling full message content."
+      "mailbox_required": "Select Mailbox before enabling full message content.",
+      "invalid_data_schedule": "Enter a valid time (HH:MM[:SS]), interval (5–1440 minutes), and at least one weekday for a weekly schedule."
     }
   },
   "selector": {
@@ -103,7 +249,8 @@
       "options": {
         "daily": "Daily",
         "weekly": "Weekly",
-        "interval": "Interval"
+        "interval": "Interval",
+        "shared": "Shared schedule"
       }
     },
     "enabled_data": {
@@ -126,6 +273,76 @@
         "justification_requests": "Absence justification requests",
         "special_hours": "Individual lessons",
         "mailbox": "Mailbox — headers and unread count"
+      }
+    },
+    "schedule_scope": {
+      "options": {
+        "shared": "Shared schedule",
+        "custom": "Separate schedule",
+        "disabled": "Disabled — no requests",
+        "dataset": "Data type",
+        "schedule": "Fetch schedule",
+        "save": "Save all changes and finish",
+        "summary_title": "Current schedules — click to expand",
+        "help_title": "How to change schedules",
+        "help_text": "Select a data type, submit, then choose its schedule. Apply returns to this screen. Select Save all changes and finish to save. Shared schedule follows the hub; custom schedules are independent."
+      }
+    },
+    "schedule_action": {
+      "options": {
+        "apply": "Apply to draft and return to overview",
+        "back": "Back to schedule type"
+      }
+    },
+    "schedule_editor": {
+      "options": {
+        "title": "Refresh schedules",
+        "hub": "Hub",
+        "data": "Data type",
+        "general": "General — default schedule",
+        "mode": "Schedule type",
+        "daily": "Daily",
+        "weekly": "Weekly",
+        "interval": "Interval",
+        "clock": "Refresh time",
+        "days": "Weekdays",
+        "minutes": "Interval minutes",
+        "inherit": "Use General schedule",
+        "submit": "Submit",
+        "saved": "All schedules saved.",
+        "draft": "Unsaved changes",
+        "clean": "No unsaved changes",
+        "summary": "All schedules",
+        "help": "Select General to edit the default. Choose a data type to set its own schedule, or keep Use General checked. Switch between types freely; Submit saves all changes together.",
+        "disabled": "Disabled — no requests",
+        "shared": "General",
+        "custom": "Custom",
+        "timezone": "Timezone",
+        "yaml": "YAML overrides the General schedule. Custom data schedules remain independent.",
+        "changed": "Settings changed elsewhere. Reload before saving; your draft is still here.",
+        "invalid": "Check time, interval (5–1440 minutes) and weekly days for every edited type.",
+        "loading": "Loading…",
+        "reset": "Discard draft",
+        "error": "Could not load or save schedules.",
+        "back": "Back to integration",
+        "registerTitle": "Register hub",
+        "account": "Account and school",
+        "selectData": "Data to fetch",
+        "emptyWarning": "An empty selection creates no school-data sensors.",
+        "created": "Hub registered with all schedules.",
+        "choose_school_id": "Enter the school ID or a name ending in (school ID).",
+        "already_configured": "This account is already configured.",
+        "minuteUnit": "min",
+        "registerLink": "Open interactive hub registration",
+        "username": "Username/ID",
+        "password": "Password",
+        "school_name": "School",
+        "student": "Student",
+        "accountSchedules": "Shared account / school data and defaults",
+        "studentHelp": "These schedules apply only to the selected student. General sets this student’s default; each data type can use its own schedule.",
+        "accountHelp": "Holidays belong to the school and Mailbox to the account. Other schedules here are inherited defaults for students without overrides.",
+        "inheritDefaults": "Use existing account defaults",
+        "registrationStudents": "Registration saves initial defaults. After authentication, choose each student here to set their own schedules."
       }
     }
   },
@@ -253,6 +470,9 @@
         "mailbox_limit": {
           "name": "Recent inbox conversations",
           "description": "Up to 50 recent inbox conversations. Older conversations and attachment files are not fetched."
+        },
+        "data_schedules": {
+          "name": "Data schedules"
         }
       }
     },

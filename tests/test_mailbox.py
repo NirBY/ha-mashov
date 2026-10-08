@@ -5,6 +5,8 @@ import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+from homeassistant.components.recorder.db_schema import StateAttributes
+from homeassistant.setup import async_setup_component
 import pytest
 
 from custom_components.mashov.mailbox import fetch_mailbox, plain_body
@@ -206,3 +208,52 @@ def test_long_mailbox_body_is_bounded_with_visible_truncation_and_safe_diagnosti
     assert "Private sender" not in report
     assert CID not in report
     assert "mailbox_status" in report
+
+
+async def test_closed_account_session_is_an_operational_failure():
+    client = MashovClient("123", 2027, "test", "test")
+    client._session = MagicMock(closed=True)
+    client._session.get.side_effect = RuntimeError("Session is closed")
+    assert await client._fetch_account_json("mail/counts", "mail_counts", dict) == ("fetch_failed", None)
+
+
+async def test_unrelated_account_runtime_error_remains_reportable():
+    client = MashovClient("123", 2027, "test", "test")
+    client._session = MagicMock(closed=False)
+    client._session.get.side_effect = RuntimeError("Synthetic programming error")
+    with pytest.raises(RuntimeError, match="Synthetic programming error"):
+        await client._fetch_account_json("mail/counts", "mail_counts", dict)
+
+
+async def test_recorder_excludes_mailbox_content_but_live_state_keeps_it(hass):
+    """Exercise entity registration and Recorder's real event serializer."""
+    coordinator = MagicMock()
+    coordinator.entry = SimpleNamespace(title="Test", options={})
+    coordinator.data = {
+        "mailbox": {
+            "status": "ok",
+            "counts_status": "ok",
+            "unread_count": 1,
+            "full_content": True,
+            "items": [{**INBOX[0], "messages": [{**MESSAGE, "body": "Private body"}]}],
+        }
+    }
+    coordinator.data_stale = False
+    coordinator.last_successful_update = None
+    coordinator.last_update_success = True
+    sensor = MashovMailboxSensor(coordinator, "entry")
+    sensor.entity_id = "sensor.test_mailbox"
+    events = []
+    hass.bus.async_listen("state_changed", events.append)
+    assert await async_setup_component(hass, "sensor", {})
+    await hass.data["sensor"].async_add_entities([sensor])
+    await hass.async_block_till_done()
+    state = hass.states.get(sensor.entity_id)
+    assert state.state == "1"
+    assert state.attributes["items"][0]["messages"][0]["body"] == "Private body"
+    event = next(event for event in events if event.data["entity_id"] == sensor.entity_id)
+    recorded = json.loads(StateAttributes.shared_attrs_bytes_from_event(event, None))
+    assert "items" not in recorded
+    assert recorded["counts_status"] == "ok"
+    assert recorded["inbox_count"] is None
+    assert "Private" not in json.dumps(recorded)

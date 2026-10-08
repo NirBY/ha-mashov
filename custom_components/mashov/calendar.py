@@ -69,6 +69,7 @@ class MashovHolidaysCalendar(MashovEntity, CalendarEntity):
         return {
             "source_status": data.get("holidays_status", "ok"),
             "data_stale": self.data_stale or data.get("holidays_status", "ok") != "ok",
+            **self.schedule_attributes("holidays"),
         }
 
     @property
