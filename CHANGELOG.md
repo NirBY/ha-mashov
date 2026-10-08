@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Changed
+- Release screenshots now show only the current native inline schedule form; removed outdated standalone and multi-step editor previews.
 - Shortened Available data in both READMEs to six groups covering all 18 data types, labeled Data to fetch — v1.1.0.
 - Removed README screenshots and inline release history; linked the standalone Changelog instead.
 - Restored English screenshots in the v1.1.0 release description with verified absolute image URLs.
