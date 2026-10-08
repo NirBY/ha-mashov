@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Changed
+- Removed the duplicate Data to fetch subsection under Configuration; consolidated selection instructions under the main section and moved the YAML example to Services.
 - Combined Available data and its table caption under one Data to fetch section in both READMEs.
 - Release screenshots now show only the current native inline schedule form; removed outdated standalone and multi-step editor previews.
 - Shortened Available data in both READMEs to six groups covering all 18 data types, labeled Data to fetch — v1.1.0.

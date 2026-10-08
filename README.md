@@ -35,6 +35,13 @@ Selections apply to all students in the hub. Mailbox belongs to the account; hol
 
 **Fetching full mailbox content marks conversations as read in Mashov.** It requires separate consent.
 
+### Selecting and disabling data
+
+In **Configure → Data to fetch**, add categories from the list or remove selected chips with **×**, then **Submit**. Configure each hub separately. A selection change reloads the hub and attempts an immediate refresh; the default daily refresh is at 14:00.
+
+
+Removing a category clears its active and disk cache **before login**, even if the next refresh fails, and disables its entities while preserving IDs and history. Disabling an entity in HA does not stop fetching its category; remove it in Configure to stop requests. An empty selection retains authentication and the student roster.
+
 ## Refresh schedules
 
 In **Configure → Refresh schedules**, edit schedules directly inside the form. Select **Student**, then **General — default schedule** or a data type. Controls update immediately; switching types or students preserves the draft. Uncheck inheritance to customize a schedule. The form’s **Submit** saves all settings and all students together. No separate editor link is needed.
@@ -66,13 +73,6 @@ data:
 `data_schedules` replaces the complete override map. Send `{}` to return every type to the shared schedule. Reducing intervals increases portal requests and can generate more login/activity emails.
 
 Refresh jobs use one queue across all Mashov hubs: a scheduled or manual refresh waits for the active job to finish. Reloading a hub drains its active request and skips its queued jobs before closing the connection.
-
-### Selecting and disabling data
-
-In **Configure → Data to fetch**, add categories from the list or remove selected chips with **×**, then **Submit**. Configure each hub separately. A selection change reloads the hub and attempts an immediate refresh; the default daily refresh is at 14:00.
-
-
-Removing a category clears its active and disk cache **before login**, even if the next refresh fails, and disables its entities while preserving IDs and history. Disabling an entity in HA does not stop fetching its category; remove it in Configure to stop requests. An empty selection retains authentication and the student roster.
 
 ### Mailbox consent and retention
 
@@ -156,75 +156,6 @@ an explicitly configured year; that year remains pinned until you enable
   - Prefer scheduling the daily/weekly refresh to daytime hours (e.g., `14:00`).
   - Use the Options screen or YAML to set `schedule_type` and `schedule_time` accordingly.
   - Avoid long-running `interval` mode during overnight hours.
-
-### Data to fetch
-
-Every dataset is now selectable, including the six main sensors (homework, behavior,
-weekly plan, timetable, lessons history, grades), holidays and ten additional student
-resources below. Deselecting a type stops its requests, removes its active/disk cache before login on reload, and disables its entities.
-New installations select only what they need. Existing installations retain their
-previous core data and optional selections; no mailbox or newly added source is enabled
-by upgrading. Disabled entities retain their entity IDs, user customizations and history
-and can be enabled again. Entities disabled manually in Home Assistant remain disabled.
-
-**What changed, and since which version**
-
-| Version | Change |
-| --- | --- |
-| v1.0.7 | The nine additional data types became available. Turn them on per school hub, as described below. |
-| v1.0.15 | Hubs created in this version started with **Noticeboard** turned on; that choice is preserved when upgrading. |
-| v1.0.15 | New blueprint that notifies you about new noticeboard notices and reads them aloud (see [below](#-automation-blueprint-new-noticeboard-notice)). |
-| v1.0.16 | All datasets are selectable. Existing hubs, including those configured since v1.0.7, retain their selections and entity IDs. New setups start with an empty selection. Adds mailbox and individual lessons. |
-
-**How to turn them on**
-
-1. Go to **Settings → Devices & services → Mashov**.
-2. Next to the school hub, click **Configure** (with several hubs, do this for each one).
-3. In **Data to fetch** (Hebrew UI: **סוגי מידע לשליפה**), select what you want to keep enabled.
-4. Click **Submit**. A changed selection reloads the hub and fetches the selected data immediately.
-   An empty selection stops dataset polling; credentials and student discovery remain part of account setup.
-
-From an automation or script you can do the same with the `mashov.set_options` action:
-
-```yaml
-action: mashov.set_options
-data:
-  entry_id: <your hub's entry id>   # optional with a single hub
-  enabled_data: [homework, timetable, message_board, periodic_grades]
-```
-
-The list replaces the entire selection, so include everything you want to keep.
-Older automations using `additional_data` still work: that key changes only the optional
-student sources and preserves the selected core data and mailbox.
-
-**What each one gives you** (one sensor per child; the state is the number of items)
-
-| Option (English / Hebrew) | Key | Contents |
-| --- | --- | --- |
-| Noticeboard / לוח מודעות | `message_board` | Notices the school posts for parents: text (`eventtext`, HTML), ID (`eventid`), expiration date |
-| Daily behavior / התנהגות יומית | `daily_behavior` | Daily behavior records within the homework date window |
-| Outside lesson behavior / התנהגות מחוץ לשיעור | `outside_behavior` | Behavior events outside lessons (breaks, trips), within the date window |
-| Follow-up notes / הערות מעקב | `follow_up` | Staff follow-up notes, within the date window |
-| Term grades / ציונים תקופתיים | `periodic_grades` | Term (period) grades |
-| Report cards / תעודות | `report_cards` | Report card records (metadata only) |
-| Study materials / חומרי לימוד | `study_materials` | Study material records (metadata only, files are not downloaded) |
-| Student files / קובצי תלמיד | `student_files` | Student file records (metadata only, files are not downloaded) |
-| Absence justification requests / בקשות להצדקת היעדרות | `justification_requests` | Absence justification requests, within the date window |
-| Individual lessons / שעות פרטניות | `special_hours` | Individual-lesson records (`specialHoursLessons`), when published by the school |
-
-The "date window" is the homework days-back/days-forward setting. Find the new sensors in
-**Developer Tools → States** by searching for the option name; the records are in the `items` attribute.
-
-**Good to know**
-- These student resources do not submit forms or download files. The separate mailbox full-content option
-  below has read-status side effects and requires explicit opt-in.
-- Each school decides what parents can see. A type your school does not allow shows state `unknown` with
-  `source_status: forbidden` (or `unsupported`). It is checked again after 24 hours, separately for each child.
-  An allowed type with no records shows `0`.
-- Attributes are limited in size. When records are left out, `stored_items` is smaller than `total_items`.
-- Parent approvals and the Shahaf exam calendar are not integrated. A read-only online-form list is also
-  exposed by the portal (`user/forms?isParentsConsent=false`); its route was verified on 2026-10-06 but the
-  tested account had no records, so form content/answer status has not been validated or added.
 
 ### Mailbox (optional)
 
@@ -480,6 +411,17 @@ data:
   schedule_time: "14:00"
   schedule_days: [0, 2, 4]  # Monday, Wednesday, Friday
 ```
+
+To change the data selection, provide the complete list of categories to keep enabled:
+
+```yaml
+action: mashov.set_options
+data:
+  entry_id: YOUR_ENTRY_ID
+  enabled_data: [homework, timetable, message_board, periodic_grades]
+```
+
+Legacy `additional_data` changes only optional student sources and preserves core data and Mailbox.
 
 For backward compatibility, omitting `entry_id` targets the first loaded hub.
 Specify it when selecting a particular hub. The legacy `schedule_day` field remains
