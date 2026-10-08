@@ -4,13 +4,11 @@
 
 אינטגרציה קהילתית ולא רשמית למשו״ב. מציגה מידע מבית הספר ב־Home Assistant ומאפשרת לבחור מה לשלוף לכל חשבון ומוסד.
 
-**גרסה נוכחית: v1.1.0 · נדרש Home Assistant 2025.3 ומעלה.**
-
-**v1.1.0** כוללת זמני משיכה לכל תלמיד ולכל סוג מידע, ועורך בתוך טפסי ההקמה וההגדרה. עדכנו דרך HACS והפעילו מחדש את Home Assistant.
-
 הפרויקט אינו קשור לחברת משו״ב. ראו [הערות גרסה](RELEASE_NOTES.md) ו[יומן שינויים / Changelog](CHANGELOG.md).
 
 ## התקנה מהירה
+
+נדרש **Home Assistant 2025.3 ומעלה**.
 
 1. פתחו **HACS → Integrations → ⋯ → Custom repositories**. הוסיפו `https://github.com/NirBY/ha-mashov` בקטגוריית **Integration**.
 2. התקינו את Mashov והפעילו מחדש את Home Assistant.

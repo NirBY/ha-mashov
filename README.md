@@ -4,13 +4,11 @@
 
 Unofficial integration for **משו״ב (Mashov)**. Bring school information into Home Assistant and choose the data fetched for each account and school hub.
 
-**Current release: v1.1.0 · Requires Home Assistant 2025.3 or newer.**
-
-**v1.1.0** adds student-specific refresh schedules and an editor embedded in Setup and Configure. Update through HACS and restart Home Assistant.
-
 Community project; not affiliated with Mashov. See [release notes](RELEASE_NOTES.md) for upgrade details and the [Changelog](CHANGELOG.md) for version history.
 
 ## Quick start
+
+Requires **Home Assistant 2025.3 or newer**.
 
 1. In **HACS → Integrations → ⋯ → Custom repositories**, add `https://github.com/NirBY/ha-mashov` as an **Integration**. Install Mashov and restart Home Assistant.
 2. Open **Settings → Devices & services → Add integration → Mashov** and enter your credentials and school.
