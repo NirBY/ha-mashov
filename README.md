@@ -1,143 +1,83 @@
 [**English**](README.md) · [**עברית**](README.he.md)
 
-# Mashov — Home Assistant Integration (HACS)
+# Mashov — Home Assistant integration (HACS)
 
-Unofficial integration for **משו״ב (Mashov)**. Bring school information into Home Assistant and choose the data fetched for each account and school hub.
+Unofficial integration for **משו״ב (Mashov)**. Choose which school data to bring into Home Assistant for each account and school hub.
 
-Community project; not affiliated with Mashov. See [release notes](RELEASE_NOTES.md) for upgrade details and the [Changelog](CHANGELOG.md) for version history.
-
-## Quick start
-
-Requires **Home Assistant 2025.3 or newer**.
-
-1. In **HACS → Integrations → ⋯ → Custom repositories**, add `https://github.com/NirBY/ha-mashov` as an **Integration**. Install Mashov and restart Home Assistant.
-2. Open **Settings → Devices & services → Add integration → Mashov** and enter your credentials and school.
-3. Select categories in **Data to fetch**, then **Submit**. You can change them later in **Mashov → Configure**.
-
-> **New hubs start with all 18 categories off.** Submitting an empty selection connects the account but creates no school-data sensors. Dashboards and blueprints need their corresponding categories enabled. For a basic student dashboard, select Homework, Behavior, Weekly plan, Timetable, Lesson history and Grades; add Holidays for the calendar and holiday-aware automations.
-
-Upgrades preserve existing selections, entity IDs and customizations. New sources and mailbox content are never enabled by an upgrade. Hubs created in v1.0.15 retain their previously enabled Noticeboard selection.
-
-## Refresh schedules
-
-In **Configure → Refresh schedules**, edit schedules directly inside the form. Select **Student**, then **General — default schedule** or a data type. Controls update immediately; switching types or students preserves the draft. Uncheck inheritance to customize a schedule. The form’s **Submit** saves all settings and all students together. No separate editor link is needed.
-
-Select **Student** in the interactive editor to edit that child's schedules. **General** is this student's default; individual data types can override it. Switching students preserves drafts, and one Submit saves all students in the selected account together. Existing account schedules remain inherited until overridden, so upgrading does not change current refresh times. Holidays remain school-wide and Mailbox account-wide; select **Shared account / school data and defaults** to edit those resources. A student's timer requests only that student's due resources and preserves siblings' values and timestamps. Manual refresh still updates all selected data. New students inherit existing account defaults; schedules use stable student IDs, so name changes do not swap schedules. In registration, initial defaults are saved first; students become selectable after authentication loads the roster.
-
-Hub registration embeds the same schedule controls in **Refresh schedules**. Enter account details, select data and set initial General/per-data schedules before one **Submit**. Students become available after authentication loads the roster. Setup and Configure follow Home Assistant’s language, including Hebrew and English.
-
-The collapsed **Current schedules** overview shows all 18 categories and their effective schedule. In **Refresh schedules**, choose a student and data type, then select Daily, Weekly or Interval. Daily shows a time, Weekly adds weekdays, and Interval shows minutes (5–1440). Keep inheritance checked to use existing defaults. Finish with the main form’s Submit; cancelling leaves saved settings unchanged.
-
-Times use Home Assistant's timezone. Disabled categories never fetch data, even if they have a schedule. Equal schedules are batched; different schedules fetch only their due categories. Other categories retain their values and their actual last-fetch timestamps. Manual refresh and initial cache warm-up still fetch all enabled data. Existing daily, weekly, interval and legacy single-weekday configurations keep their schedules without requiring migration or re-adding the integration. YAML shared schedule settings still override the shared UI schedule; separate overrides remain independent.
-
-Example action: fetch homework every 30 minutes and grades weekly on Friday (0=Monday); all other selected types keep the shared schedule:
-
-```yaml
-action: mashov.set_options
-data:
-  entry_id: YOUR_ENTRY_ID
-  data_schedules:
-    homework:
-      schedule_type: interval
-      schedule_interval: 30
-    grades:
-      schedule_type: weekly
-      schedule_time: "18:00"
-      schedule_days: [4]
-```
-
-`data_schedules` replaces the complete override map. Send `{}` to return every type to the shared schedule. Reducing intervals increases portal requests and can generate more login/activity emails.
-
-Refresh jobs use one queue across all Mashov hubs: a scheduled or manual refresh waits for the active job to finish. Reloading a hub drains its active request and skips its queued jobs before closing the connection.
-
-### Mailbox consent and retention
-
-Headers do not mark conversations read. The separate, default-off **Full message content (marks conversations read)** checkbox fetches plain-text bodies and **marks fetched conversations read in Mashov**, even if you have not opened them. Attachments are not downloaded. The conversation limit defaults to **20**, range **1–50**.
-
-Turning off full content removes cached bodies. Removing Mailbox also resets full-content consent; adding it again starts with headers only. Previously marked conversations do not become unread again.
-
-The cache stores the last snapshot **without age-based expiry**; failures can leave older data visible as stale. The default request window of 7 days back and 21 forward is not a history deletion policy. Recorder history and backups have independent retention policies; disabling data or deleting a hub does not purge them. Deleting a hub removes its integration cache and saved authentication.
-
-> **Mailbox privacy:** Home Assistant users, including non-admin child accounts, can read mailbox sensor attributes. Dashboard card visibility does not restrict access to these entities. With the privacy fix in this working tree, the mailbox `items` attribute (headers and bodies) is excluded from future Recorder history automatically. Existing history is not purged. Enable mailbox access only if everyone with access to your HA instance may see this information.
-
-To also exclude the unread count and other mailbox metadata from future history, exclude the actual mailbox sensor ID in `configuration.yaml`, then restart Home Assistant:
-
-```yaml
-recorder:
-  exclude:
-    entities:
-      - sensor.REPLACE_WITH_YOUR_MAILBOX_ENTITY_ID
-```
-
-Merge this into your existing `recorder` configuration. This does not remove existing history, the integration cache or backups, and does not restrict live access to the sensor.
-
-## 🧩 Features
-- Simple **Config Flow (UI)** via Settings → Devices & Services → Add Integration → **Mashov**.
-- **Daily refresh** (14:00 by default) + `mashov.refresh_now` service for on-demand updates.
-- **Sensors** expose compact **state** (count) + rich **attributes** (lists you can use in automations / dashboards).
-- **Calendar entity** for school holidays - integrates with Home Assistant calendar view 📅
-- **Diagnostics** endpoint for safe issue reporting (redacts credentials).
-- **Mashov Live dashboard** (Bubble Card) built by a script blueprint, with person photos and per-person card visibility.
-- **Choose each data source** per school hub, including homework, timetable, grades, holidays and additional student data. New hubs start with no datasets selected; existing hubs keep their choices.
-- **Mailbox**: opt-in unread count and recent inbox headers, with a separate, default-off full-content option that marks fetched conversations read in Mashov.
-- **Noticeboard notices**: optional sensor plus a blueprint that notifies and reads new notices aloud, with built-in quiet hours.
-
----
+Community project; not affiliated with Mashov. [Release notes](RELEASE_NOTES.md) · [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md)
 
 ## 📦 Installation
 
-### Via HACS (recommended)
-1. Open **HACS → Integrations → ⋯ → Custom repositories**.
-2. Add repository URL: `https://github.com/NirBY/ha-mashov`. Select **Category: Integration**.
-3. Search for **Mashov** in HACS, install, and **Restart Home Assistant**.
+Requires **Home Assistant 2025.3 or newer**.
 
-### Manual
-1. Copy `custom_components/mashov` into your HA `/config/` folder.
-2. Restart Home Assistant.
+**HACS:** open **HACS → Integrations → ⋯ → Custom repositories**, add `https://github.com/NirBY/ha-mashov` as an **Integration**, install Mashov and restart Home Assistant.
 
-> The integration includes a custom `icon.png`.
+**Manual:** copy `custom_components/mashov` to `/config/custom_components/mashov`, then restart Home Assistant.
 
----
+For updates, install through HACS and restart. Existing data selections, schedules, entity IDs and customizations are preserved; no new data source is enabled automatically.
 
 ## ⚙️ Configuration
 
-1. **Add Integration → Mashov**.
-2. Enter **username / password**.
-3. Pick your **school** from the dropdown with **fast autocomplete** (type to filter). If the list doesn't load, a text field appears; type the **school name in Hebrew** or the **Semel** and we'll resolve it.
-4. Select the required categories in **Data to fetch** (initially empty), then **Submit**. Only selected sensors/calendar are created. Mailbox full content requires a separate opt-in and marks fetched conversations read.
+1. Open **Settings → Devices & services → Add integration → Mashov**.
+2. Enter your username/password and choose the school. Type to filter the school list; if the catalog is unavailable, enter its name or Semel in the fallback text field.
+3. Choose categories in **Data to fetch** and set **Refresh schedules** if needed, then **Submit**. New hubs start with nothing selected; an empty selection connects the account but creates no school-data sensors.
 
-### Options
+Each account/school combination is a separate hub. Configure credentials for each hub independently. The school year advances automatically on September 1 unless you pin it; enable **Automatic school year** to resume automatic rollover.
 
-To configure options, go to: **Settings → Devices & Services → Mashov → Configure**
+You may also set the **shared schedule** in `configuration.yaml`, then restart Home Assistant:
 
-Credential updates in **Configure** apply only to the specific Mashov hub entry you opened. If you have multiple Mashov hubs, updating one hub's username or password does **not** automatically update the others.
+```yaml
+mashov:
+  schedule_type: daily       # daily | weekly | interval
+  schedule_time: "14:00"     # daily/weekly
+  schedule_days: [0, 2, 4]   # weekly: Monday, Wednesday, Friday
+  schedule_interval: 60      # interval: minutes
+```
 
-Duplicate accounts for the same school are detected during setup. Different accounts
-can expose the same child in separate hubs without sensor unique-ID collisions.
-The school year advances automatically on September 1 unless an existing entry has
-an explicitly configured year; that year remains pinned until you enable
-**Automatic school year** in Configure (or `automatic_school_year: true` with `mashov.set_options`).
+YAML overrides the shared UI schedule. Separate student/data schedules remain independent. API base, data selection, date window and item limit are configured through Options. The legacy single `schedule_day` remains supported.
 
-- **Homework window**: days back (default 7), days forward (default 21)
-- **Daily refresh time**: default `14:00`
-- **API base**: default `https://web.mashov.info/api/` (override if your deployment differs)
-- **Max items in attributes**: maximum items to store in sensor attributes (default 100, range: 10-500)
-  - Controls how many recent items are stored in sensor attributes to prevent database size issues
-  - Sensors automatically clean technical fields and limit size to fit within Home Assistant's 16KB limit
-  - Full data is always available via `coordinator.data` for advanced automations
-  - Attributes show `total_items` (all available) and `stored_items` (actually stored in attributes)
+[Picture examples of the current setup and Configure forms](docs/configuration.md)
 
-#### Important note about night-time polling
-- Pulling data at night may trigger email notifications from Mashov about account activity/logins. If this is undesirable:
-  - Prefer scheduling the daily/weekly refresh to daytime hours (e.g., `14:00`).
-  - Use the Options screen or YAML to set `schedule_type` and `schedule_time` accordingly.
-  - Avoid long-running `interval` mode during overnight hours.
+## 🧩 Features
+
+- All **18 data types** are selectable; only enabled categories are fetched. Multiple hubs and students are supported without mixing their records.
+- **Student-specific General and per-data schedules:** daily, weekly or interval, edited inside Setup/Configure. One Submit saves all drafts.
+- **One refresh queue** across hubs, including scheduled, manual and startup requests. Selective refreshes preserve other students’ values and timestamps.
+- **Sensors and holiday calendars**, with structured records, formatted summaries, actual update times, source status and stale-data indicators.
+- **Opt-in account mailbox:** unread count and recent headers, with separately consented plain-text content. No attachment downloads.
+- **Cache and session persistence**, retry/backoff for unavailable sources, automatic school-year rollover and cleanup of departed students after a verified roster refresh.
+- **English, Hebrew, Arabic, Russian and Ukrainian** UI labels; Hebrew/Arabic schedule editing supports right-to-left layout.
+- **Mashov Live dashboard**, individual Lovelace cards and three announcement/reminder blueprints; see the linked guides below.
+- **Manual actions and diagnostics:** refresh, validated option updates, admin-only dashboard creation and sanitized internal-error reports reviewed before submission.
+
+## Options
+
+Open **Settings → Devices & services → Mashov → Configure** beside the hub you want to change. Sections group Data to fetch, Refresh schedules, Account and school, and Advanced settings. Current schedules and help start collapsed.
+
+| Setting | Default / behavior |
+| --- | --- |
+| Homework date window | 7 days back, 21 days forward; a request window, not a history-deletion policy |
+| Shared refresh | Daily at 14:00, in Home Assistant’s timezone |
+| Recent mailbox conversations | 20; range 1–50 |
+| Items in sensor attributes | 100; range 10–500, further reduced to fit the attribute-size budget |
+| API base | `https://web.mashov.info/api/` |
+| Automatic school year | Enabled unless the account has a pinned year |
+
+### Refresh schedules
+
+Select **Student**, then **General — default schedule** or a data type. Uncheck inheritance to customize it. Daily shows a time; Weekly shows time and weekdays; Interval shows minutes (5–1440). Switching students/types keeps the draft; the main **Submit** saves all edits together. Cancelling leaves saved settings unchanged.
+
+During registration, set initial defaults first; students become selectable once authentication loads the roster. Student schedules use stable IDs. New students inherit account defaults, and Holidays/Mailbox retain school/account scope. Select **Shared account / school data and defaults** for those resources.
+
+**Current schedules** shows all categories and their effective schedules. Disabled categories are never fetched. Identical schedules are batched, and every refresh waits for active work to finish. Unload waits only for that hub’s active request and skips its queued work. Manual refresh updates all selected data. Night-time fetching may cause Mashov login/activity emails; choose daytime schedules if this is undesirable.
+
+[Current inline-form pictures](docs/configuration.md) · [Schedule actions and YAML examples](docs/services.md#mashovset_options)
 
 <a id="data-to-fetch-1"></a>
 
 ### Data to fetch
 
-Available in **v1.1.0**. Choose the data you want to fetch. New hubs start with nothing selected; upgrades keep your selections.
+Available in **v1.1.0**. New hubs start with nothing selected; upgrades keep existing selections.
 
 | Group | Data types |
 | --- | --- |
@@ -148,343 +88,51 @@ Available in **v1.1.0**. Choose the data you want to fetch. New hubs start with 
 | School | Noticeboard, holidays and calendar |
 | Mailbox | Unread count and recent headers; message content is optional |
 
-Selections apply to all students in the hub. Mailbox belongs to the account; holidays belong to the school. Availability depends on school permissions. Files are listed, not downloaded.
-
-**Fetching full mailbox content marks conversations as read in Mashov.** It requires separate consent.
+The selection applies to all students in the hub. Mailbox belongs to the account; holidays belong to the school. Availability depends on school permissions. File records are listed, not downloaded; this integration does not submit school forms or absence requests.
 
 ### Selecting and disabling data
 
-In **Configure → Data to fetch**, add categories from the list or remove selected chips with **×**, then **Submit**. Configure each hub separately. A selection change reloads the hub and attempts an immediate refresh; the default daily refresh is at 14:00.
+Add categories from the list or remove their chips with **×**, then **Submit**. Selection changes reload the hub and attempt an immediate refresh. For a basic dashboard, select Homework, Behavior, Weekly plan, Timetable, Lesson history and Grades; add Holidays for the calendar.
 
-
-Removing a category clears its active and disk cache **before login**, even if the next refresh fails, and disables its entities while preserving IDs and history. Disabling an entity in HA does not stop fetching its category; remove it in Configure to stop requests. An empty selection retains authentication and the student roster.
+Removing a category clears its active/disk cache **before login**, even if refresh fails, and disables its entities while retaining IDs and history. Disabling an entity manually in HA does not stop its category’s requests. An empty selection retains authentication and student discovery. [Action examples](docs/services.md#mashovset_options)
 
 ### Mailbox (optional)
 
-Select **Mailbox — headers and unread count** to create one sensor per account/school hub,
-not one per child. Its state is the current number of unread conversations. Attributes
-contain the inbox count and the latest **20 conversations** (configurable from 1 to 50),
-with conversation/message IDs, subject, sender, date, read status and attachment indicator.
-Header-only mode does not open conversations or mark them read.
+Select **Mailbox — headers and unread count** for one sensor per account/school hub. Headers do not mark conversations read. **Full message content is off by default; enabling it marks fetched conversations read in Mashov**, even if you never open them. It fetches plain-text bodies only, with no images or attachments. Removing Mailbox resets full-content consent; enabling it again starts with headers only.
 
-**Full message content is off by default. Enabling it marks fetched conversations as read
-in Mashov, even if you have not opened them yourself.** This behavior was confirmed against
-the live portal: the conversation GET alone changed the unread count from 1 to 0.
-Only the fetched recent inbox conversations are opened; older inbox pages, sent mail,
-drafts and archived conversations are not fetched. Turning off Mailbox also resets
-full-content consent; selecting it again starts in header-only mode.
+The limit applies to recent inbox conversations (20 by default, 1–50). Sent mail, drafts, archives and older inbox pages are not fetched. Long bodies may be shortened in attributes; check `stored_conversations`, `fetched_conversations`, `body_truncated` and `content_status`. Failed counts are not displayed as zero. See [Privacy & Security](#-privacy--security) before enabling access.
 
-Bodies are exposed as plain text in `items[].messages[].body`; HTML is not executed and
-images/attachments are never downloaded. Attributes stay below Home Assistant's recorder
-budget. Long bodies can be shortened in sensor attributes (`body_truncated: true` and
-`content_truncated: true`); the coordinator retains the fetched full text. Check
-`stored_conversations` versus `fetched_conversations` for omitted records. Per-conversation
-`content_status` shows failed body fetches, and `counts_status` shows unread-count failures;
-failures are never presented as zero unread. The unread count is refreshed after body fetching.
+### 🧠 Entities (per child)
 
-```yaml
-action: mashov.set_options
-data:
-  entry_id: <your hub's entry id>
-  enabled_data: [homework, timetable, mailbox]
-  mailbox_full_content: false
-  mailbox_limit: 20
-```
+Each selected student category creates its corresponding sensor. Core sensors cover homework, behavior, weekly plan, timetable, lesson history and grades; additional sources follow the Data to fetch table. Find actual entity IDs under **Settings → Devices & services → Entities**; IDs are preserved on upgrade and internally scoped to each hub.
 
-Message content stays in your Home Assistant instance/cache. The privacy fix excludes
-`items` from future Recorder history; previously recorded content is not deleted. Diagnostics contain technical statuses only, never message bodies, subjects, senders
-or conversation IDs. Selection changes do not delete existing Recorder history.
+| Field | Meaning |
+| --- | --- |
+| State | Number of records; `unknown` for unavailable sources, `0` for a successful empty response |
+| `items` | Cleaned records for cards and automations |
+| `formatted_summary`, `formatted_by_date`, `formatted_by_subject` | Display helpers where supported |
+| `total_items`, `stored_items` | Available records versus records included in size-limited attributes |
+| `last_update`, `data_stale`, `source_status` | Actual successful update time, stale-data flag and source availability |
+| `schedule_type`, `schedule_scope` | Effective refresh schedule and whether it is shared or student-specific |
 
-### Configuration via configuration.yaml (optional)
-You can also configure the shared refresh schedule via YAML. Scheduling values in YAML
-override the shared Options UI schedule, but do not override separate per-data schedules.
-Configure the API base, homework window, and item limit
-through the Options UI.
+Weekly-plan subjects/teachers are filled from timetable groups where available. Date-labelled plans keep different weeks separate. Class/name changes do not swap students’ data. [Picture examples of record cards](examples/lovelace/README.md#picture-examples)
 
-```yaml
-mashov:
-  # Scheduling
-  schedule_type: daily        # daily | weekly | interval
-  schedule_time: "14:00"      # for daily/weekly
-  schedule_day: 0             # 0=Monday ... 6=Sunday
-  schedule_days: [0, 2, 4]    # optional multiple days for weekly
-  schedule_interval: 120      # minutes (for interval mode)
-```
+#### School hub entities
 
----
+With Holidays selected, each hub gets its own holiday sensor and calendar. Use the holiday entities from the student’s own school in cards and automations. The calendar exposes all-day holiday events; the sensor provides count, records and formatted summaries. Calendar support was contributed by [@aviadlevy](https://github.com/aviadlevy).
 
-## 🧠 Entities (per child)
+Mailbox is also a hub-level entity, with unread count and recent conversation attributes; it is not repeated per student.
 
-For each child **N**, these sensors are created when their categories are selected:
+## Guides and examples
 
-The IDs below are illustrative. Home Assistant assigns entity IDs from entity names
-and its registry; select your actual IDs in **Settings → Devices & Services → Entities**.
-Upgrading preserves existing entity IDs and history references. Internal unique IDs
-are scoped to each hub automatically.
+| Guide | Contents |
+| --- | --- |
+| [Services](docs/services.md) | Refresh, option changes, schedule maps and dashboard creation examples |
+| [Automation blueprints](docs/blueprints.md) | Homework/behavior announcement, bag reminder and new noticeboard notifications |
+| [Mashov Live dashboard](docs/dashboard.md) | Setup, family visibility, student popups and desktop/mobile picture examples |
+| [Lovelace card examples](examples/lovelace/README.md) | Timetable, homework, behavior and refresh cards with pictures and entity placeholders |
 
-- **Weekly Plan** – `sensor.mashov_<student_id>_weekly_plan`
-- **Homework** – `sensor.mashov_<student_id>_homework`
-- **Behavior** – `sensor.mashov_<student_id>_behavior`
-- **Timetable** – `sensor.mashov_<student_id>_timetable`
-- **Lessons History** – `sensor.mashov_<student_id>_lessons_history` (`…_lesson_history` on new installations)
-- **Grades** – `sensor.mashov_<student_id>_grades`
-
-**State** = number of items.
-**Attributes** (common): `items`, `formatted_summary`, `formatted_by_date`, `formatted_by_subject` (and for timetable: also table helpers).
-
-Weekly-plan subjects and teachers are filled from timetable groups where available,
-and grouped views include the plan text. Dated plans render a date-labelled HTML table
-instead of combining different weeks into one grid. Students continue updating after
-a class-name change because data lookup follows their stable student ID. Schedule
-timestamps use Home Assistant's configured timezone. `last_update` is the
-actual last successful refresh time in Home Assistant's timezone, or null for legacy caches without a timestamp.
-
-> **Tip**: Use `{{ state_attr('sensor.mashov_<id>_homework', 'items') }}` to access raw lists.
->
-> **Note**: The `items` attribute contains cleaned, size-optimized recent items (technical fields removed). To see all items:
-> - `total_items` = total number of items available
-> - `stored_items` = number of items in the `items` attribute
-> - Full raw data is always available via `coordinator.data` for advanced automations
-
-### School hub entities
-
-Each hub with Holidays selected has its own holiday sensor and calendar. Select the matching school's
-entities in cards and automations; IDs can have suffixes on installations with multiple hubs.
-- **Holidays Sensor** – `sensor.mashov_<school>_holidays_count` on new installations (older: `sensor.mashov_holidays`, `sensor.mashov_holidays_2`, …)
-  State = number of holidays. Attributes: `items`, `formatted_summary`, `formatted_by_date`.
-
-- **Holidays Calendar** – `calendar.mashov_<school>_holidays_calendar` on new installations (older: `calendar.mashov_holidays_calendar`, …)
-  Full calendar integration for school holidays. Shows events in Home Assistant calendar view with start/end dates.
-  _Contributed by [@aviadlevy](https://github.com/aviadlevy)_
-
----
-
-## 🔔 Automation Blueprint: Daily Homework & Behavior Announcement
-
-A ready-to-use blueprint that speaks today's homework and behavior in Hebrew at a fixed time, with safe defaults and volume handling.
-
-One‑click import (My Home Assistant):
-
-[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint URL.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FNirBY%2Fha-mashov%2Fmain%2Fblueprints%2Fautomation%2Fmashov%2Fmashov_daily_homework_announce.yaml)
-
-If you hit a cache issue when importing, use the commit‑pinned link:
-
-[Import pinned version](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FNirBY%2Fha-mashov%2Fe9aade5%2Fblueprints%2Fautomation%2Fmashov%2Fmashov_daily_homework_announce.yaml)
-
-Blueprint file location: `blueprints/automation/mashov/mashov_daily_homework_announce.yaml`.
-
-What does it do?
-- Daily voice announcement at **15:00** that reads the student’s **name**, **today’s behaviors**, and **today’s homework** (Hebrew).
-- Runs **only in daytime** and **skips holidays** using your Mashov holidays sensor (`Items[start/end]`).
-- Triggers **only if there is data for today** in the homework and/or behavior sensors.
-- Temporarily **sets the speaker to max volume**, speaks via **`tts.speak`** (configurable), then **restores the original volume** after playback.
-- Works with any `media_player` (Sonos, Nest, etc.); volume restore is state-aware.
-- Fully **templated blueprint**: select your own Mashov sensors and speaker at import time.
-- Safe defaults: 15:00 schedule, Hebrew (`he-IL`) TTS, 07:00–22:00 guard rails.
-- GitHub-friendly: no hardcoded entity IDs; can be imported with a **My Home Assistant** one-click link.
-
-How to use
-1. Click the import button above and select your `holiday_sensor`, `homework_sensor`, `behavior_sensor`, `media_player`, and optional `tts_service`.
-2. Save the automation. By default it runs every day at 15:00.
-
----
-
-## 🎒 Automation Blueprint: Bag Reminder (Tomorrow's Subjects)
-
-One‑click import (My Home Assistant):
-
-[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint URL.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FNirBY%2Fha-mashov%2Fmain%2Fblueprints%2Fautomation%2Fmashov%2Fbag_reminder_tomorrow.yaml)
-
-What does it do?
-- Runs once daily at 18:00 to help a student pack their school bag for tomorrow.
-- Skips automatically if it’s night-time, Saturday, or a listed holiday (from the holiday sensor).
-- Reads tomorrow’s subjects only when timetable data actually exists for tomorrow.
-- Builds a Hebrew TTS message: “שלום {Student}… אנא לסדר תיק למחר… {subjects + teacher names [+ plan]}”.
-- Temporarily raises the speaker to a configurable max volume, then restores the previous (or fallback) volume after TTS ends.
-- Pulls subjects and teacher names from the Mashov timetable; optionally appends each lesson’s “plan” from the weekly plan sensor.
-- Waits for the speaker state to finish playing before restoring volume, to avoid cutting the message.
-- Provides rich trace/log lines explaining why it ran or skipped (night block, Saturday, holiday, has data).
-
-Blueprint file location: `blueprints/automation/mashov/bag_reminder_tomorrow.yaml`.
-
-How to use
-1. Click the import button above, pick your Mashov timetable sensor, (optional) weekly plan sensor, holiday sensor, media player and voice settings.
-2. Save the automation. Defaults: 18:00, Hebrew, night guard 22:00–07:00.
-
----
-
-## 📌 Automation Blueprint: New Noticeboard Notice
-
-Get a phone notification, and optionally hear it on a speaker, when the school posts a new notice
-on a child's Mashov noticeboard. Added in v1.0.15.
-
-One‑click import (My Home Assistant):
-
-[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint URL.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FNirBY%2Fha-mashov%2Fmain%2Fblueprints%2Fautomation%2Fmashov%2Fmashov_noticeboard_announce.yaml)
-
-Blueprint file location: `blueprints/automation/mashov/mashov_noticeboard_announce.yaml`.
-
-Requirements
-- **Noticeboard** turned on for the hub ([how](#data-to-fetch)). Hubs created in v1.0.15 keep it enabled; new setups choose it explicitly.
-
-What does it do?
-- Watches one or more noticeboard sensors (one per child). A notice counts as new when its Mashov notice ID was not
-  there before, so a notice that replaces another is announced, and a removed notice is not.
-- Sends a Home Assistant notification (on by default) and, if you enter one, a phone notification
-  (for example `notify.mobile_app_my_phone`). HTML is removed and long notices are shortened.
-- Optionally reads the notice aloud in Hebrew: turns the speaker on, raises the volume, speaks with `tts.speak`,
-  then restores the previous volume (or a fallback volume if it was unknown).
-- **Never speaks during quiet hours, 22:00–07:00.** This is built in and cannot be turned off, so there are no
-  surprise announcements at night. A notice that arrives then is still sent as a notification.
-- Never re-announces existing notices after a Home Assistant restart, a reload, or a temporary outage.
-- Logs every decision to the logbook (announced, quiet hours, nothing new), like the other Mashov blueprints.
-
-Timing: notices arrive with the integration's refresh, not instantly. With the default daily refresh at 14:00,
-a morning notice is announced at 14:00. For faster updates, switch the hub to interval mode (for example every
-60 minutes) in Configure.
-
-How to use
-1. Click the import button above and create an automation from the blueprint.
-2. Select the noticeboard sensors, and optionally a phone notify action, a speaker and a TTS engine.
-3. Save. Nothing is announced right away; the next new notice triggers it.
-
-Playback waits up to the configured TTS timeout for a slow speaker to start, then waits
-up to that timeout for playback to finish before restoring volume (120 seconds each by default).
-If playback never starts or never finishes, the timeout bounds the wait.
-
----
-
-## ✨ Script Blueprint: Mashov Live dashboard (Bubble Card)
-
-One‑click import (My Home Assistant):
-
-[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint URL.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FNirBY%2Fha-mashov%2Fmain%2Fblueprints%2Fscript%2Fmashov%2Fmashov_live_dashboard.yaml)
-
-What does it build?
-- A greeting card with the current holiday countdown (or days until the next holiday) and a refresh button.
-- One quiet card per student, showing the linked person's photo, a live "tomorrow" line (holiday, Saturday, or the number of lessons and first subjects), behavior, grades and notice counts, and a homework bar.
-- A pop-up per student with tomorrow's lessons (teacher and room), recent homework, behavior, grades, notices and the school calendar.
-- Hebrew right‑to‑left layout, with English words and numbers kept left‑to‑right.
-
-Who sees which card?
-- **Family** (people selected in the General section) see every card.
-- Each student card is also visible to the **linked person** and any **extra viewers**, so a child who logs in sees only their own card.
-- A child found automatically, with no linked person and no extra viewers, is visible only to the family. Choose at least one family member, or link that child to a person who has a Home Assistant user.
-- Only people linked to a Home Assistant user can be used for visibility. This hides cards in the dashboard; it does not restrict access to the underlying entities.
-
-Requirements
-- Bubble Card 3.4 or newer (HACS → Frontend).
-- An empty UI dashboard: **Settings → Dashboards → Add dashboard → New dashboard from scratch**. Note its URL (for example `mashov-live`).
-
-How to use
-1. Click the import button above and create a script from the blueprint.
-2. Enter the dashboard URL and the family members. Every child on every Mashov hub is included, with the name, class and sensors the integration already created. The four student sections are optional: type a child's name to set an emoji, color, linked person or extra viewers. Empty sections are skipped.
-3. Save and run the script. Run it again after a new child is added; you do not need to edit the script.
-
-The script only writes into a dashboard that is empty or that it built itself. To replace a dashboard
-that has other content, or a built-in one such as the Overview (`lovelace`), turn on **Replace existing
-content**; the previous content is lost. Only administrators can run the service.
-
-Blueprint file location: `blueprints/script/mashov/mashov_live_dashboard.yaml`.
-
----
-
-## 🛠️ Services
-
-### `mashov.refresh_now`
-Trigger an immediate refresh.
-```yaml
-service: mashov.refresh_now
-data:
-  entry_id: YOUR_ENTRY_ID  # optional; if omitted, all entries refresh
-```
-
-Calling without `entry_id` refreshes all configured Mashov hubs.
-
-### `mashov.set_options`
-
-Update a hub's options without opening Configure:
-
-```yaml
-service: mashov.set_options
-data:
-  entry_id: YOUR_ENTRY_ID
-  schedule_type: weekly
-  schedule_time: "14:00"
-  schedule_days: [0, 2, 4]  # Monday, Wednesday, Friday
-```
-
-To change the data selection, provide the complete list of categories to keep enabled:
-
-```yaml
-action: mashov.set_options
-data:
-  entry_id: YOUR_ENTRY_ID
-  enabled_data: [homework, timetable, message_board, periodic_grades]
-```
-
-Legacy `additional_data` changes only optional student sources and preserves core data and Mailbox.
-
-For backward compatibility, omitting `entry_id` targets the first loaded hub.
-Specify it when selecting a particular hub. The legacy `schedule_day` field remains
-supported; supplying it without `schedule_days` replaces the selected days with
-that one day. Invalid service inputs are rejected. YAML scheduling overrides still apply.
-
-### `mashov.create_live_dashboard`
-
-Build the Mashov Live dashboard into an existing UI dashboard. With no `students` list it includes every child from every hub. The script blueprint above calls this service; you can also call it directly:
-
-```yaml
-action: mashov.create_live_dashboard
-data:
-  dashboard: mashov-live          # URL of an existing, empty UI dashboard
-  title: משוב לייב
-  family: [person.parent_1, person.parent_2]
-  overwrite: false                # true replaces other content or a built-in dashboard
-  students:                       # optional tweaks; omitted children still appear
-    - name: נועה                  # full name, or a unique first name
-      emoji: "🚀"
-      person: person.noa          # photo + this user sees the card
-      viewers: [person.grandma]   # optional extra viewers
-      accent: [155, 176, 201]     # RGB list or "#9bb0c9"
-response_variable: result
-```
-
-The response reports the dashboard, the number of students and whether the Bubble Card resource was found. There is no limit on the number of children.
-
----
-
-## 🧱 Lovelace Cards (Examples)
-Ready-made cards live in [`examples/lovelace/cards/`](examples/lovelace/cards/). HACS installs only
-`custom_components/`, so copy the cards from GitHub. Full instructions and the placeholder table are in
-[examples/lovelace/README.md](examples/lovelace/README.md).
-
-| Card | Shows | Needs |
-| --- | --- | --- |
-| [`homework_list_by_date.yaml`](examples/lovelace/cards/homework_list_by_date.yaml) | Homework grouped by date | config-template-card, html-card |
-| [`behavior_list_by_date.yaml`](examples/lovelace/cards/behavior_list_by_date.yaml) | Behavior events grouped by date | config-template-card, html-card |
-| [`weekly_plan_table_advanced.yaml`](examples/lovelace/cards/weekly_plan_table_advanced.yaml) | This week's timetable with plans and holidays | config-template-card, html-card |
-| [`weekly_plan_table_dynamic.yaml`](examples/lovelace/cards/weekly_plan_table_dynamic.yaml) | The same, two days at a time with paging (mobile) | config-template-card, html-card |
-| [`refresh_all_button.yaml`](examples/lovelace/cards/refresh_all_button.yaml) | Refresh all hubs | nothing |
-
-**How to add a card**
-- **UI dashboard (the default):** edit the dashboard → **Add card** → **Manual**, and paste the whole file.
-  `!include` does not work in UI dashboards.
-- **YAML dashboard:** copy the files to `/config/lovelace/cards/examples/` and include them:
-  ```yaml
-  views:
-    - title: Mashov
-      cards:
-        - !include lovelace/cards/examples/homework_list_by_date.yaml
-  ```
-
-Then replace every placeholder (for example `sensor.mashov_<studentID>_homework`) with your own entity ID.
-Each placeholder appears twice in a card: once under `entities` and once inside the JavaScript.
-For the weekly cards, use the holiday sensor of the student's own school hub.
-
-Example previews:
-
-## 🔍 Troubleshooting
+## Troubleshooting
 
 - **401 / authentication failures**: check credentials and school choice, and update credentials through **Configure**. Password-change responses display a link to the Mashov login page.
 - **403 / school-disabled resources**: core resources such as weekly plan retry after 1 hour, then 6 hours, then 24 hours. Each student's resource has its own cooldown, which resets after success. Optional resources use a separate 24-hour cooldown. A school permission denial does not necessarily mean the password is wrong.
@@ -498,21 +146,6 @@ Example previews:
 - **Mailbox reload race**: a closed session during mailbox fetching is treated as an operational fetch failure. Other unexpected runtime errors remain reportable.
 - **"New Device" emails**: session persistence reduces unnecessary logins but cannot prevent fresh authentication after a server-side session expiry. Authentication is saved after successful refreshes in `.storage/mashov.<entry_id>.cache`. Avoid unnecessary reloads and never share this file; it contains authentication data.
 
-### Notifications, GitHub, Telegram and GreenAPI
-
-Authentication and full-refresh failures create a persistent notification in the HA
-UI. A successful refresh dismisses that hub's notification. Only detected internal
-programming errors offer GitHub reporting; account, network, HTTP/API availability
-and school-permission failures do not. The link opens a prefilled issue form for review; publishing or closing an issue
-on GitHub does not synchronize its status back into HA.
-
-The integration does not include GitHub issue monitoring or automatic Telegram/
-GreenAPI delivery. Configure those separately if needed. To forward HA notifications,
-use a `persistent_notification` trigger for added/updated notifications; listening
-only for calls to the `persistent_notification.create` service misses notifications
-created directly by integration code. For HACS release alerts, monitor the relevant
-`update` entities rather than relying on the legacy `sensor.hacs` entity.
-
 ### Enable debug logs
 ```yaml
 logger:
@@ -520,17 +153,25 @@ logger:
     custom_components.mashov: debug
 ```
 
----
-
 ## 🔐 Privacy & Security
-- Credentials are stored by Home Assistant in the config entry store.
-- The integration mirrors the Mashov web client behavior (headers, cookies, API calls). Endpoints may change without notice.
-- Before sharing logs, screenshots, or diagnostics in GitHub issues, review them and remove personal data such as usernames, student names, IDs, grades, homework text, session cookies, tokens, phone numbers, email addresses, and any other sensitive school or account details.
-- If you are unsure whether something is safe to share, redact it first. Only upload the minimum data needed to reproduce the problem.
 
----
+Credentials are stored by Home Assistant; saved sessions and school data also live in `.storage/mashov.<entry_id>.cache`. Never share that file. Review logs and diagnostics before sharing, and remove credentials, student details, grades, messages, cookies and tokens.
+
+**Every Home Assistant user, including a non-admin child account, can read mailbox sensor attributes.** Dashboard visibility hides cards only; it does not restrict entity access. Enable Mailbox only if that access is acceptable.
+
+Mailbox `items` is excluded from new Recorder history automatically. Previously recorded content remains. The integration keeps the latest snapshot without age-based expiry; failed requests can leave it visible as stale. Turning off full content removes cached bodies; removing Mailbox removes headers and resets consent. Deleting a hub removes its integration cache and saved session, not existing Recorder history or backups.
+
+To exclude the whole mailbox sensor from future history, merge this into your existing `recorder` configuration and restart Home Assistant:
+
+```yaml
+recorder:
+  exclude:
+    entities:
+      - sensor.REPLACE_WITH_YOUR_MAILBOX_ENTITY_ID
+```
+
+This does not restrict live access or remove old history, cache or backups. Internal-error report links open a form for your review; nothing is posted automatically. Diagnostics omit mailbox content and account credentials.
 
 ## 📄 License
-MIT © 2025
 
----
+[MIT © 2025](LICENSE) · [Project notice](NOTICE.md)

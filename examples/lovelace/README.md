@@ -65,3 +65,36 @@ Synthetic holiday fixture (no account or student information):
 ```
 
 Local portal HTML captures belong in the ignored `dataExample/html/` folder, never in Git.
+
+
+## Picture examples
+
+These existing screenshots show the card layouts with personal names redacted. School content is displayed in its original language.
+
+### Homework by date
+
+[Card YAML](cards/homework_list_by_date.yaml)
+
+![Homework grouped by date](../screenshots/homework_list_by_date.png)
+
+### Behavior by date
+
+[Card YAML](cards/behavior_list_by_date.yaml)
+
+![Behavior grouped by date](../screenshots/behavior_list_by_date.png)
+
+### Weekly timetable and plans
+
+[Card YAML](cards/weekly_plan_table_advanced.yaml)
+
+![Timetable, plans and holiday highlighting](../screenshots/weekly_plan_table_advanced.png)
+
+### Two-day timetable with paging
+
+[Card YAML](cards/weekly_plan_table_dynamic.yaml). Shows the timetable/plan data two days at a time, with previous/next controls. The picture below was rendered from this exact template using fictional sample records.
+
+![Paged timetable using fictional sample data](../screenshots/weekly_plan_table_dynamic.jpg)
+
+### Refresh button
+
+[Card YAML](cards/refresh_all_button.yaml). A single tap requests a refresh of all hubs. The refresh control is also pictured in the [Mashov Live desktop example](../../docs/dashboard.md#picture-examples).
