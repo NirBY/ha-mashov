@@ -22,7 +22,24 @@ Upgrades preserve existing selections, entity IDs and customizations. New source
 
 ## Available data
 
-### Separate schedules for each data type (v1.1.0)
+Choose what to fetch in **Data to fetch**. New hubs start with nothing selected; upgrades keep your selections.
+
+**Data to fetch — v1.1.0**
+
+| Group | Available data |
+| --- | --- |
+| Lessons | Homework, weekly plan, timetable, lesson history |
+| Grades | Grades, term grades, report cards |
+| Behavior | Behavior, daily behavior, outside lesson behavior, follow-up notes |
+| Student records | Study materials, student files, absence justification requests, individual lessons |
+| School | Noticeboard, holidays and calendar |
+| Mailbox | Unread count and recent headers; message content is optional |
+
+Selections apply to all students in the hub. Mailbox belongs to the account; holidays belong to the school. Availability depends on school permissions. Files are listed, not downloaded.
+
+**Fetching full mailbox content marks conversations as read in Mashov.** It requires separate consent.
+
+## Refresh schedules
 
 In **Configure → Refresh schedules**, edit schedules directly inside the form. Select **Student**, then **General — default schedule** or a data type. Controls update immediately; switching types or students preserves the draft. Uncheck inheritance to customize a schedule. The form’s **Submit** saves all settings and all students together. No separate editor link is needed.
 
@@ -53,31 +70,6 @@ data:
 `data_schedules` replaces the complete override map. Send `{}` to return every type to the shared schedule. Reducing intervals increases portal requests and can generate more login/activity emails.
 
 Refresh jobs use one queue across all Mashov hubs: a scheduled or manual refresh waits for the active job to finish. Reloading a hub drains its active request and skips its queued jobs before closing the connection.
-
-All categories below are **off for new hubs**. Selections apply to all students in that account and school; Holidays is school-level and Mailbox is account-level.
-
-| Category | Data key | What you receive |
-| --- | --- | --- |
-| Homework | `homework` | Tasks in the configured date window |
-| Behavior | `behavior` | Behavior events in the date window |
-| Weekly plan | `weekly_plan` | Published lesson plans |
-| Timetable | `timetable` | Weekly timetable |
-| Lesson history | `lessons_history` | Lesson journal records |
-| Grades | `grades` | Grade records |
-| Holidays | `holidays` | School holiday sensor and calendar |
-| Noticeboard | `message_board` | School notices and expiry dates |
-| Daily behavior | `daily_behavior` | Daily records in the date window |
-| Outside lesson behavior | `outside_behavior` | Events outside lessons in the date window |
-| Follow-up notes | `follow_up` | Staff notes in the date window |
-| Term grades | `periodic_grades` | Grades by term |
-| Report cards | `report_cards` | Records, without downloading files |
-| Study materials | `study_materials` | Records, without downloading files |
-| Student files | `student_files` | Records, without downloading files |
-| Absence justification requests | `justification_requests` | Existing requests; does not submit requests |
-| Individual lessons | `special_hours` | Published individual lesson records |
-| Mailbox | `mailbox` | Unread conversation count and recent inbox headers |
-
-Unavailable sources show `unknown` with `source_status: forbidden` or `unsupported`; a successful empty response shows `0`. Noticeboard and Mailbox are separate sources.
 
 ### Selecting and disabling data
 
