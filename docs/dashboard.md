@@ -8,8 +8,8 @@ One‑click import (My Home Assistant):
 
 ## What it shows
 - A greeting card with the current holiday countdown (or days until the next holiday) and a refresh button.
-- One quiet card per student, showing the linked person's photo, a live "tomorrow" line (holiday, Saturday, or the number of lessons and first subjects), behavior, grades and notice counts, and a homework bar.
-- A pop-up per student with tomorrow's lessons (teacher and room), recent homework, behavior, grades, notices and the school calendar.
+- One quiet card per student, showing the linked person's photo, a live "tomorrow" line (holiday, or the number of lessons and first subjects; on Friday it shows Sunday's bag or holiday, unless the timetable has Saturday lessons), behavior, grades and notice counts, and a homework bar.
+- A pop-up per student with the next school day's lessons (teacher and room; Sunday's on Friday), recent homework, behavior, grades, notices and the school calendar.
 - Hebrew right‑to‑left layout, with English words and numbers kept left‑to‑right.
 
 ## Visibility

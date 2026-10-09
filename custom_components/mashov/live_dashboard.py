@@ -422,7 +422,7 @@ def _hero(holidays: str | None) -> dict[str, Any]:
     return card
 
 
-def _tomorrow_holiday(holidays: str | None, value: str) -> str:
+def _bag_day_holiday(holidays: str | None, value: str) -> str:
     """Jinja that sets ns.h to `value` (a Jinja expression) if date `t` is a holiday.
 
     Expects `t` and `ns` (with an `h` field) to be defined by the caller.
@@ -454,24 +454,44 @@ def _lessons_for_day(entity: str) -> str:
     )
 
 
-def _tomorrow_line(s: dict[str, Any]) -> str:
-    """Jinja for the student card's one-line summary of tomorrow.
+def _lessons(timetable: str | None) -> str:
+    """Jinja that sets `L` like _lessons_for_day, or to [] when there is no timetable sensor."""
+    return _lessons_for_day(timetable) if timetable else "{%- set L = [] -%}"
 
-    Priority: holiday > Saturday (no school) > lesson count + first three subjects
-    > "no timetable for tomorrow". Mashov numbers days 1=Sunday..7=Saturday, so
-    isoweekday() (Mon=1..Sun=7) is converted with (isoweekday % 7) + 1.
+
+def _bag_day(timetable: str | None) -> str:
+    """Jinja that sets the next day to pack the bag for: `t` (date), `d` (Mashov day), `skip_sat` and `when`.
+
+    Normally that's tomorrow. When tomorrow is Saturday and the timetable has no
+    Saturday lessons, it skips to Sunday and sets `skip_sat`, so Friday shows
+    Sunday's bag. `when` is the Hebrew word for that day. Mashov numbers days
+    1=Sunday..7=Saturday, so isoweekday() (Mon=1..Sun=7) is converted with
+    (isoweekday % 7) + 1.
     """
-    lessons = _lessons_for_day(s["timetable"]) if s["timetable"] else "{%- set L = [] -%}"
     return (
-        "{%- set t = (now() + timedelta(days=1)).date() -%}"
+        "{%- set tomorrow = (now() + timedelta(days=1)).date() -%}"
+        "{%- set d = 7 -%}" + _lessons(timetable) + "{%- set skip_sat = tomorrow.isoweekday() == 6 and not L -%}"
+        "{%- set t = tomorrow + timedelta(days=1 if skip_sat else 0) -%}"
         "{%- set d = (t.isoweekday() % 7) + 1 -%}"
-        "{%- set ns = namespace(h='') -%}"
-        + _tomorrow_holiday(s["holidays"], "x.name")
-        + lessons
+        "{%- set when = 'ביום ראשון' if skip_sat else 'מחר' -%}"
+    )
+
+
+def _bag_day_line(s: dict[str, Any]) -> str:
+    """Jinja for the student card's one-line summary of the next bag day (see _bag_day).
+
+    Priority: holiday > lesson count + first three subjects > Saturday (no school)
+    > "no timetable for tomorrow".
+    """
+    return (
+        _bag_day(s["timetable"])
+        + "{%- set ns = namespace(h='') -%}"
+        + _bag_day_holiday(s["holidays"], "x.name")
+        + _lessons(s["timetable"])
         + "{%- set subs = L | map(attribute='groupDetails.subjectName') | unique | list -%}"
-        "{%- if ns.h -%}🌴 מחר {{ ns.h }} · אין לימודים"
-        "{%- elif d == 7 -%}😴 מחר שבת"
-        "{%- elif L -%}🎒 מחר {{ L | count }} שיעורים · {{ subs[:3] | join(' · ') }}"
+        "{%- if ns.h -%}🌴 {{ when }} {{ ns.h }} · אין לימודים"
+        "{%- elif L -%}🎒 {{ when }} {{ L | count }} שיעורים · {{ subs[:3] | join(' · ') }}"
+        "{%- elif skip_sat -%}😴 מחר שבת"
         "{%- else -%}אין מערכת למחר{%- endif -%}"
     )
 
@@ -538,7 +558,7 @@ def _student_card(s: dict[str, Any]) -> dict[str, Any]:
         "card_type": "button",
         "button_type": "name",
         "name": title,
-        "state_content": [_tomorrow_line(s)],
+        "state_content": [_bag_day_line(s)],
         "scrolling_effect": True,
         "card_layout": "large",
         "grid_options": {"columns": 12, "rows": 2},
@@ -558,41 +578,53 @@ def _student_card(s: dict[str, Any]) -> dict[str, Any]:
     return card
 
 
+def _table_cell(expr: str) -> str:
+    """Jinja that prints `expr` as one markdown table cell: newlines become spaces, pipes are escaped."""
+    return "{{ ((" + expr + ") or '') | string | replace('\\r', '') | replace('\\n', ' ') | replace('|', '\\\\|') }}"
+
+
 def _popup_markdown(s: dict[str, Any]) -> str:
     """Markdown/Jinja body of the student pop-up; each block appears only if its sensor exists.
 
-    Blocks: tomorrow (holiday / Saturday alert, else a lessons table with
-    teacher and room), the six latest homework items, the four latest behavior
-    events, four grades, and noticeboard messages with non-empty text.
+    Blocks: the next bag day (holiday / Saturday alert, else a lessons table with
+    teacher and room; on Friday it shows Sunday, see _bag_day), the six latest
+    homework items, the four latest behavior events, four grades, and
+    noticeboard messages with non-empty text.
     Everything is wrapped in a dir="rtl" div for Hebrew layout.
     """
     parts = ['<div dir="rtl">']
     if s["timetable"] or s["holidays"]:
+        # Set L before the table: a `{%-` tag inside it would eat the newline ending the row above.
         lessons_loop = (
-            _lessons_for_day(s["timetable"]) + "{% for x in L %}"
-            "| {{ x.timeTable.lesson }} | {{ x.groupDetails.subjectName }} | "
-            "{{ ((x.groupDetails.groupTeachers or [{}])[0]).teacherName or '' }} | {{ x.timeTable.roomNum or '' }} |\n"
+            "{% for x in L %}"
+            f"| {{{{ x.timeTable.lesson }}}} | {_table_cell('x.groupDetails.subjectName')} | "
+            f"{_table_cell('((x.groupDetails.groupTeachers or [{}])[0]).teacherName')} | "
+            f"{_table_cell('x.timeTable.roomNum')} |\n"
             "{% endfor %}"
-            if s["timetable"]
-            else ""
         )
         parts.append(
-            "{% set t = (now() + timedelta(days=1)).date() %}"
-            "{% set d = (t.isoweekday() % 7) + 1 %}"
-            "{% set ns = namespace(h='') %}"
-            + _tomorrow_holiday(s["holidays"], "x.name")
-            + '\n{% if ns.h %}<ha-alert dir="rtl" alert-type="success" title="מחר חופש">🌴 {{ ns.h }}</ha-alert>\n'
-            '{% elif d == 7 %}<ha-alert dir="rtl" alert-type="info" title="מחר שבת">😴 אין לימודים</ha-alert>\n'
-            '{% else %}<ha-alert dir="rtl" alert-type="info" title="🎒 התיק למחר"></ha-alert>\n\n'
-            "| # | מקצוע | מורה | חדר |\n|:-:|---|---|:-:|\n" + lessons_loop + "{% endif %}\n"
+            _bag_day(s["timetable"])
+            + "{% set ns = namespace(h='') %}"
+            + _bag_day_holiday(s["holidays"], "x.name")
+            + _lessons(s["timetable"])
+            + '\n{% if ns.h %}<ha-alert dir="rtl" alert-type="success" '
+            "title=\"{{ 'מחר שבת, וביום ראשון חופש' if skip_sat else 'מחר חופש' }}\">🌴 {{ ns.h }}</ha-alert>\n"
+            '{% elif skip_sat and not L %}<ha-alert dir="rtl" alert-type="info" title="מחר שבת">😴 אין לימודים</ha-alert>\n'
+            '{% else %}<ha-alert dir="rtl" alert-type="info" '
+            "title=\"🎒 התיק {{ 'ליום ראשון' if skip_sat else 'למחר' }}\"></ha-alert>\n\n"
+            "{% if L %}| # | מקצוע | מורה | חדר |\n|:-:|---|---|:-:|\n"
+            + lessons_loop
+            + "{% else %}אין מערכת למחר\n{% endif %}"
+            "{% endif %}\n"
         )
     if s["homework"]:
+        task = _table_cell("(x.homework or '') | truncate(80)")
         parts.append(
             "\n### 📚 שיעורי בית אחרונים\n"
             f"{{% set hw = (state_attr('{s['homework']}', 'items') or []) | selectattr('lesson_date') | sort(attribute='lesson_date', reverse=true) %}}"
             "{% if hw %}\n| תאריך | מקצוע | משימה |\n|:-:|---|---|\n"
             "{% for x in hw[:6] %}| {{ as_timestamp(x.lesson_date) | timestamp_custom('%d/%m') }} | "
-            "{{ x.subject_name }} | {{ (x.homework or '') | replace('\\n', ' ') | truncate(80) }} |\n{% endfor %}"
+            f"{_table_cell('x.subject_name')} | {task} |\n{{% endfor %}}"
             "{% else %}\nאין שיעורי בית 🎉{% endif %}\n"
         )
     if s["behavior"]:

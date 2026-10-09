@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Live dashboard: on Friday the student card and pop-up show Sunday's bag, or Sunday's holiday, instead of only "tomorrow is Shabbat". Schools with Saturday lessons still see Saturday.
+
 ### Changed
 - Reorganized both READMEs: Installation followed by Configuration; schedules, data selection, mailbox and entities grouped under Options. Verified feature coverage against the integration code.
 - Moved services, automation blueprints and dashboard instructions to dedicated linked guides with visual examples; added a fictional-data preview rendered from the paged timetable template.
@@ -14,6 +17,7 @@
 - Restored English screenshots in the v1.1.0 release description with verified absolute image URLs.
 
 ### Fixed
+- Live dashboard: the student pop-up's timetable renders as a table again instead of raw `|` text. Pipes and line breaks in timetable and homework cells no longer break rows, and a school day with no lessons shows a message instead of an empty table.
 - Tag-triggered release automation preserves an existing release description, preventing manually added screenshots from being overwritten. Explicit workflow dispatch can still update release notes.
 
 ## [1.1.0] - 2026-10-08
