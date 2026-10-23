@@ -179,7 +179,7 @@ create_live_dashboard:
           multiple: true
     students:
       name: "Students"
-      description: "Optional tweaks per child (emoji, color, linked person, viewers). Omit to include every child from every Mashov hub."
+      description: "Optional tweaks per child (emoji, color, linked person, viewers, next_school_day: true to skip non-school days). Omit to include every child from every Mashov hub."
       selector:
         object: {}
     overwrite:

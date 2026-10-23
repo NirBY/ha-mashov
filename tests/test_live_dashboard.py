@@ -156,18 +156,22 @@ async def test_discovers_every_child_and_keeps_unlisted_ones_private(hass: HomeA
         hubs[hub] = {"coordinator": SimpleNamespace(data={"students": children})}
     hass.data[DOMAIN] = hubs
 
-    resolved = resolve_students(hass, [{"name": "Child one 0", "emoji": "🌟", "person": "person.kid"}])
+    resolved = resolve_students(
+        hass, [{"name": "Child one 0", "emoji": "🌟", "person": "person.kid", "next_school_day": True}]
+    )
 
     assert len(resolved) == 10
     first = next(student for student in resolved if student["id"] == "one-0")
     assert first["emoji"] == "🌟"
     assert first["label"] == "A0"
     assert first["person"] == "person.kid"
+    assert first["next_school_day"] is True
     assert first["homework"].startswith("sensor.")
     assert first["calendar"].startswith("calendar.")
     untouched = next(student for student in resolved if student["id"] == "two-3")
     assert untouched["emoji"] == ""
     assert untouched["family_only"] is True
+    assert untouched["next_school_day"] is False
 
     with pytest.raises(ServiceValidationError, match="Choose the family"):
         build_live_dashboard(resolved, title="Live", family_user_ids=[], viewer_user_ids={})

@@ -61,7 +61,7 @@ blueprint:
           selector: { entity: { domain: person } }
         s1_viewers:
           name: Extra viewers
-          description: More people allowed to see this card. With no linked person and no viewers, everyone sees it.
+          description: More people allowed to see this card. Automatically discovered children remain visible only to the family unless a person or viewer is linked.
           default: []
           selector: { entity: { domain: person, multiple: true } }
         s1_accent:
@@ -80,6 +80,11 @@ blueprint:
           name: Grades sensor
           default: ""
           selector: { entity: { integration: mashov, domain: sensor } }
+        s1_next_school_day:
+          name: Show the next school day for this child
+          description: Off by default. Skip Saturdays, holidays and days without lessons in this child's timetable. Only dates inside school holiday ranges are skipped; an eve outside those ranges remains a school day.
+          default: false
+          selector: { boolean: {} }
         s1_timetable:
           name: Timetable sensor
           default: ""
@@ -123,7 +128,7 @@ blueprint:
           selector: { entity: { domain: person } }
         s2_viewers:
           name: Extra viewers
-          description: More people allowed to see this card. With no linked person and no viewers, everyone sees it.
+          description: More people allowed to see this card. Automatically discovered children remain visible only to the family unless a person or viewer is linked.
           default: []
           selector: { entity: { domain: person, multiple: true } }
         s2_accent:
@@ -142,6 +147,11 @@ blueprint:
           name: Grades sensor
           default: ""
           selector: { entity: { integration: mashov, domain: sensor } }
+        s2_next_school_day:
+          name: Show the next school day for this child
+          description: Off by default. Skip Saturdays, holidays and days without lessons in this child's timetable. Only dates inside school holiday ranges are skipped; an eve outside those ranges remains a school day.
+          default: false
+          selector: { boolean: {} }
         s2_timetable:
           name: Timetable sensor
           default: ""
@@ -185,7 +195,7 @@ blueprint:
           selector: { entity: { domain: person } }
         s3_viewers:
           name: Extra viewers
-          description: More people allowed to see this card. With no linked person and no viewers, everyone sees it.
+          description: More people allowed to see this card. Automatically discovered children remain visible only to the family unless a person or viewer is linked.
           default: []
           selector: { entity: { domain: person, multiple: true } }
         s3_accent:
@@ -204,6 +214,11 @@ blueprint:
           name: Grades sensor
           default: ""
           selector: { entity: { integration: mashov, domain: sensor } }
+        s3_next_school_day:
+          name: Show the next school day for this child
+          description: Off by default. Skip Saturdays, holidays and days without lessons in this child's timetable. Only dates inside school holiday ranges are skipped; an eve outside those ranges remains a school day.
+          default: false
+          selector: { boolean: {} }
         s3_timetable:
           name: Timetable sensor
           default: ""
@@ -247,7 +262,7 @@ blueprint:
           selector: { entity: { domain: person } }
         s4_viewers:
           name: Extra viewers
-          description: More people allowed to see this card. With no linked person and no viewers, everyone sees it.
+          description: More people allowed to see this card. Automatically discovered children remain visible only to the family unless a person or viewer is linked.
           default: []
           selector: { entity: { domain: person, multiple: true } }
         s4_accent:
@@ -266,6 +281,11 @@ blueprint:
           name: Grades sensor
           default: ""
           selector: { entity: { integration: mashov, domain: sensor } }
+        s4_next_school_day:
+          name: Show the next school day for this child
+          description: Off by default. Skip Saturdays, holidays and days without lessons in this child's timetable. Only dates inside school holiday ranges are skipped; an eve outside those ranges remains a school day.
+          default: false
+          selector: { boolean: {} }
         s4_timetable:
           name: Timetable sensor
           default: ""
@@ -302,6 +322,7 @@ variables:
     homework: !input s1_homework
     behavior: !input s1_behavior
     grades: !input s1_grades
+    next_school_day: !input s1_next_school_day
     timetable: !input s1_timetable
     noticeboard: !input s1_noticeboard
     holidays: !input s1_holidays
@@ -316,6 +337,7 @@ variables:
     homework: !input s2_homework
     behavior: !input s2_behavior
     grades: !input s2_grades
+    next_school_day: !input s2_next_school_day
     timetable: !input s2_timetable
     noticeboard: !input s2_noticeboard
     holidays: !input s2_holidays
@@ -330,6 +352,7 @@ variables:
     homework: !input s3_homework
     behavior: !input s3_behavior
     grades: !input s3_grades
+    next_school_day: !input s3_next_school_day
     timetable: !input s3_timetable
     noticeboard: !input s3_noticeboard
     holidays: !input s3_holidays
@@ -344,6 +367,7 @@ variables:
     homework: !input s4_homework
     behavior: !input s4_behavior
     grades: !input s4_grades
+    next_school_day: !input s4_next_school_day
     timetable: !input s4_timetable
     noticeboard: !input s4_noticeboard
     holidays: !input s4_holidays

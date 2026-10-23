@@ -1,43 +1,20 @@
-## Mashov v1.1.0
+# Mashov v1.1.1 — Next school day, per child
 
+Choose **Show the next school day for this child** in the live dashboard blueprint, or **Use the next school day for this child** in each child's bag reminder. Both options are **off by default**; existing installations keep tomorrow mode.
 
+When enabled, the card, pop-up and bag reminder skip Saturdays, weekdays without timetable lessons, and the full school-reported vacation ranges. Adjacent holidays are handled together. Holiday eves remain school days when outside the school's vacation ranges. The displayed target includes its weekday and date; spoken bag reminders explicitly say which coming day the bag is for.
 
-Set refresh schedules for each student and each data type directly inside Home Assistant’s **Setup** and **Configure** forms. Select **Student**, then **General** or a data type; daily, weekly and interval controls update immediately. One **Submit** saves all edits. Existing accounts inherit their current schedules until customized. Students become selectable after registration loads the roster; Mailbox remains account-wide and Holidays school-wide.
+## Fixes and compatibility
 
+- Timetable pop-ups render proper table rows; pipes and newlines in timetable and homework cells cannot break the table. Empty timetables show a message.
+- Holiday checks work correctly in daily and bag announcements. Existing Google Translate automations continue to work without selecting a new TTS engine.
+- Re-enabling previously purged data forces a refresh even after a failed reload. Existing data selections, schedules and entity IDs are preserved.
+- Teacher names support both timetable layouts. Updated linked documentation and guides are included.
 
+## Credit
 
-Refreshes use one queue across all hubs, including manual and scheduled requests. Unload waits for that hub’s own active request and skips its queued work. Student refreshes preserve siblings’ data and timestamps.
+Thank you to **[Aviad Levy (@aviadlevy)](https://github.com/aviadlevy)** for **[PR #15](https://github.com/NirBY/ha-mashov/pull/15)**: the original Friday-to-Sunday dashboard improvement and the timetable/table-cell fixes. This release incorporates those fixes and extends the school-day behavior to an optional setting per child, including multi-day school vacations.
 
+## Upgrade
 
-
-### Fixes
-
-
-
-- Cached data stays marked stale after startup authentication or network failures; ongoing failures remain eligible for notification.
-
-- Never-fetched data does not inherit an old update timestamp.
-
-- Mailbox content is excluded from new Recorder history. Live attributes and integration cache remain available; full-content fetching still requires explicit consent and marks fetched conversations read in Mashov.
-
-- Slow speakers wait for noticeboard announcements before restoring volume.
-
-- Drafts survive navigation within Home Assistant. **Discard draft** reloads current server settings after conflicts.
-
-- Safe timer rebuilds after hub removal/reload, private schema debug logging, and corrected optional dependencies.
-
-
-
-### Current inline form (English)
-
-Choose the student and data type, then edit its schedule **inside the native form**. The same controls are used during hub registration and Configure. The main form’s **Submit** saves all edits together.
-
-This is the released inline interface. Shared scope is selected to omit personal student names:
-
-![Current inline Refresh schedules form](https://raw.githubusercontent.com/NirBY/ha-mashov/v1.1.0/docs/images/inline-schedules-en.jpg)
-
-### Upgrade
-
-Update **Mashov** through **HACS**, then restart Home Assistant. Existing schedules, data selections, entity IDs and history are preserved. During registration, student-specific schedules become available after authentication loads the roster. Mailbox is account-wide; holidays are school-wide.
-
-See the [full changelog](https://github.com/NirBY/ha-mashov/blob/v1.1.0/CHANGELOG.md).
+Update through HACS and restart Home Assistant. Re-import the updated blueprints, then enable the new option separately for each desired child. Run the dashboard script again to regenerate an existing dashboard. Existing automations keep their current inputs and tomorrow behavior; daily homework/behavior summaries continue to report today, and noticeboard notifications continue to report new notices. Check that holiday sensor inputs refer to the current school's holiday entity if an old sensor has been renamed.

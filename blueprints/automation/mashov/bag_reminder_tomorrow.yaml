@@ -1,11 +1,12 @@
 blueprint:
   name: Mashov – Bag Reminder (Speak Tomorrow's Subjects)
   description: >
-    Version v1.0.32. Reads tomorrow's subjects (with teacher names and optional plan) aloud at 18:00,
+    Version v1.0.33. Reads tomorrow's subjects (with teacher names and optional plan) aloud at 18:00,
     only if tomorrow is a school day (not Saturday and not a holiday) and only if
     there is data for tomorrow. Raises speaker volume, speaks, then restores it.
     Includes detailed trace/logbook of "why ran / why skipped" and prints holiday name when skipping.
     Added option to include/exclude weekly plan in announcement. Fixed TTS timing: waits for speaker to start playing, then waits until idle before restoring volume.
+    Optional per-child next-school-day mode skips Saturdays, school holidays and days without timetable lessons. Off by default.
   domain: automation
   source_url: https://raw.githubusercontent.com/NirBY/ha-mashov/main/blueprints/automation/mashov/bag_reminder_tomorrow.yaml
   input:
@@ -25,6 +26,11 @@ blueprint:
     speaker_entity:
       name: Speaker / media_player
       selector: { entity: { domain: media_player } }
+    next_school_day:
+      name: Use the next school day for this child
+      description: Optional per child, off by default. Skip Saturdays, school holidays and weekdays without timetable lessons. Uses the school holiday sensor, using inclusive date ranges; holiday eves outside those ranges remain school days.
+      default: false
+      selector: { boolean: {} }
     daily_time:
       name: Speak time (local)
       description: Runs once a day at this time (default 18:00)
@@ -84,7 +90,7 @@ blueprint:
     bp_version_info:
       name: Blueprint version
       description: Informational only; used in traces. Do not change.
-      default: "bag_reminder_tomorrow v1.0.32 (2025-10-18)"
+      default: "bag_reminder_tomorrow v1.0.33 (2026-10-23)"
       selector: { text: {} }
 
 mode: single
@@ -109,6 +115,7 @@ variables:
   use_previous_volume: !input use_previous_volume
   tts_service_type: !input tts_service_type
   language_code: !input language_code
+  next_school_day: !input next_school_day
   include_weekly_plan: !input include_weekly_plan
   tts_start_timeout: !input tts_start_timeout
   tts_finish_timeout: !input tts_finish_timeout
@@ -134,11 +141,46 @@ variables:
     {% set lc = lang_effective %}
     {{ lc }}
 
-  # Compute tomorrow (LOCAL timezone; do not force UTC)
-  tomorrow_date_iso: "{{ (as_timestamp(now()) + 86400) | timestamp_custom('%Y-%m-%d') }}"
-  # %w => 0..6 (Sun=0) in LOCAL timezone. Mashov day: Sun=1..Sat=7
-  tomorrow_w: "{{ ((as_timestamp(now()) + 86400) | timestamp_custom('%w') | int) }}"
-  tomorrow_day_mashov: "{{ 1 if tomorrow_w == 0 else tomorrow_w + 1 }}"
+  # The same bounded calendar search as the dashboard (school_day.py).
+  target_result: >-
+    {% if next_school_day %}
+    {% set timetable_items = state_attr(timetable_entity, 'Items') or state_attr(timetable_entity, 'items') or [] %}
+    {% set holiday_items = state_attr(holiday_entity, 'Items') or state_attr(holiday_entity, 'items') or [] %}
+    {%- set target = namespace(offset=1, found=false) -%}
+    {%- set school = namespace(days=[]) -%}
+    {%- for item in timetable_items if item.timeTable is defined -%}
+      {%- set day = item.timeTable.day | int(-1) -%}
+      {%- if 1 <= day <= 6 and day not in school.days -%}
+        {%- set school.days = school.days + [day] -%}
+      {%- endif -%}
+    {%- endfor -%}
+    {%- for offset in range(1, 367) if not target.found -%}
+      {%- set candidate = now().date() + timedelta(days=offset) -%}
+      {%- set day = (candidate.isoweekday() % 7) + 1 -%}
+      {%- set holiday = namespace(blocked=false) -%}
+      {%- for item in holiday_items if item.start is defined -%}
+        {%- set start = as_datetime(item.start, none) -%}
+        {%- set end = as_datetime(item.end, none) if item.end is defined and item.end else start -%}
+        {%- if start and start.date() <= candidate <= (end or start).date() -%}
+          {%- set holiday.blocked = true -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {%- if day != 7 and (not school.days or day in school.days) and not holiday.blocked -%}
+        {%- set target.offset = offset -%}
+        {%- set target.found = true -%}
+      {%- endif -%}
+    {%- endfor -%}
+    {{ dict(offset=target.offset, found=target.found) }}
+    {% else %}
+    {{ dict(offset=1, found=true) }}
+    {% endif %}
+  target_offset: "{{ target_result.offset }}"
+  target_label: >-
+    {% set date = now().date() + timedelta(days=target_offset | int) %}
+    {{ 'מחר' if target_offset | int == 1 else 'ביום ' ~ ['שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת', 'ראשון'][date.weekday()] ~ ' (' ~ date.strftime('%d/%m') ~ ')' }}
+  tomorrow_date_iso: "{{ (now().date() + timedelta(days=target_offset | int)).isoformat() }}"
+  tomorrow_w: "{{ ((now().date() + timedelta(days=target_offset | int)).weekday() + 1) % 7 }}"
+  tomorrow_day_mashov: "{{ tomorrow_w | int + 1 }}"
 
   # Night guard (don’t run outside quiet_end..quiet_start)
   now_tod: "{{ now().strftime('%H:%M:%S') }}"
@@ -156,21 +198,22 @@ variables:
   is_tomorrow_holiday: >-
     {% set tdate = tomorrow_date_iso %}
     {% set items = (state_attr(holiday_entity,'Items') or state_attr(holiday_entity,'items') or []) %}
+    {% set ns = namespace(found=false) %}
     {% for it in items if (it.start is defined) %}
-      {% set s = (it.start | as_datetime).date().isoformat() %}
-      {% set e = (it.end   | as_datetime).date().isoformat() if (it.end is defined and it.end) else s %}
-      {% if tdate >= s and tdate <= e %}
-        {{ true }}
+      {% set start = as_datetime(it.start, none) %}
+      {% set end = as_datetime(it.end, none) if it.end is defined and it.end else start %}
+      {% if start and (end or start) and start.date().isoformat() <= tdate <= (end or start).date().isoformat() %}
+        {% set ns.found = true %}
       {% endif %}
     {% endfor %}
-    {{ false }}
+    {{ ns.found }}
   tomorrow_holiday_name: >-
     {% set tdate = tomorrow_date_iso %}
     {% for it in (state_attr(holiday_entity,'Items') or state_attr(holiday_entity,'items') or []) %}
-      {% set s = (it.start | as_datetime).date().isoformat() if it.start is defined else none %}
-      {% set e = (it.end   | as_datetime).date().isoformat() if it.end is defined else s %}
-      {% if s and tdate >= s and tdate <= e %}
-        {{ it.name or it.holidayName or it.hollyDayName }}
+      {% set start = as_datetime(it.start, none) if it.start is defined else none %}
+      {% set end = as_datetime(it.end, none) if it.end is defined and it.end else start %}
+      {% if start and start.date().isoformat() <= tdate <= (end or start).date().isoformat() %}
+        {{ it.name | default(it.holidayName | default(it.hollyDayName | default(''))) }}
       {% endif %}
     {% endfor %}
 
@@ -252,7 +295,7 @@ variables:
   # Count of unique subjects for tomorrow and speak guard
   subjects_cnt: "{{ (tomorrow_subjects_unique | length) }}"
   should_speak: "{{ (has_tomorrow_data and (subjects_cnt | int(0)) > 0) }}"
-  should_run: "{{ (not is_night_block) and (not is_tomorrow_sat) and (not is_tomorrow_holiday) and has_tomorrow_data }}"
+  should_run: "{{ target_result.found and (not is_night_block) and (not is_tomorrow_sat) and (not is_tomorrow_holiday) and has_tomorrow_data }}"
 
   # Build speech text (Hebrew) with optional plan, sorted by lesson number
   speech_text: >-
@@ -268,7 +311,9 @@ variables:
       %}
     {% endif %}
     {% if (base_lessons | length) > 0 %}
-      {% set header = 'שלום ' ~ student_name ~ ', אנא לסדר תיק למחר. המקצועות למחר: ' %}
+      {% set date = now().date() + timedelta(days=target_offset | int) %}
+      {% set day_text = 'למחר' if target_offset | int == 1 else 'ליום ' ~ ['שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת', 'ראשון'][date.weekday()] ~ ' הקרוב, בתאריך ' ~ date.strftime('%d/%m') %}
+      {% set header = 'שלום ' ~ student_name ~ ', אנא לסדר תיק ' ~ day_text ~ '. המקצועות' ~ (' למחר' if target_offset | int == 1 else '') ~ ': ' %}
       {% set ns = namespace(parts=[], seen=[]) %}
       {% for les in base_lessons %}
         {% set subj = les['subject'] if 'subject' in les else 'מקצוע' %}
@@ -296,9 +341,9 @@ variables:
       {% if is_tomorrow_sat %}
         {{ hi ~ 'מחר שבת, אין לימודים.' }}
       {% elif is_tomorrow_holiday %}
-        {{ hi ~ 'מחר חופש' ~ (': ' ~ (tomorrow_holiday_name or '') if (tomorrow_holiday_name | default('') | trim | length > 0) else '.') }}
+        {{ hi ~ target_label ~ ' חופש' ~ (': ' ~ (tomorrow_holiday_name or '') if (tomorrow_holiday_name | default('') | trim | length > 0) else '.') }}
       {% elif (has_data_cnt | int(0)) == 0 %}
-        {{ hi ~ 'אין נתוני מערכת שעות למחר.' }}
+        {{ hi ~ 'אין נתוני מערכת שעות ' ~ ('למחר' if target_offset | int == 1 else target_label) ~ '.' }}
       {% else %}
         {{ hi ~ 'אין פרטי שיעורים זמינים לרגע זה.' }}
       {% endif %}

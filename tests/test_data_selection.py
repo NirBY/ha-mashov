@@ -12,6 +12,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.mashov.const import DOMAIN
 from custom_components.mashov.data_selection import (
     LEGACY_CORE_DATA,
+    cached_selection,
     enabled_data,
     filter_cached_data,
     merge_selection_options,
@@ -361,6 +362,44 @@ async def test_new_selection_forces_refresh_even_with_recent_daily_cache(hass, m
         entities = er.async_entries_for_config_entry(registry, mock_config_entry.entry_id)
         assert len(entities) == 1
         assert entities[0].unique_id.endswith("_mailbox")
+        await hass.config_entries.async_unload(mock_config_entry.entry_id)
+    finally:
+        patcher.stop()
+
+
+@pytest.mark.parametrize(
+    ("old_options", "disabled_options"),
+    [
+        ({"enabled_data": ["homework"]}, {"enabled_data": []}),
+        (
+            {"enabled_data": ["mailbox"], "mailbox_full_content": True},
+            {"enabled_data": ["mailbox"], "mailbox_full_content": False},
+        ),
+        (
+            {"enabled_data": ["mailbox"], "mailbox_limit": 20},
+            {"enabled_data": ["mailbox"], "mailbox_limit": 1},
+        ),
+    ],
+)
+async def test_reenable_purged_data_after_failed_reload_fetches_immediately(
+    hass, mock_config_entry, old_options, disabled_options
+):
+    """Purged payload must not retain metadata claiming it is still complete."""
+    mock_config_entry.add_to_hass(hass)
+    snapshot = {**deepcopy(DATA), **old_options}
+    snapshot["mailbox"] = {"items": [{"messages": [{"body": "private"}]}] * 20}
+    filtered = filter_cached_data(snapshot, disabled_options)
+    assert snapshot != filtered
+    assert filter_cached_data(filtered, disabled_options) == filtered
+    if not disabled_options["enabled_data"]:
+        assert not cached_selection(filtered)
+    hass.config_entries.async_update_entry(mock_config_entry, options={**old_options, "schedule_type": "daily"})
+    patcher, client = _patch_client()
+    try:
+        with _patch_cache({"last_refresh_ts": 1e20, "data": filtered}):
+            assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+            await hass.async_block_till_done()
+        client.async_fetch_all.assert_awaited_once()
         await hass.config_entries.async_unload(mock_config_entry.entry_id)
     finally:
         patcher.stop()
