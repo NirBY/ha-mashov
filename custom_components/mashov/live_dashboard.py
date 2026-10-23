@@ -36,6 +36,7 @@ from homeassistant.exceptions import ServiceValidationError  # type: ignore
 from homeassistant.helpers import entity_registry as er  # type: ignore
 
 from .const import DOMAIN
+from .school_day import SCHOOL_DAY_SEARCH
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -210,6 +211,7 @@ def discover_students(hass: HomeAssistant) -> list[dict[str, Any]]:
                 "person": None,
                 "viewers": [],
                 "family_only": True,
+                "next_school_day": False,
                 "homework": _registry_entity(registry, "sensor", f"{prefix}homework"),
                 "behavior": _registry_entity(registry, "sensor", f"{prefix}behavior"),
                 "grades": _registry_entity(registry, "sensor", f"{prefix}grades"),
@@ -265,6 +267,8 @@ def _apply_overrides(students: list[dict[str, Any]], raw_students: Iterable[dict
         if identity in customized:
             raise ServiceValidationError(f"'{target['name']}' is customized more than once.")
         customized.add(identity)
+        if "next_school_day" in raw:
+            target["next_school_day"] = raw["next_school_day"]
         if _clean(raw.get("emoji")):
             target["emoji"] = _clean(raw.get("emoji")) or ""
         if _clean(raw.get("label")):
@@ -315,6 +319,7 @@ def normalize_students(raw_students: Iterable[dict[str, Any]]) -> list[dict[str,
             "viewers": [viewer for viewer in (raw.get("viewers") or []) if _clean(viewer)],
             "accent": raw.get("accent"),
             "family_only": False,
+            "next_school_day": raw.get("next_school_day", False),
         }
         for key in STUDENT_ENTITY_KEYS:
             student[key] = _clean(raw.get(key))
@@ -432,7 +437,9 @@ def _tomorrow_holiday(holidays: str | None, value: str) -> str:
         return ""
     return (
         "{%- for x in state_attr('" + holidays + "', 'items') or [] -%}"
-        "{%- if x.start and as_datetime(x.start).date() <= t and t <= as_datetime(x.end or x.start).date() -%}"
+        "{%- set start = as_datetime(x.start, none) if x.start is defined else none -%}"
+        "{%- set end = as_datetime(x.end, none) if x.end is defined and x.end else start -%}"
+        "{%- if start and start.date() <= t <= (end or start).date() -%}"
         "{%- set ns.h = " + value + " -%}{%- endif -%}{%- endfor -%}"
     )
 
@@ -454,6 +461,29 @@ def _lessons_for_day(entity: str) -> str:
     )
 
 
+def _school_target(s: dict[str, Any]) -> str:
+    """Find the next school day only for opted-in children; never mutate data."""
+    search = "{%- set target = namespace(offset=1, found=true) -%}"
+    if s.get("next_school_day", False):
+        timetable = s.get("timetable")
+        holidays = s.get("holidays")
+        search = (
+            "{%- set timetable_items = "
+            + (f"state_attr('{timetable}', 'items') or []" if timetable else "[]")
+            + " -%}{%- set holiday_items = "
+            + (f"state_attr('{holidays}', 'items') or []" if holidays else "[]")
+            + " -%}"
+            + SCHOOL_DAY_SEARCH
+        )
+    return (
+        search + "{%- set offset = target.offset -%}"
+        "{%- set t = (now().date() + timedelta(days=offset)) -%}"
+        "{%- set d = (t.isoweekday() % 7) + 1 -%}"
+        "{%- set target_label = 'מחר' if offset == 1 else "
+        "'ביום ' ~ ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'][d - 1] ~ ' (' ~ t.strftime('%d/%m') ~ ')' -%}"
+    )
+
+
 def _tomorrow_line(s: dict[str, Any]) -> str:
     """Jinja for the student card's one-line summary of tomorrow.
 
@@ -463,16 +493,16 @@ def _tomorrow_line(s: dict[str, Any]) -> str:
     """
     lessons = _lessons_for_day(s["timetable"]) if s["timetable"] else "{%- set L = [] -%}"
     return (
-        "{%- set t = (now() + timedelta(days=1)).date() -%}"
-        "{%- set d = (t.isoweekday() % 7) + 1 -%}"
-        "{%- set ns = namespace(h='') -%}"
+        _school_target(s)
+        + "{%- set ns = namespace(h='') -%}"
         + _tomorrow_holiday(s["holidays"], "x.name")
         + lessons
         + "{%- set subs = L | map(attribute='groupDetails.subjectName') | unique | list -%}"
-        "{%- if ns.h -%}🌴 מחר {{ ns.h }} · אין לימודים"
+        "{%- if not target.found -%}לא נמצא יום לימודים בשנה הקרובה"
+        "{%- elif ns.h -%}🌴 {{ target_label }} {{ ns.h }} · אין לימודים"
         "{%- elif d == 7 -%}😴 מחר שבת"
-        "{%- elif L -%}🎒 מחר {{ L | count }} שיעורים · {{ subs[:3] | join(' · ') }}"
-        "{%- else -%}אין מערכת למחר{%- endif -%}"
+        "{%- elif L -%}🎒 {{ target_label }} {{ L | count }} שיעורים · {{ subs[:3] | join(' · ') }}"
+        "{%- else -%}אין מערכת {{ 'למחר' if offset == 1 else target_label }}{%- endif -%}"
     )
 
 
@@ -558,6 +588,11 @@ def _student_card(s: dict[str, Any]) -> dict[str, Any]:
     return card
 
 
+def _table_cell(expr: str) -> str:
+    """Keep pipes and line breaks inside one Markdown cell (contributed in PR #15)."""
+    return "{{ ((" + expr + ") or '') | string | replace('\\r', '') | replace('\\n', ' ') | replace('|', '\\\\|') }}"
+
+
 def _popup_markdown(s: dict[str, Any]) -> str:
     """Markdown/Jinja body of the student pop-up; each block appears only if its sensor exists.
 
@@ -569,22 +604,32 @@ def _popup_markdown(s: dict[str, Any]) -> str:
     parts = ['<div dir="rtl">']
     if s["timetable"] or s["holidays"]:
         lessons_loop = (
-            _lessons_for_day(s["timetable"]) + "{% for x in L %}"
-            "| {{ x.timeTable.lesson }} | {{ x.groupDetails.subjectName }} | "
-            "{{ ((x.groupDetails.groupTeachers or [{}])[0]).teacherName or '' }} | {{ x.timeTable.roomNum or '' }} |\n"
+            "{% for x in L %}"
+            "| {{ x.timeTable.lesson }} | "
+            + _table_cell("x.groupDetails.subjectName")
+            + " | "
+            + _table_cell(
+                "((x.groupTeachers | default(x.groupDetails.groupTeachers | default([])) or [{}])[0]).teacherName | default('')"
+            )
+            + " | "
+            + _table_cell("x.timeTable.roomNum")
+            + " |\n"
             "{% endfor %}"
             if s["timetable"]
             else ""
         )
         parts.append(
-            "{% set t = (now() + timedelta(days=1)).date() %}"
-            "{% set d = (t.isoweekday() % 7) + 1 %}"
-            "{% set ns = namespace(h='') %}"
+            _school_target(s)
+            + "{% set ns = namespace(h='') %}"
             + _tomorrow_holiday(s["holidays"], "x.name")
-            + '\n{% if ns.h %}<ha-alert dir="rtl" alert-type="success" title="מחר חופש">🌴 {{ ns.h }}</ha-alert>\n'
+            + (_lessons_for_day(s["timetable"]) if s["timetable"] else "{% set L = [] %}")
+            + '\n{% if not target.found %}<ha-alert dir="rtl" alert-type="info">לא נמצא יום לימודים בשנה הקרובה</ha-alert>\n'
+            '{% elif ns.h %}<ha-alert dir="rtl" alert-type="success" title="{{ target_label }} חופש">🌴 {{ ns.h }}</ha-alert>\n'
             '{% elif d == 7 %}<ha-alert dir="rtl" alert-type="info" title="מחר שבת">😴 אין לימודים</ha-alert>\n'
-            '{% else %}<ha-alert dir="rtl" alert-type="info" title="🎒 התיק למחר"></ha-alert>\n\n'
-            "| # | מקצוע | מורה | חדר |\n|:-:|---|---|:-:|\n" + lessons_loop + "{% endif %}\n"
+            '{% else %}<ha-alert dir="rtl" alert-type="info" title="🎒 התיק {{ \'למחר\' if offset == 1 else target_label }}"></ha-alert>\n\n'
+            "{% if L %}| # | מקצוע | מורה | חדר |\n|:-:|---|---|:-:|\n"
+            + lessons_loop
+            + "{% else %}אין מערכת {{ 'למחר' if offset == 1 else target_label }}\n{% endif %}{% endif %}\n"
         )
     if s["homework"]:
         parts.append(
@@ -592,7 +637,10 @@ def _popup_markdown(s: dict[str, Any]) -> str:
             f"{{% set hw = (state_attr('{s['homework']}', 'items') or []) | selectattr('lesson_date') | sort(attribute='lesson_date', reverse=true) %}}"
             "{% if hw %}\n| תאריך | מקצוע | משימה |\n|:-:|---|---|\n"
             "{% for x in hw[:6] %}| {{ as_timestamp(x.lesson_date) | timestamp_custom('%d/%m') }} | "
-            "{{ x.subject_name }} | {{ (x.homework or '') | replace('\\n', ' ') | truncate(80) }} |\n{% endfor %}"
+            + _table_cell("x.subject_name")
+            + " | "
+            + _table_cell("(x.homework or '') | truncate(80)")
+            + " |\n{% endfor %}"
             "{% else %}\nאין שיעורי בית 🎉{% endif %}\n"
         )
     if s["behavior"]:

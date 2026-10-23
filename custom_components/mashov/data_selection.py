@@ -54,6 +54,15 @@ def filter_cached_data(data, options):
     """Remove disabled data and bodies before an old cache can reach entities again."""
     result = deepcopy(data)
     selected = set(enabled_data(options))
+    # Metadata must describe retained data, not records purged on a failed
+    # reload. Re-enabling those records must trigger a new startup fetch.
+    retained = cached_selection(data) & selected
+    if retained != cached_selection(data):
+        result[CONF_ENABLED_DATA] = [key for key in DATA_KEYS if key in retained]
+    if data.get(CONF_MAILBOX_FULL_CONTENT) and not options.get(CONF_MAILBOX_FULL_CONTENT, False):
+        result[CONF_MAILBOX_FULL_CONTENT] = False
+    if options.get(CONF_MAILBOX_LIMIT, DEFAULT_MAILBOX_LIMIT) < data.get(CONF_MAILBOX_LIMIT, DEFAULT_MAILBOX_LIMIT):
+        result[CONF_MAILBOX_LIMIT] = options[CONF_MAILBOX_LIMIT]
     for student in result.get("by_slug", {}).values():
         for key in LEGACY_CORE_DATA[:-1]:
             if key not in selected:

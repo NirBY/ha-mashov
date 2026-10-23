@@ -270,6 +270,7 @@ LIVE_STUDENT_SCHEMA = vol.Schema(
         vol.Optional("label"): vol.Any(None, cv.string),
         vol.Optional("person"): _OPTIONAL_ENTITY,
         vol.Optional("viewers"): vol.Any(None, vol.All(cv.ensure_list, [cv.entity_id])),
+        vol.Optional("next_school_day"): cv.boolean,
         # "#RRGGBB" or [r, g, b]; values are fully validated later in live_dashboard._accent.
         vol.Optional("accent"): vol.Any(None, cv.string, vol.All(list, vol.Length(min=3, max=3))),
         **{vol.Optional(key): _OPTIONAL_ENTITY for key in STUDENT_ENTITY_KEYS},
@@ -459,8 +460,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     # Apply opt-outs on disk before authentication or network requests. A failed
     # refresh must never leave disabled records or message bodies in our cache.
-    # Keep the snapshot's original selection metadata until a successful fetch,
-    # so adding data still forces a refresh after a failed attempt/restart.
+    # Preserve metadata for data still retained, and remove claims about purged
+    # records so re-enabling them forces a fetch after a failed attempt/restart.
     if isinstance(cached, dict) and cached.get("data"):
         filtered = filter_cached_data(cached["data"], entry.options)
         if filtered != cached["data"]:

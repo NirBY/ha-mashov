@@ -66,7 +66,8 @@ blueprint:
 
     tts_engine:
       name: TTS engine entity
-      description: "Select your TTS entity (e.g. tts.google_translate_iw_com or tts.google_translate_en_com)"
+      description: "Select your TTS entity. Leave empty to preserve Google Translate for existing automations."
+      default: ""
       selector:
         entity:
           domain:
@@ -185,15 +186,15 @@ variables:
   in_holiday_today: >
     {% set items = state_attr(holiday_sensor,'Items') or state_attr(holiday_sensor,'items') or [] %}
     {% set today = now().date() %}
-    {% set ih = false %}
+    {% set holiday = namespace(found=false) %}
     {% for it in items %}
       {% set s = (as_datetime(it.start).date() if (it.start is defined and it.start) else none) %}
       {% set e = (as_datetime(it.end).date()   if (it.end   is defined and it.end)   else s) %}
       {% if s and (today >= s) and (today <= e) %}
-        {% set ih = true %}
+        {% set holiday.found = true %}
       {% endif %}
     {% endfor %}
-    {{ ih }}
+    {{ holiday.found }}
 
   announcement_text: >
     {% set ns = namespace(parts=['שלום ' ~ student_name]) %}
@@ -292,14 +293,23 @@ action:
             timeout: "00:00:05"
             continue_on_timeout: true
 
-          - alias: "Speak via TTS (tts.speak)"
-            service: tts.speak
-            target:
-              entity_id: !input tts_engine
-            data:
-              media_player_entity_id: !input media_player
-              message: "{{ announcement_text }}"
-              language: !input tts_language
+          - alias: "Speak with the selected engine or the existing Google Translate action"
+            choose:
+              - conditions: "{{ tts_engine | length > 0 }}"
+                sequence:
+                  - service: tts.speak
+                    target:
+                      entity_id: "{{ tts_engine }}"
+                    data:
+                      media_player_entity_id: !input media_player
+                      message: "{{ announcement_text }}"
+                      language: !input tts_language
+            default:
+              - service: tts.google_translate_say
+                data:
+                  entity_id: !input media_player
+                  message: "{{ announcement_text }}"
+                  language: !input tts_language
 
           - alias: "Wait for speaker to start playing"
             wait_template: "{{ is_state(media_player, 'playing') }}"

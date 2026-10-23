@@ -25,7 +25,8 @@ One‑click import (My Home Assistant):
 ## Setup
 1. Click the import button above and create a script from the blueprint.
 2. Enter the dashboard URL and the family members. Every child on every Mashov hub is included, with the name, class and sensors the integration already created. The four student sections are optional: type a child's name to set an emoji, color, linked person or extra viewers. Empty sections are skipped.
-3. Save and run the script. Run it again after a new child is added; you do not need to edit the script.
+3. Optional, per child: turn on **Show the next school day for this child**. It is off by default. It skips Saturdays, dates covered by the school holiday sensor (inclusive start/end; no extra day is added before a holiday), and weekdays absent from that child's weekly timetable. The card and pop-up name the actual target day and date when it is later than tomorrow.
+4. Save and run the script. Run it again after a new child is added; you do not need to edit the script.
 
 The script only writes into a dashboard that is empty or that it built itself. To replace a dashboard
 that has other content, or a built-in one such as the Overview (`lovelace`), turn on **Replace existing
@@ -46,3 +47,11 @@ Mobile layout:
 ![Mashov Live mobile layout](images/mashov_live_mobile.png)
 
 For individual timetable, homework and behavior cards, see the [Lovelace card examples](../examples/lovelace/README.md).
+
+Existing scripts keep their previous behavior because the new input defaults to `false`. Re-import the blueprint, enable the option only in the desired child sections, then run the script again to regenerate the dashboard. Direct service calls use `next_school_day: true` inside that child’s `students` item. This changes display only; stored school data, entity IDs and fetch schedules are preserved. The search looks up to 366 days ahead; no matching day produces a clear message. Without timetable or holiday data, only the available data can be used to skip dates.
+
+### Holiday boundaries
+
+The search uses school-reported vacation ranges, inclusive of both dates. It does not mark a date as closed because its name contains “holiday” or “eve”, and never adds the preceding date to a vacation. A holiday eve outside the vacation stays a school day when that child has lessons. Adjacent vacation ranges are skipped together, with the first day after their final end eligible again.
+
+Verified against the matching holiday caches of both configured schools on 2026-10-23: Rosh Hashanah 11–13 September; Yom Kippur 20–21 September, bridge 22–24 September and Sukkot 25 September–3 October; Hanukkah 6–12 December. For a child studying Fridays, 3 December selects 4 December (a school day); 4 December selects 13 December (Saturday followed by the full vacation). A five-day timetable skips that Friday too. These are test snapshots, not hardcoded dates used by the integration. The school calendar remains authoritative for each child.

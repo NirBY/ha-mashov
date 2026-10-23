@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-23
+
+### Added
+- Optional next-school-day mode for each child in the live dashboard and bag reminder. Off by default; existing configurations keep tomorrow mode. Skip Saturdays, days without scheduled lessons and complete school-reported vacation ranges, including adjacent holidays, and show the actual return date. Holiday eves outside vacation ranges remain school days.
+- Bag announcements explicitly name the target weekday and date when later than tomorrow, for example preparing on Friday for the coming Sunday.
+
+### Credits
+- Thanks to [Aviad Levy (@aviadlevy)](https://github.com/aviadlevy) for [PR #15](https://github.com/NirBY/ha-mashov/pull/15): the original Friday-to-Sunday dashboard improvement, Markdown timetable rendering fix, safe table cells and empty-timetable message. The school-day feature was extended to an optional per-child setting and multi-day school vacations.
+
+
 ### Changed
 - Reorganized both READMEs: Installation followed by Configuration; schedules, data selection, mailbox and entities grouped under Options. Verified feature coverage against the integration code.
 - Moved services, automation blueprints and dashboard instructions to dedicated linked guides with visual examples; added a fictional-data preview rendered from the paged timetable template.
@@ -14,6 +24,10 @@
 - Restored English screenshots in the v1.1.0 release description with verified absolute image URLs.
 
 ### Fixed
+- Incorporate PR #15's timetable row/newline repair, escaped pipes and line breaks in timetable/homework cells, and a message instead of an empty timetable table.
+- Correct holiday detection in daily and bag announcements; support legacy Google Translate inputs without requiring a new TTS engine selection.
+- Cache metadata no longer claims that purged datasets, message bodies or trimmed mailbox conversations remain complete. Re-enabling them triggers a fresh fetch after failed reloads.
+- Student pop-ups read teacher names from both supported timetable layouts.
 - Tag-triggered release automation preserves an existing release description, preventing manually added screenshots from being overwritten. Explicit workflow dispatch can still update release notes.
 
 ## [1.1.0] - 2026-10-08
