@@ -57,6 +57,13 @@ blueprint:
       description: If true, restore to the volume captured just before speaking; else restore to fallback value.
       default: true
       selector: { boolean: {} }
+    tts_engine:
+      name: TTS engine entity (recommended)
+      description: Select a TTS entity to use tts.speak. Leave empty to preserve the existing legacy TTS service.
+      default: ""
+      selector:
+        entity:
+          domain: tts
     tts_service_type:
       name: TTS service
       description: Choose your TTS. For Google Translate use Hebrew code **iw** (cloud_say prefers **he-IL**).
@@ -114,6 +121,7 @@ variables:
   restore_volume_default: !input restore_volume_default
   use_previous_volume: !input use_previous_volume
   tts_service_type: !input tts_service_type
+  tts_engine: !input tts_engine
   language_code: !input language_code
   next_school_day: !input next_school_day
   include_weekly_plan: !input include_weekly_plan
@@ -477,6 +485,15 @@ action:
 
                   # Speak (choose TTS engine)
                   - choose:
+                      - conditions: "{{ tts_engine | length > 0 }}"
+                        sequence:
+                          - service: tts.speak
+                            target:
+                              entity_id: "{{ tts_engine }}"
+                            data:
+                              media_player_entity_id: !input speaker_entity
+                              message: "{{ speech_text }}"
+                              language: "{{ lang_effective }}"
                       - conditions:
                           - condition: template
                             value_template: "{{ tts_service_type == 'cloud_say' }}"

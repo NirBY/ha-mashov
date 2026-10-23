@@ -22,7 +22,7 @@ FORM_SECTIONS = {
     "data": {"enabled_data", "mailbox_full_content", "mailbox_limit"},
     "refresh": {"schedule_type", "schedule_time", "schedule_days", "schedule_interval", "edit_data_schedules"},
     "account": {"username", "password", "school_name", "automatic_school_year"},
-    "advanced": {"homework_days_back", "homework_days_forward", "api_base", "max_items_in_attributes"},
+    "advanced": {"homework_days_back", "homework_days_forward", "api_base", "max_items_in_attributes", "mcp_enabled"},
 }
 
 

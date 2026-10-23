@@ -54,7 +54,16 @@ DASHBOARD_MARKER = "mashov_live"
 DEFAULT_ACCENTS = ("#9bb0c9", "#d4b2a4", "#a8c4b4", "#c7b8d9", "#d6cfa3", "#a9c7cf")
 
 # Per-student entity slots; each may be discovered or overridden by the service call.
-STUDENT_ENTITY_KEYS = ("homework", "behavior", "grades", "timetable", "noticeboard", "holidays", "calendar")
+STUDENT_ENTITY_KEYS = (
+    "homework",
+    "homework_checklist",
+    "behavior",
+    "grades",
+    "timetable",
+    "noticeboard",
+    "holidays",
+    "calendar",
+)
 
 # Shared dark, low-contrast Bubble Card CSS (RTL text, round avatars) used by every card.
 QUIET_STYLES = """
@@ -213,6 +222,7 @@ def discover_students(hass: HomeAssistant) -> list[dict[str, Any]]:
                 "family_only": True,
                 "next_school_day": False,
                 "homework": _registry_entity(registry, "sensor", f"{prefix}homework"),
+                "homework_checklist": _registry_entity(registry, "todo", f"{prefix}checklist_homework"),
                 "behavior": _registry_entity(registry, "sensor", f"{prefix}behavior"),
                 "grades": _registry_entity(registry, "sensor", f"{prefix}grades"),
                 "timetable": _registry_entity(registry, "sensor", f"{prefix}timetable"),
@@ -674,6 +684,15 @@ def _popup_markdown(s: dict[str, Any]) -> str:
 def _popup(s: dict[str, Any]) -> dict[str, Any]:
     """Bubble Card pop-up opened by the student's #hash: markdown body plus holidays calendar."""
     cards: list[dict[str, Any]] = [{"type": "markdown", "content": _popup_markdown(s)}]
+    if s.get("homework_checklist"):
+        cards.append(
+            {
+                "type": "todo-list",
+                "entity": s["homework_checklist"],
+                "title": f"שיעורי הבית של {s['name']}",
+                "hide_create": True,
+            }
+        )
     if s["calendar"]:
         cards.append(
             {

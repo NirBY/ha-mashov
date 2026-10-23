@@ -53,7 +53,8 @@ async def test_upgrade_and_reload_preserve_entity_ids(hass, mock_config_entry):
             assert hass.states.get(entity_id) is not None
             assert hass.states.get(entity_id).state not in ("unavailable", "unknown")
         registered = er.async_entries_for_config_entry(registry, mock_config_entry.entry_id)
-        assert len(registered) == 8  # six core sensors, holiday sensor and calendar
+        assert len(registered) == 9  # six core sensors, holiday sensor, calendar and homework checklist
+        assert len([entity for entity in registered if entity.domain == "todo"]) == 1
         assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
     finally:
         patcher.stop()

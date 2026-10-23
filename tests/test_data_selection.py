@@ -144,7 +144,8 @@ async def test_existing_hub_upgrade_preserves_selection_and_entities(hass, optio
         assert set(entry.options["enabled_data"]) == set(LEGACY_CORE_DATA) | set(options.get("additional_data", []))
         registry = er.async_get(hass)
         entities = er.async_entries_for_config_entry(registry, entry.entry_id)
-        assert len(entities) == 8 + len(options.get("additional_data", []))
+        assert len(entities) == 9 + len(options.get("additional_data", []))
+        assert len([entity for entity in entities if entity.domain == "todo"]) == 1
         assert all(entity.disabled_by is None for entity in entities)
         assert not any(entity.unique_id.endswith("_mailbox") for entity in entities)
         await hass.config_entries.async_unload(entry.entry_id)

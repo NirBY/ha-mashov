@@ -123,6 +123,20 @@ With Holidays selected, each hub gets its own holiday sensor and calendar. Use t
 
 Mailbox is also a hub-level entity, with unread count and recent conversation attributes; it is not repeated per student.
 
+## Homework checklists and AI bots
+
+Each child has a native HA homework checklist with completion saved locally across
+refreshes and restarts. Nothing is written back to Mashov.
+
+An optional read-only MCP connection lets AI bots answer questions such as “What
+homework does each child have?” or summarize grades, behavior and school notices.
+Enable MCP separately for each hub, then select only its Mashov APIs in Home
+Assistant's MCP Server settings. Connect a compatible client using Streamable HTTP
+at `https://YOUR_HA_HOST/api/mcp` and sign in as an HA administrator through OAuth.
+Bots without native MCP support need an MCP client adapter; Telegram/WhatsApp are
+message channels and do not connect to MCP by themselves.
+[Setup and bot examples](docs/homework-and-mcp.md).
+
 ## Guides and examples
 
 | Guide | Contents |
@@ -130,6 +144,7 @@ Mailbox is also a hub-level entity, with unread count and recent conversation at
 | [Services](docs/services.md) | Refresh, option changes, schedule maps and dashboard creation examples |
 | [Automation blueprints](docs/blueprints.md) | Homework/behavior announcement, bag reminder and new noticeboard notifications |
 | [Mashov Live dashboard](docs/dashboard.md) | Setup, family visibility, student popups and desktop/mobile picture examples |
+| [Homework checklists and MCP](docs/homework-and-mcp.md) | Per-child completion and read-only access to all selected school datasets |
 | [Lovelace card examples](examples/lovelace/README.md) | Timetable, homework, behavior and refresh cards with pictures and entity placeholders |
 
 ## Troubleshooting

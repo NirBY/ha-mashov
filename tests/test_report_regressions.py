@@ -296,8 +296,12 @@ async def test_remove_entry_deletes_only_its_cache_and_notification(hass, mock_c
     ):
         store.return_value.async_remove = AsyncMock()
         await async_remove_entry(hass, mock_config_entry)
-        store.assert_called_once_with(hass, 1, f"mashov.{mock_config_entry.entry_id}.cache")
-        store.return_value.async_remove.assert_awaited_once()
+        assert store.call_count == 2
+        assert {call.args[2] for call in store.call_args_list} == {
+            f"mashov.{mock_config_entry.entry_id}.cache",
+            f"mashov.{mock_config_entry.entry_id}.homework_completion",
+        }
+        assert store.return_value.async_remove.await_count == 2
         clear.assert_called_once_with(hass, mock_config_entry)
 
 

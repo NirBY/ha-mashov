@@ -100,4 +100,8 @@ If playback never starts or never finishes, the timeout bounds the wait.
 
 ## Next school day (optional per child)
 
+The bag reminder also accepts an optional **TTS engine entity** and uses `tts.speak`
+when selected. Leaving it empty preserves the existing Google Translate / Cloud
+service choice and language settings, including older automation instances.
+
 The bag reminder has **Use the next school day for this child**, off by default. Each automation instance targets one child’s timetable, so enable it separately for each child. It uses the same calendar rules as the dashboard, and matches weekly-plan text to the selected date. Existing automations keep tomorrow mode when the new input is omitted; re-import the blueprint to expose it. Daily homework/behavior summaries still report today, and noticeboard automations still announce new notices. They do not shift their data to a future date.

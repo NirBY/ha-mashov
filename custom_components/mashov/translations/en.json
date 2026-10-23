@@ -128,12 +128,14 @@
           "enabled_data": "Data to fetch",
           "mailbox_full_content": "Full message content (marks conversations read)",
           "mailbox_limit": "Recent inbox conversations",
-          "edit_data_schedules": "Edit schedules by data type"
+          "edit_data_schedules": "Edit schedules by data type",
+          "mcp_enabled": "Expose this account to MCP / Assist (read only)"
         },
         "data_description": {
           "enabled_data": "Choose only the data you need. Existing hubs retain their previous selection. Warning: an empty selection creates no school-data sensors. Dashboards and blueprints require their corresponding categories to be selected.",
           "mailbox_full_content": "Full message content is off by default. Enabling it marks fetched conversations as read in Mashov, even if you have not opened them yourself.",
-          "mailbox_limit": "Up to 50 recent inbox conversations. Older conversations and attachment files are not fetched."
+          "mailbox_limit": "Up to 50 recent inbox conversations. Older conversations and attachment files are not fetched.",
+          "mcp_enabled": "Off by default. Authenticated administrators can read all children in this account, limited to selected data sources. Select the Mashov API in MCP Server settings."
         },
         "sections": {
           "data": {
@@ -177,7 +179,11 @@
               "homework_days_back": "Homework days back",
               "homework_days_forward": "Homework days forward",
               "api_base": "API base (advanced)",
-              "max_items_in_attributes": "Max items stored in attributes"
+              "max_items_in_attributes": "Max items stored in attributes",
+              "mcp_enabled": "Expose this account to MCP / Assist (read only)"
+            },
+            "data_description": {
+              "mcp_enabled": "Off by default. Authenticated administrators can read all children in this account, limited to selected data sources. Select the Mashov API in MCP Server settings."
             }
           }
         }
@@ -406,6 +412,11 @@
     "calendar": {
       "holidays": {
         "name": "Calendar"
+      }
+    },
+    "todo": {
+      "homework_checklist": {
+        "name": "Homework checklist"
       }
     }
   },
