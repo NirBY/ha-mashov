@@ -24,7 +24,7 @@ CONF_SCHEDULE_DAY = "schedule_day"  # legacy single weekday 0-6 (0=Monday); migr
 CONF_SCHEDULE_DAYS = "schedule_days"  # list of weekdays 0-6 (0=Monday) for weekly
 CONF_SCHEDULE_INTERVAL = "schedule_interval"  # minutes for interval
 
-PLATFORMS = ["sensor", "calendar"]
+PLATFORMS = ["sensor", "calendar", "todo"]
 
 # --- Defaults ---
 DEFAULT_HOMEWORK_DAYS_BACK = 7

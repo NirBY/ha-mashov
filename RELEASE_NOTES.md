@@ -1,20 +1,18 @@
-# Mashov v1.1.1 — Next school day, per child
+# Mashov v1.2.0 — Homework checklists and read-only MCP
 
-Choose **Show the next school day for this child** in the live dashboard blueprint, or **Use the next school day for this child** in each child's bag reminder. Both options are **off by default**; existing installations keep tomorrow mode.
+Each child now has a native Home Assistant homework checklist. Completion is saved locally across refreshes, reloads and restarts, separately for every account, child and school year. Changed assignment text reopens a task; nothing is written back to Mashov. Generated live dashboards include the child's checklist in their pop-up.
 
-When enabled, the card, pop-up and bag reminder skip Saturdays, weekdays without timetable lessons, and the full school-reported vacation ranges. Adjacent holidays are handled together. Holiday eves remain school days when outside the school's vacation ranges. The displayed target includes its weekday and date; spoken bag reminders explicitly say which coming day the bag is for.
+## Read-only MCP for school questions
 
-## Fixes and compatibility
+Enable MCP separately in each hub's Configure → Advanced settings. It is off by default for existing and new installations. Select only the intended Mashov APIs in Home Assistant's MCP Server settings, disable “Expose all LLM APIs”, and keep administrator authentication enabled.
 
-- Timetable pop-ups render proper table rows; pipes and newlines in timetable and homework cells cannot break the table. Empty timetables show a message.
-- Holiday checks work correctly in daily and bag announcements. Existing Google Translate automations continue to work without selecting a new TTS engine.
-- Re-enabling previously purged data forces a refresh even after a failed reload. Existing data selections, schedules and entity IDs are preserved.
-- Teacher names support both timetable layouts. Updated linked documentation and guides are included.
+Compatible AI clients can read all selected school datasets, with source status, freshness and pagination. Disabled datasets and mailbox-body consent remain respected. The API never returns credentials or cookies and cannot modify Mashov or control devices. Connect other MCP clients over Streamable HTTP and OAuth; messaging bots need an MCP adapter in their backend. See [setup and bot examples](https://github.com/NirBY/ha-mashov/blob/v1.2.0/docs/homework-and-mcp.md).
 
-## Credit
+## Compatibility and upgrade
 
-Thank you to **[Aviad Levy (@aviadlevy)](https://github.com/aviadlevy)** for **[PR #15](https://github.com/NirBY/ha-mashov/pull/15)**: the original Friday-to-Sunday dashboard improvement and the timetable/table-cell fixes. This release incorporates those fixes and extends the school-day behavior to an optional setting per child, including multi-day school vacations.
+- Existing hub selections, schedules, sensor IDs and automation inputs are preserved. No new portal data sources are enabled.
+- Bag reminders accept an optional TTS engine entity for `tts.speak`; leaving it empty retains the previous legacy service.
+- Update through HACS and restart Home Assistant. Re-import the bag reminder blueprint for the TTS option. Regenerate a Mashov Live dashboard to include checklists in student pop-ups.
+- English and Hebrew READMEs explain the new features; Configure translations cover all five supported languages.
 
-## Upgrade
-
-Update through HACS and restart Home Assistant. Re-import the updated blueprints, then enable the new option separately for each desired child. Run the dashboard script again to regenerate an existing dashboard. Existing automations keep their current inputs and tomorrow behavior; daily homework/behavior summaries continue to report today, and noticeboard notifications continue to report new notices. Check that holiday sensor inputs refer to the current school's holiday entity if an old sensor has been renamed.
+Validation: 335 Home Assistant tests and Ruff checks; local HA 2026.10.2 checklist persistence and MCP scope/authentication verified.

@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-23
+
+### Added
+- Native per-child homework checklists with persistent local completion, isolated by account and school year. Generated live dashboards include a checklist in each student pop-up.
+- Opt-in read-only HA LLM APIs, available through HA's MCP Server, covering all selected school datasets with administrator authentication, source status and pagination.
+
+### Changed
+- Bag reminders optionally use a modern TTS engine entity with `tts.speak`; existing legacy choices remain supported.
+
 ## [1.1.1] - 2026-10-23
 
 ### Added

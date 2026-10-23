@@ -13,6 +13,11 @@ set_options:
   name: "עדכון אפשרויות (ללא Configure)"
   description: "עדכן אפשרויות של ההאב דרך Service Call כאשר כפתור Configure לא זמין"
   fields:
+    mcp_enabled:
+      name: "חשיפת נתוני החשבון ל־MCP / Assist"
+      description: "קריאה בלבד למנהל מחובר. כבוי כברירת מחדל; חושף רק מקורות שנבחרו לאיסוף."
+      selector:
+        boolean: {}
     entry_id:
       name: "מזהה כניסה"
       description: "מזהה ההאב לעדכון (אם לא צוין, ההאב הראשון שנטען)"

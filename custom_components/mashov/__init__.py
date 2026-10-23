@@ -238,6 +238,7 @@ SET_OPTIONS_SCHEMA = vol.Schema(
     {
         vol.Optional("entry_id"): cv.string,
         vol.Optional("automatic_school_year"): cv.boolean,
+        vol.Optional("mcp_enabled"): cv.boolean,
         vol.Optional(CONF_MAX_ITEMS_IN_ATTRIBUTES): _int_in(10, 500),
         vol.Optional(CONF_ADDITIONAL_DATA): vol.All(cv.ensure_list, [vol.In(STUDENT_RESOURCES)]),
         vol.Optional(CONF_ENABLED_DATA): vol.All(cv.ensure_list, [vol.In(DATA_KEYS)]),
@@ -338,6 +339,10 @@ def _async_register_services(hass: HomeAssistant) -> None:
             CONF_ENABLED_DATA, enabled_data(entry.options)
         ):
             raise ServiceValidationError("Select mailbox before enabling full content (which marks messages read)")
+        if "mcp_enabled" in payload:
+            user = await hass.auth.async_get_user(call.context.user_id) if call.context.user_id else None
+            if user is None or not user.is_admin:
+                raise ServiceValidationError("Only an authenticated administrator can change Mashov MCP exposure")
         opts = merge_selection_options(entry.options, payload)
         # Legacy schedule_day is promoted to a one-element schedule_days, and the old
         # key is never stored alongside the list (mirrors the setup-time migration).
@@ -664,6 +669,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     await _async_setup_scheduler(hass, entry)
 
     # Reconfigure when options change
+    mcp_enabled_at_setup = bool(entry.options.get("mcp_enabled", False))
+
     async def _options_updated(hass: HomeAssistant, updated_entry: ConfigEntry):
         """Reload only when the client must be rebuilt; otherwise just reschedule.
 
@@ -677,7 +684,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         options = updated_entry.options
         credentials_changed = data.get(CONF_USERNAME) != client.username or data.get(CONF_PASSWORD) != client.password
         client_changed = (
-            str(configured_school_year(data, options)) != str(client._configured_year)
+            bool(options.get("mcp_enabled", False)) != mcp_enabled_at_setup
+            or str(configured_school_year(data, options)) != str(client._configured_year)
             or data.get(CONF_USERNAME) != client.username
             or data.get(CONF_PASSWORD) != client.password
             or set(enabled_data(options)) != set(client.enabled_data)
@@ -706,6 +714,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     entry.async_on_unload(entry.add_update_listener(_options_updated))
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    if entry.options.get("mcp_enabled", False):
+        from homeassistant.helpers import llm
+
+        from .llm_api import MashovDataAPI
+
+        entry.async_on_unload(llm.async_register_api(hass, MashovDataAPI(hass, entry)))
 
     return True
 
@@ -747,6 +762,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry):
     # The cache holds session cookies and student data; the entry itself (with the
     # password) is deleted by HA.
     await Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.cache").async_remove()
+    await Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.homework_completion").async_remove()
     hass.data.get(DOMAIN, {}).get("report_logs", {}).pop(entry.entry_id, None)
     _async_clear_issue_notification(hass, entry)
 
