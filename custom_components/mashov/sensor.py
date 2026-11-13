@@ -156,7 +156,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             )
             for registered in er.async_entries_for_config_entry(registry, entry.entry_id):
                 if (
-                    registered.domain != "sensor"
+                    registered.domain not in ("sensor", "todo")
                     or registered.platform != DOMAIN
                     or not registered.unique_id.startswith(prefix)
                 ):
@@ -164,7 +164,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                 # unique_id = mashov_<entry>_<student_id>_<key>. Keys can contain "_" and one key
                 # may be a suffix of another, so try the longest keys first.
                 tail = registered.unique_id[len(prefix) :]
-                for key in sorted(keys, key=len, reverse=True):
+                for key in sorted(
+                    ("checklist_homework",) if registered.domain == "todo" else keys, key=len, reverse=True
+                ):
                     suffix = f"_{key}"
                     if tail.endswith(suffix):
                         student_id = tail[: -len(suffix)]
