@@ -65,7 +65,17 @@ async def async_setup_entry(hass, entry, async_add_entities):
     @callback
     def discover():
         entities = []
-        for student in (coordinator.data or {}).get("students", []):
+        students = (coordinator.data or {}).get("students", [])
+        # Match sensor roster cleanup: cached/failed/empty rosters cannot prove a
+        # departure. Forget verified departures so returning children are recreated.
+        if (
+            students
+            and getattr(coordinator.client, "roster_refreshed", False) is True
+            and not coordinator.data_stale
+            and coordinator.last_update_success
+        ):
+            known.intersection_update(student["id"] for student in students)
+        for student in students:
             if student["id"] not in known:
                 known.add(student["id"])
                 entities.append(MashovHomeworkTodo(coordinator, entry.entry_id, student, completion))

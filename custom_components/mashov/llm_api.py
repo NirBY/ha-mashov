@@ -33,7 +33,10 @@ class MashovDataAPI(llm.API):
     """One independently selectable API per school/account."""
 
     def __init__(self, hass, entry):
-        super().__init__(hass=hass, id=f"mashov_{entry.entry_id}", name=f"Mashov – {entry.title} (read only)")
+        # HA prefixes merged tools with the API name. A school/account title may
+        # exceed clients' tool-name limit or match another hub's title. Keep the
+        # namespace short, ASCII and stable across user renames; API IDs stay intact.
+        super().__init__(hass=hass, id=f"mashov_{entry.entry_id}", name=f"Mashov {entry.entry_id} (read only)")
         self.entry_id = entry.entry_id
 
     async def async_get_api_instance(self, llm_context):
@@ -78,12 +81,17 @@ class MashovCatalogTool(MashovTool):
         data = coordinator.data or {}
         return self.result(
             {
+                "account_name": coordinator.entry.title,
                 "students": [
                     {k: student.get(k) for k in ("id", "name", "year", "school_id")}
                     for student in data.get("students", [])
                 ],
                 "datasets": list(enabled_data(coordinator.entry.options)),
-                "data_stale": bool(coordinator.data_stale or not coordinator.last_update_success),
+                "data_stale": bool(
+                    coordinator.data_stale
+                    or not coordinator.last_update_success
+                    or getattr(coordinator, "failed_datasets", set())
+                ),
             }
         )
 
@@ -133,17 +141,24 @@ class MashovReadTool(MashovTool):
             additional = resource.get("additional_data", {}).get(key)
             if additional is not None:
                 items, status = additional.get("items", []), additional.get("status", "unknown")
-                updated = additional.get("last_update")
+                updated = resource.get("source_last_update", {}).get(key)
             else:
                 items, status = resource.get(key, []), resource.get("source_status", {}).get(key, "unknown")
                 updated = resource.get("source_last_update", {}).get(key)
         offset, limit = args["offset"], args["limit"]
+        failures = getattr(coordinator, "failed_datasets", set())
         return self.result(
             {
                 "dataset": key,
                 "student_id": student_id,
                 "status": status,
-                "data_stale": bool(coordinator.data_stale or not coordinator.last_update_success or status != "ok"),
+                "data_stale": bool(
+                    coordinator.data_stale
+                    or not coordinator.last_update_success
+                    or status != "ok"
+                    or key in failures
+                    or (student_id, key) in failures
+                ),
                 "last_update": updated,
                 "total": len(items),
                 "offset": offset,

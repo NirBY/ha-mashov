@@ -1,11 +1,13 @@
 """Checklist isolation, durable markers, changing content and source failures."""
 
+from copy import deepcopy
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from homeassistant.components.todo import TodoItemStatus
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 import pytest
 
 from custom_components.mashov.todo import HomeworkCompletionStore, MashovHomeworkTodo
@@ -88,3 +90,36 @@ async def test_no_checklist_when_homework_deselected(hass, mock_config_entry, mo
     assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()
     assert not hass.states.async_all("todo")
+
+
+async def test_verified_roster_departure_and_return(hass, mock_config_entry, mock_mashov_client):
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = hass.data["mashov"][mock_config_entry.entry_id]["coordinator"]
+    both = deepcopy(coordinator.data)
+    sibling = {**both["students"][0], "id": "sibling", "slug": "sibling", "name": "Sibling"}
+    both["students"].append(sibling)
+    both["by_slug"]["sibling"] = deepcopy(both["by_slug"]["student-123"])
+    mock_mashov_client.roster_refreshed = True
+    coordinator.async_set_updated_data(both)
+    await hass.async_block_till_done()
+    assert len(hass.states.async_all("todo")) == 2
+    registry = er.async_get(hass)
+    uid = f"mashov_{mock_config_entry.entry_id}_student-123_checklist_homework"
+    old_entity = registry.async_get_entity_id("todo", "mashov", uid)
+    remaining = deepcopy(both)
+    remaining["students"] = [sibling]
+    remaining["by_slug"].pop("student-123")
+    coordinator.data_stale = True
+    coordinator.async_set_updated_data(remaining)
+    await hass.async_block_till_done()
+    assert registry.async_get(old_entity) is not None
+    coordinator.data_stale = False
+    coordinator.async_set_updated_data(remaining)
+    await hass.async_block_till_done()
+    assert registry.async_get(old_entity) is None
+    coordinator.async_set_updated_data(both)
+    await hass.async_block_till_done()
+    assert len(hass.states.async_all("todo")) == 2
+    assert registry.async_get_entity_id("todo", "mashov", uid) is not None

@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-11-13
+
+### Fixed
+- MCP tool namespaces remain short and unique across hubs with long or identical account titles. API IDs and existing exposure settings remain unchanged; the catalog includes the account's display name.
+- MCP reads report the actual update timestamp for optional student resources and preserve per-child refresh failure indicators after another source recovers.
+- Verified roster departures remove the child's homework checklist, and a returning child gets a working checklist again. Cached or failed roster updates do not remove entities.
+
 ## [1.2.0] - 2026-10-23
 
 ### Added

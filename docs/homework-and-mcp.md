@@ -21,8 +21,12 @@ enabling “Expose this account to MCP / Assist”** in that hub's Configure for
 default is off for both existing and new installations.
 
 Add Home Assistant's built-in **Model Context Protocol Server** integration. In its
-options, disable **Expose all LLM APIs**, select only the intended `Mashov – … (read
-only)` APIs and retain **Require admin**. Connect your MCP client to the HA server's
+options, disable **Expose all LLM APIs**, select only the intended
+`Mashov <config-entry ID> (read only)` APIs and retain **Require admin**. APIs are labeled with their stable HA
+config-entry ID; the catalog returns `account_name` to identify the school/account.
+After upgrading, refresh or reconnect the MCP client so it rediscovers the shorter
+tool names. Existing API selections and permissions are retained.
+Connect your MCP client to the HA server's
 `/api/mcp` endpoint using its supported OAuth flow. Never embed passwords or tokens in
 dashboard YAML. Client authentication is separate from enabling this server API.
 

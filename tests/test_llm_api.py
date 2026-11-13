@@ -46,6 +46,38 @@ def unwrap(result):
     return result.data if hasattr(result, "data") else result
 
 
+async def test_merged_hubs_have_short_unique_stable_tool_names(hass):
+    entry, _, context = setup_api(hass)
+    entry.title = "שם בית ספר ארוך מאוד " * 12
+    first = MashovDataAPI(hass, entry)
+    second_id = "01" + "a" * 24
+    second_entry = SimpleNamespace(entry_id=second_id, title=entry.title)
+    hass.data["mashov"][second_id] = hass.data["mashov"]["account"]
+    second = MashovDataAPI(hass, second_entry)
+    merged = await llm.MergedAPI([first, second]).async_get_api_instance(context)
+    assert len({tool.name for tool in merged.tools}) == 4
+    assert all(len(tool.name) <= 64 and tool.name.isascii() for tool in merged.tools)
+    entry.title = "Renamed account"
+    assert MashovDataAPI(hass, entry).name == first.name
+    assert first.id == "mashov_account"
+
+
+async def test_optional_resource_timestamp_and_failed_child_scope(hass):
+    _, coordinator, context = setup_api(hass)
+    group = coordinator.data["by_slug"]["child"]
+    group["additional_data"] = {"message_board": {"status": "ok", "items": [{"text": "notice"}]}}
+    group["source_last_update"] = {"message_board": 1234567}
+    coordinator.failed_datasets = {("child", "message_board")}
+    tool = MashovReadTool("account")
+    request = llm.ToolInput(tool_name=tool.name, tool_args={"dataset": "message_board", "student_id": "child"})
+    result = unwrap(await tool.async_call(hass, request, context))
+    assert result["last_update"] == 1234567
+    assert result["data_stale"] is True
+    coordinator.failed_datasets = {("another_child", "message_board")}
+    result = unwrap(await tool.async_call(hass, request, context))
+    assert result["data_stale"] is False
+
+
 @pytest.mark.parametrize("dataset", DATA_KEYS)
 async def test_read_all_selected_datasets(hass, dataset):
     _, _, context = setup_api(hass)
