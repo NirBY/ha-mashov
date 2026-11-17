@@ -281,6 +281,11 @@ class MashovMailboxSensor(MashovEntity, SensorEntity):
             "marks_as_read": resource.get("full_content", False),
             "body_format": "plain_text",
             "fetched_conversations": len(resource.get("items", [])),
+            "attachment_count": sum(
+                len(message.get("attachments", []))
+                for item in resource.get("items", [])
+                for message in item.get("messages", [])
+            ),
             "stored_conversations": 0,
             "content_truncated": False,
             "items": [],
@@ -291,33 +296,44 @@ class MashovMailboxSensor(MashovEntity, SensorEntity):
         }
         if "unread_before_fetch" in resource:
             attributes["unread_before_fetch"] = resource["unread_before_fetch"]
-        # Bound the whole attribute object. Keep a long message's metadata and a
-        # visible truncation flag instead of silently omitting the newest message.
         for original in resource.get("items", []):
-            item = deepcopy(original)
-            attributes["items"].append(item)
-            if len(json_bytes(attributes)) > 14 * 1024:
-                bodies = [m for m in item.get("messages", []) if "body" in m]
-                for message in sorted(bodies, key=lambda m: len(m["body"]), reverse=True):
-                    original_body = message["body"]
-                    message["body_truncated"] = True
-                    attributes["content_truncated"] = True
-                    low, high = 0, len(original_body)
-                    while low < high:
-                        middle = (low + high + 1) // 2
-                        message["body"] = original_body[:middle]
-                        if len(json_bytes(attributes)) <= 14 * 1024:
-                            low = middle
-                        else:
-                            high = middle - 1
-                    message["body"] = original_body[:low]
-                    if len(json_bytes(attributes)) <= 14 * 1024:
-                        break
-                if len(json_bytes(attributes)) > 14 * 1024:
-                    attributes["items"].pop()
-                    attributes["content_truncated"] = True
-            attributes["stored_conversations"] = len(attributes["items"])
+            self._append_bounded(attributes, deepcopy(original))
         return attributes
+
+    @staticmethod
+    def _append_bounded(attributes, item):
+        """Bound the whole attribute object, attachment metadata included.
+
+        Keep a long message's metadata and a visible truncation flag instead of
+        silently omitting the newest message.
+        """
+        attributes["items"].append(item)
+        if len(json_bytes(attributes)) > 14 * 1024:
+            bodies = [m for m in item.get("messages", []) if "body" in m]
+            for message in sorted(bodies, key=lambda m: len(m["body"]), reverse=True):
+                _truncate_body(attributes, message)
+                if len(json_bytes(attributes)) <= 14 * 1024:
+                    break
+            if len(json_bytes(attributes)) > 14 * 1024:
+                attributes["items"].pop()
+                attributes["content_truncated"] = True
+        attributes["stored_conversations"] = len(attributes["items"])
+
+
+def _truncate_body(attributes, message):
+    """Binary-search the longest body prefix that keeps attributes within 14 KiB."""
+    original_body = message["body"]
+    message["body_truncated"] = True
+    attributes["content_truncated"] = True
+    low, high = 0, len(original_body)
+    while low < high:
+        middle = (low + high + 1) // 2
+        message["body"] = original_body[:middle]
+        if len(json_bytes(attributes)) <= 14 * 1024:
+            low = middle
+        else:
+            high = middle - 1
+    message["body"] = original_body[:low]
 
 
 def _student_meta(data: dict, student_id, fallback_slug: str) -> dict:
