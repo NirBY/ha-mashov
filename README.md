@@ -40,7 +40,7 @@ YAML overrides the shared UI schedule. Separate student/data schedules remain in
 
 ## 🧩 Features
 
-- All **18 data types** are selectable; only enabled categories are fetched. Multiple hubs and students are supported without mixing their records.
+- All **19 data types** are selectable; only enabled categories are fetched. Multiple hubs and students are supported without mixing their records.
 - **Student-specific General and per-data schedules:** daily, weekly or interval, edited inside Setup/Configure. One Submit saves all drafts.
 - **One refresh queue** across hubs, including scheduled, manual and startup requests. Selective refreshes preserve other students’ values and timestamps.
 - **Sensors and holiday calendars**, with structured records, formatted summaries, actual update times, source status and stale-data indicators.
@@ -87,8 +87,9 @@ Available in **v1.1.0**. New hubs start with nothing selected; upgrades keep exi
 | Student records | Study materials, student files, absence justification requests, individual lessons |
 | School | Noticeboard, holidays and calendar |
 | Mailbox | Unread count and recent headers; message content is optional |
+| Parent approvals | Trips/activities waiting for your answer and open forms; read only |
 
-The selection applies to all students in the hub. Mailbox belongs to the account; holidays belong to the school. Availability depends on school permissions. File records are listed, not downloaded; this integration does not submit school forms or absence requests.
+The selection applies to all students in the hub. Mailbox and parent approvals belong to the account; holidays belong to the school. Availability depends on school permissions. File records are listed, not downloaded; this integration does not submit school forms or absence requests.
 
 ### Selecting and disabling data
 
@@ -101,6 +102,12 @@ Removing a category clears its active/disk cache **before login**, even if refre
 Select **Mailbox — headers and unread count** for one sensor per account/school hub. Headers do not mark conversations read. **Full message content is off by default; enabling it marks fetched conversations read in Mashov**, even if you never open them. It fetches plain-text bodies only, with no images or attachments. Removing Mailbox resets full-content consent; enabling it again starts with headers only.
 
 The limit applies to recent inbox conversations (20 by default, 1–50). Sent mail, drafts, archives and older inbox pages are not fetched. Long bodies may be shortened in attributes; check `stored_conversations`, `fetched_conversations`, `body_truncated` and `content_status`. Failed counts are not displayed as zero. See [Privacy & Security](#-privacy--security) before enabling access.
+
+### Parent approvals (optional)
+
+Select **Parent approvals — trips and forms (read only)**. Each child gets a **Pending approvals** sensor: the state is the number of trips and school activities still waiting for your answer. `pending` lists them by answer deadline (title, type, dates, deadline and a short plain-text description), and `next_deadline` is the earliest one. The hub gets one **Open forms and approvals** sensor: unanswered, unexpired consent questionnaires (`consent_forms`) and online forms (`general_forms`), plus open activities Mashov did not assign to any child of this account (`unassigned_activities`).
+
+**The integration never answers approvals or forms for you.** It only reads Mashov's lists; approving, the yearly digital approval and submitting forms stay in the Mashov app. Answers are fetched only for activities that are still open or whose deadline passed in the last 7 days. Times are school-local (Israel). A failed source shows `unknown`, not 0. The form fields are not yet verified against a live account.
 
 ### 🧠 Entities (per child)
 
