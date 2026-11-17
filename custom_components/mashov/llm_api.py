@@ -10,7 +10,9 @@ except ImportError:  # HA before the schema migration
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import llm
 
+from .approvals import PARENT_APPROVALS, pending_summary
 from .const import DOMAIN
+from .data_schedule import SHARED_DATA
 from .data_selection import DATA_KEYS, enabled_data, filter_cached_data
 
 CONF_MCP_ENABLED = "mcp_enabled"
@@ -27,6 +29,32 @@ async def _authorize(hass, entry_id, context):
     if user is None or not user.is_admin:
         raise HomeAssistantError("Mashov school data requires an authenticated administrator")
     return coordinator
+
+
+def _account_dataset(data, key):
+    """(items, status, last_update) of a dataset shared by the whole account."""
+    if key == "holidays":
+        return data.get(key, []), data.get("holidays_status", "unknown"), data.get("holidays_last_update")
+    resource = data.get(key, {})
+    items = (
+        pending_summary(resource, data.get("students", [])) if key == PARENT_APPROVALS else resource.get("items", [])
+    )
+    return items, resource.get("status", "unknown"), resource.get("last_update")
+
+
+def _dataset(data, key, student_id):
+    """(items, status, last_update) of one dataset, for one student unless it is shared."""
+    if key in SHARED_DATA:
+        return _account_dataset(data, key)
+    student = next((s for s in data.get("students", []) if str(s["id"]) == student_id), None)
+    if student is None:
+        raise HomeAssistantError("Select a student_id returned by this account's catalog")
+    resource = data.get("by_slug", {}).get(student["slug"], {})
+    updated = resource.get("source_last_update", {}).get(key)
+    additional = resource.get("additional_data", {}).get(key)
+    if additional is not None:
+        return additional.get("items", []), additional.get("status", "unknown"), updated
+    return resource.get(key, []), resource.get("source_status", {}).get(key, "unknown"), updated
 
 
 class MashovDataAPI(llm.API):
@@ -101,7 +129,7 @@ class MashovReadTool(MashovTool):
 
     name = "mashov__read"
     description = (
-        "Read a selected Mashov dataset. student_id is required except for holidays/mailbox. "
+        "Read a selected Mashov dataset. student_id is required except for holidays/mailbox/parent_approvals. "
         "Returns source status, freshness and pagination. No portal requests or write operations."
     )
     parameters = schema.Schema(
@@ -122,29 +150,7 @@ class MashovReadTool(MashovTool):
         # Reapply consent even if an older in-memory snapshot still contains mailbox bodies.
         data = filter_cached_data(coordinator.data or {}, coordinator.entry.options)
         student_id = args.get("student_id")
-        if key == "holidays":
-            items = data.get(key, [])
-            status = data.get("holidays_status", "unknown")
-            updated = data.get("holidays_last_update")
-        elif key == "mailbox":
-            resource = data.get("mailbox", {})
-            items, status, updated = (
-                resource.get("items", []),
-                resource.get("status", "unknown"),
-                resource.get("last_update"),
-            )
-        else:
-            student = next((s for s in data.get("students", []) if str(s["id"]) == student_id), None)
-            if student is None:
-                raise HomeAssistantError("Select a student_id returned by this account's catalog")
-            resource = data.get("by_slug", {}).get(student["slug"], {})
-            additional = resource.get("additional_data", {}).get(key)
-            if additional is not None:
-                items, status = additional.get("items", []), additional.get("status", "unknown")
-                updated = resource.get("source_last_update", {}).get(key)
-            else:
-                items, status = resource.get(key, []), resource.get("source_status", {}).get(key, "unknown")
-                updated = resource.get("source_last_update", {}).get(key)
+        items, status, updated = _dataset(data, key, student_id)
         offset, limit = args["offset"], args["limit"]
         failures = getattr(coordinator, "failed_datasets", set())
         return self.result(

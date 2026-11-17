@@ -17,7 +17,7 @@ from custom_components.mashov import SET_OPTIONS_SCHEMA, MashovCoordinator, _asy
 from custom_components.mashov.calendar import MashovHolidaysCalendar
 from custom_components.mashov.config_flow import OptionsFlowHandler
 from custom_components.mashov.const import DOMAIN
-from custom_components.mashov.data_schedule import effective_schedule, merge_partial_data, schedule_groups
+from custom_components.mashov.data_schedule import SHARED_DATA, effective_schedule, merge_partial_data, schedule_groups
 from custom_components.mashov.data_selection import DATA_KEYS, LEGACY_CORE_DATA
 from custom_components.mashov.mashov_client import MashovClient, MashovError
 from custom_components.mashov.sensor import MashovAdditionalSensor, MashovListSensor
@@ -52,15 +52,17 @@ async def test_each_dataset_can_be_fetched_without_other_selected_routes(key):
     client._session = MagicMock(closed=False)
     client._session.get.return_value = _response(200, [])
     client._fetch_student_resource = AsyncMock(return_value={"items": [], "status": "ok"})
-    client._fetch_account_json = AsyncMock(side_effect=[("ok", {}), ("ok", [])])
+    client._fetch_account_json = AsyncMock(side_effect=lambda path, name, expected: ("ok", expected()))
     result = await client.async_fetch_all(selected_data=[key])
     assert client.enabled_data == tuple(DATA_KEYS)
     assert client._session.get.call_count == (1 if key in LEGACY_CORE_DATA else 0)
-    assert client._fetch_student_resource.await_count == (1 if key not in (*LEGACY_CORE_DATA, "mailbox") else 0)
+    assert client._fetch_student_resource.await_count == (1 if key not in (*LEGACY_CORE_DATA, *SHARED_DATA) else 0)
     if client._fetch_student_resource.await_count:
         assert client._fetch_student_resource.call_args.args[1] == key
-    assert client._fetch_account_json.await_count == (2 if key == "mailbox" else 0)
+    # Mailbox: counts + inbox. Approvals: the (empty) activity list + both form lists.
+    assert client._fetch_account_json.await_count == {"mailbox": 2, "parent_approvals": 3}.get(key, 0)
     assert ("mailbox" in result) == (key == "mailbox")
+    assert ("parent_approvals" in result) == (key == "parent_approvals")
 
 
 @pytest.mark.parametrize(
@@ -222,7 +224,7 @@ async def test_flow_navigates_multiple_datasets_and_commits_only_on_save(hass, m
             form = await manager.async_init(mock_config_entry.entry_id)
             data = {"enabled_data": ["homework", "grades"], "password": "new-secret"}
         summary = form["description_placeholders"]["schedule_summary"]
-        assert len([line for line in summary.splitlines() if line.startswith("|")]) == 20
+        assert len([line for line in summary.splitlines() if line.startswith("|")]) == 21
         assert "<details>" in summary and "<details open" not in summary
         flow_id = form["flow_id"]
         sections = {str(key): value for key, value in form["data_schema"].schema.items()}

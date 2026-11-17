@@ -43,6 +43,7 @@ def _local_timestamp(value: float | None) -> str | None:
 
 # NOTE: these package imports sit below the helper above for historical reasons; order is harmless.
 from .additional_data import STUDENT_RESOURCES
+from .approvals import FORM_KINDS, PARENT_APPROVALS, open_forms, open_pending
 from .const import (
     CONF_MAX_ITEMS_IN_ATTRIBUTES,
     CONF_SCHEDULE_DAY,
@@ -65,7 +66,7 @@ from .const import (
     SENSOR_KEY_TIMETABLE,
     SENSOR_KEY_WEEKLY_PLAN,
 )
-from .data_schedule import effective_schedule
+from .data_schedule import SHARED_DATA, effective_schedule
 from .data_selection import LEGACY_CORE_DATA, enabled_data
 from .entity import MashovEntity, MashovStudentEntity, sync_selected_entities
 from .holidays_utils import (
@@ -153,6 +154,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                 SENSOR_KEY_LESSONS_HISTORY,
                 SENSOR_KEY_GRADES,
                 *STUDENT_RESOURCES,
+                PARENT_APPROVALS,
             )
             for registered in er.async_entries_for_config_entry(registry, entry.entry_id):
                 if (
@@ -184,7 +186,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                 identifiers = {value for domain, value in device.identifiers if domain == DOMAIN}
                 if (
                     identifiers
-                    and not any(value.startswith(("holidays_", "mailbox_")) for value in identifiers)
+                    and not any(value.startswith(tuple(f"{key}_" for key in SHARED_DATA)) for value in identifiers)
                     and identifiers.isdisjoint(active)
                     and not any(
                         entity.config_entry_id == entry.entry_id
@@ -218,6 +220,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             for key in selected:
                 if key in STUDENT_RESOURCES:
                     entities.append(MashovAdditionalSensor(coord, sid, slug, name, key, entry.entry_id))
+            if PARENT_APPROVALS in selected:
+                entities.append(MashovApprovalsSensor(coord, sid, slug, name, entry.entry_id))
 
         if entities:
             async_add_entities(entities)
@@ -228,6 +232,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         async_add_entities([MashovHolidaysSensor(coord, entry.entry_id)])
     if "mailbox" in selected:
         async_add_entities([MashovMailboxSensor(coord, entry.entry_id)])
+    if PARENT_APPROVALS in selected:
+        async_add_entities([MashovOpenFormsSensor(coord, entry.entry_id)])
     entry.async_on_unload(coord.async_add_listener(sync_students))
 
 
@@ -417,6 +423,114 @@ class MashovAdditionalSensor(MashovStudentEntity, SensorEntity):
             ),
             **self.schedule_attributes(self._key),
         }
+
+
+# HA warns above 16 KiB per state; leave room for icon and friendly_name.
+ATTRIBUTE_BUDGET_BYTES = 14 * 1024
+
+
+def _fill_bounded(attributes, key, items):
+    """Append items in order until the whole attribute object would exceed the budget."""
+    for item in items:
+        attributes[key].append(item)
+        if len(json_bytes(attributes)) > ATTRIBUTE_BUDGET_BYTES:
+            attributes[key].pop()
+            attributes["truncated"] = True
+            return
+
+
+def _approvals(coordinator):
+    return (coordinator.data or {}).get(PARENT_APPROVALS, {})
+
+
+class MashovApprovalsSensor(MashovAdditionalSensor):
+    """Pending activity approvals (trips, culture basket) of one child. Never answered here."""
+
+    _attr_icon = "mdi:clipboard-check-outline"
+
+    def __init__(self, coordinator, student_id, slug, name, entry_id):
+        super().__init__(coordinator, student_id, slug, name, PARENT_APPROVALS, entry_id)
+
+    @property
+    def _pending(self):
+        return open_pending(_approvals(self.coordinator).get("by_student", {}).get(self._student_id, []))
+
+    @property
+    def native_value(self):
+        ok = _approvals(self.coordinator).get("status") == "ok"
+        return len(self._pending) if self.available and ok else None
+
+    @property
+    def extra_state_attributes(self):
+        resource = _approvals(self.coordinator)
+        pending = self._pending
+        attributes = {
+            "student_name": self.student_name,
+            "source_status": resource.get("status", "not_fetched"),
+            "answers_failures": resource.get("answers_failures", 0),
+            "data_stale": self.data_stale or resource.get("status") != "ok" or resource.get("answers_failures", 0) > 0,
+            "next_deadline": pending[0]["answer_deadline"] if pending else None,
+            "total_pending": len(pending),
+            "truncated": False,
+            "pending": [],
+            "last_update": _local_timestamp(
+                resource.get("last_update", getattr(self.coordinator, "last_successful_update", None))
+            ),
+            **self.schedule_attributes(PARENT_APPROVALS),
+        }
+        _fill_bounded(attributes, "pending", pending)
+        return attributes
+
+
+class MashovOpenFormsSensor(MashovEntity, SensorEntity):
+    """Open forms, plus open activities no child of this account could be matched to."""
+
+    _attr_icon = "mdi:form-select"
+    _attr_translation_key = "open_forms"
+
+    def __init__(self, coordinator, entry_id):
+        super().__init__(coordinator)
+        self._entry_id = entry_id
+        self._key = PARENT_APPROVALS
+        self._attr_unique_id = f"mashov_{entry_id}_{PARENT_APPROVALS}"
+
+    def _parts(self):
+        """Return {part: (source_status, open items)} for the activities and each form list."""
+        resource = _approvals(self.coordinator)
+        parts = {"unassigned_activities": (resource.get("status"), open_pending(resource.get("unassigned", [])))}
+        for kind in FORM_KINDS:
+            forms = open_forms(resource.get("forms", {}).get(kind, []))
+            parts[f"{kind}_forms"] = (resource.get("forms_status", {}).get(kind), forms)
+        return parts
+
+    @property
+    def native_value(self):
+        counts = [len(items) for status, items in self._parts().values() if status == "ok"]
+        return sum(counts) if counts else None
+
+    @property
+    def device_info(self):
+        return {
+            "identifiers": {(DOMAIN, f"{PARENT_APPROVALS}_{self._entry_id}")},
+            "name": f"Mashov – {self.coordinator.entry.title} – Approvals",
+            "manufacturer": DEVICE_MANUFACTURER,
+            "model": "Mashov Parent Approvals",
+        }
+
+    @property
+    def extra_state_attributes(self):
+        parts = self._parts()
+        attributes = {f"{part}_status": status or "not_fetched" for part, (status, _items) in parts.items()}
+        attributes.update({f"{part}_count": len(items) for part, (_status, items) in parts.items()})
+        attributes["data_stale"] = self.data_stale or any(status != "ok" for status, _items in parts.values())
+        attributes["truncated"] = False
+        attributes["last_update"] = _local_timestamp(
+            _approvals(self.coordinator).get("last_update", getattr(self.coordinator, "last_successful_update", None))
+        )
+        attributes.update(self.schedule_attributes(PARENT_APPROVALS), **{part: [] for part in parts})
+        for part, (_status, items) in parts.items():
+            _fill_bounded(attributes, part, items)
+        return attributes
 
 
 class MashovListSensor(MashovStudentEntity, SensorEntity):

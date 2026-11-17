@@ -59,6 +59,7 @@ from .data_schedule import (
     CONF_DATA_SCHEDULES,
     CONF_STUDENT_SCHEDULES,
     DATA_SCHEDULES_SCHEMA,
+    SHARED_DATA,
     STUDENT_SCHEDULES_SCHEMA,
     merge_partial_data,
     schedule_groups,
@@ -781,7 +782,7 @@ async def async_remove_config_entry_device(
     Without any roster data removal is refused, to avoid deleting active students.
     """
     identifiers = {value for domain, value in device_entry.identifiers if domain == DOMAIN}
-    if not identifiers or any(value.startswith(("holidays_", "mailbox_")) for value in identifiers):
+    if not identifiers or any(value.startswith(tuple(f"{key}_" for key in SHARED_DATA)) for value in identifiers):
         return False
     coordinator = hass.data.get(DOMAIN, {}).get(config_entry.entry_id, {}).get("coordinator")
     data = coordinator.data if coordinator else None
@@ -1052,7 +1053,7 @@ class MashovCoordinator(DataUpdateCoordinator):
             requested = set(keys) & set(enabled_data(self.entry.options))
             if student_data is not None:
                 students = (self.data or {}).get("students", [])
-                for key in set(self.failed_datasets) - {"holidays", "mailbox"}:
+                for key in set(self.failed_datasets) - SHARED_DATA:
                     if isinstance(key, str):
                         self.failed_datasets.remove(key)
                         self.failed_datasets.update((student["id"], key) for student in students)
@@ -1089,7 +1090,7 @@ class MashovCoordinator(DataUpdateCoordinator):
     def _failure_keys(self, requested, student_data=None):
         if student_data is None:
             return set(requested)
-        return (set(requested) & {"holidays", "mailbox"}) | {
+        return (set(requested) & SHARED_DATA) | {
             (sid, key) for sid, keys in student_data.items() for key in keys if key in requested
         }
 
@@ -1156,8 +1157,9 @@ class MashovCoordinator(DataUpdateCoordinator):
                     )
                     if status == "ok":
                         updates[key] = self.last_successful_update
-            if "mailbox" in requested and data.get("mailbox", {}).get("status") == "ok":
-                data["mailbox"]["last_update"] = self.last_successful_update
+            for key in SHARED_DATA - {"holidays"}:
+                if key in requested and data.get(key, {}).get("status") == "ok":
+                    data[key]["last_update"] = self.last_successful_update
             # Holidays come from a separate endpoint that may fail on its own. If it
             # failed, keep the previous holidays (fresh or already cached) and flag
             # them as cached, preserving when they were last actually fetched.

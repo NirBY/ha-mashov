@@ -140,6 +140,7 @@ set_options:
             - justification_requests
             - special_hours
             - mailbox
+            - parent_approvals
     data_schedules:
       name: "Schedules by data type"
       description: "Replaces the override map for this hub. Keys are data types; each schedule uses schedule_type, schedule_time, schedule_days and schedule_interval. Omit a type to follow the shared schedule; use {} to reset all overrides. Disabled data is never fetched."

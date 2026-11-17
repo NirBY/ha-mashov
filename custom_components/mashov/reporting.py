@@ -71,6 +71,7 @@ _SOURCE_FILES = {
     "config_flow.py",
     "holidays_utils.py",
     "mailbox.py",
+    "approvals.py",
     "data_selection.py",
 }
 
@@ -168,7 +169,15 @@ def diagnostic_summary(coordinator=None, technical_logs=None):
             key: mailbox.get(key) if mailbox.get(key) in _STATUSES else "other_error"
             for key in ("status", "counts_status")
         }
+    if isinstance(data.get("parent_approvals"), dict):
+        result["parent_approvals_status"] = _approvals_statuses(data["parent_approvals"])
     return result
+
+
+def _approvals_statuses(approvals):
+    """Route statuses only; titles, children and forms are never exported."""
+    statuses = {"status": approvals.get("status"), **approvals.get("forms_status", {})}
+    return {key: status if status in _STATUSES else "other_error" for key, status in statuses.items()}
 
 
 def issue_report_url(title, technical_logs=None):
