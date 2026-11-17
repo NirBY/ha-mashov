@@ -1087,6 +1087,12 @@ class MashovCoordinator(DataUpdateCoordinator):
         if done := getattr(self, "_active_done", None):
             await done.wait()
 
+    def _stamp_account_resources(self, data, requested):
+        """Record when each requested account resource (other than holidays) last succeeded."""
+        for key in SHARED_DATA - {"holidays"}:
+            if key in requested and data.get(key, {}).get("status") == "ok":
+                data[key]["last_update"] = self.last_successful_update
+
     def _failure_keys(self, requested, student_data=None):
         if student_data is None:
             return set(requested)
@@ -1157,9 +1163,7 @@ class MashovCoordinator(DataUpdateCoordinator):
                     )
                     if status == "ok":
                         updates[key] = self.last_successful_update
-            for key in SHARED_DATA - {"holidays"}:
-                if key in requested and data.get(key, {}).get("status") == "ok":
-                    data[key]["last_update"] = self.last_successful_update
+            self._stamp_account_resources(data, requested)
             # Holidays come from a separate endpoint that may fail on its own. If it
             # failed, keep the previous holidays (fresh or already cached) and flag
             # them as cached, preserving when they were last actually fetched.
