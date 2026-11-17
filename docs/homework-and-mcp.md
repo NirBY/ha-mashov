@@ -35,11 +35,12 @@ Tools:
 - `mashov__catalog`: children and enabled dataset names for that account.
 - `mashov__read`: full cached selected dataset, optionally paginated with `offset`
   and `limit` (1–100, default 25). Use the catalog's `student_id` for student data.
-  Holidays and mailbox belong to the account rather than an individual child.
+  Holidays, mailbox and parent approvals belong to the account rather than an individual child.
 
 All supported data categories are accessible when selected for fetching: homework,
 behavior, weekly plans, timetables, lesson history, grades, holidays, optional student
-resources and mailbox. Source status and staleness accompany each response. Follow
+resources, mailbox and pending parent approvals (title, child name, deadline and status;
+no IDs). Source status and staleness accompany each response. Follow
 `next_offset` until null for complete results. A failed source does not imply an empty
 successful result. Calls do not refresh the portal, change homework, mark messages
 read or control devices. Mailbox bodies require the existing full-content opt-in;
