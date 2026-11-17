@@ -231,6 +231,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     entry.async_on_unload(coord.async_add_listener(sync_students))
 
 
+# Recorder rejects attributes over 16 KiB; leave room for HA's own attributes.
+_MAILBOX_ATTRIBUTE_BUDGET = 14 * 1024
+
+
 class MashovMailboxSensor(MashovEntity, SensorEntity):
     """Unread conversations for the parent account; bounded inbox text in attributes."""
 
@@ -308,13 +312,13 @@ class MashovMailboxSensor(MashovEntity, SensorEntity):
         silently omitting the newest message.
         """
         attributes["items"].append(item)
-        if len(json_bytes(attributes)) > 14 * 1024:
+        if len(json_bytes(attributes)) > _MAILBOX_ATTRIBUTE_BUDGET:
             bodies = [m for m in item.get("messages", []) if "body" in m]
             for message in sorted(bodies, key=lambda m: len(m["body"]), reverse=True):
                 _truncate_body(attributes, message)
-                if len(json_bytes(attributes)) <= 14 * 1024:
+                if len(json_bytes(attributes)) <= _MAILBOX_ATTRIBUTE_BUDGET:
                     break
-            if len(json_bytes(attributes)) > 14 * 1024:
+            if len(json_bytes(attributes)) > _MAILBOX_ATTRIBUTE_BUDGET:
                 attributes["items"].pop()
                 attributes["content_truncated"] = True
         attributes["stored_conversations"] = len(attributes["items"])
@@ -329,7 +333,7 @@ def _truncate_body(attributes, message):
     while low < high:
         middle = (low + high + 1) // 2
         message["body"] = original_body[:middle]
-        if len(json_bytes(attributes)) <= 14 * 1024:
+        if len(json_bytes(attributes)) <= _MAILBOX_ATTRIBUTE_BUDGET:
             low = middle
         else:
             high = middle - 1
