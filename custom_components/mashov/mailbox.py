@@ -39,7 +39,10 @@ def plain_body(value):
 
 
 def _attachments(value):
-    """Keep well-formed {fileId, fileName} entries; a bad entry never drops its message."""
+    """Keep well-formed {fileId, fileName} entries; a bad entry never drops its message.
+
+    Only parsed from detail GETs (full content), and only when attachments are enabled.
+    """
     result = []
     for entry in value if isinstance(value, list) else []:
         file_id = entry.get("fileId") if isinstance(entry, dict) else None
@@ -81,8 +84,7 @@ async def fetch_mailbox(get_json, *, full_content=False, limit=20, attachments=F
 
     get_json returns (status, payload) and handles authentication/backoff. Only
     the explicit full_content branch accesses conversation-detail URLs; that GET
-    itself marks read, even though no markAsRead PUT is sent. Attachment
-    metadata exists only on that branch, and only when attachments is set.
+    itself marks read, even though no markAsRead PUT is sent.
     """
     result = {"status": "not_fetched", "items": [], "full_content": full_content, "limit": limit}
     counts_status, counts = await get_json("mail/counts", "mail_counts", dict)
