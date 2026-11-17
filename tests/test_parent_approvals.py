@@ -192,6 +192,14 @@ async def test_open_activity_without_a_known_child_is_unassigned_pending():
     ]
 
 
+async def test_answered_activity_without_a_known_child_is_not_unassigned():
+    answered = {**TEST_LATER_ACTIVITY, "isAnswered": True}
+    get = router([TEST_OPEN_ACTIVITY, answered], answers={LATER_ID: [user_answer("someone-else", 1, LATER_ID)]})
+    result = await fetch(get)
+    assert result["answers_failures"] == 0
+    assert [(r["activity_id"], r["status"]) for r in result["unassigned"]] == [(OPEN_ID, STATUS_PENDING)]
+
+
 async def test_failed_answers_are_counted_and_do_not_block_other_activities():
     answered = {**TEST_LATER_ACTIVITY, "isAnswered": True}
     get = router(
