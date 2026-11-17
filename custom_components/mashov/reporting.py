@@ -71,6 +71,7 @@ _SOURCE_FILES = {
     "config_flow.py",
     "holidays_utils.py",
     "mailbox.py",
+    "mail_attachments.py",
     "data_selection.py",
 }
 

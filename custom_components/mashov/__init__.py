@@ -66,16 +66,24 @@ from .data_schedule import (
 )
 from .data_selection import (
     CONF_ENABLED_DATA,
+    CONF_MAILBOX_ATTACHMENT_MAX_MB,
+    CONF_MAILBOX_ATTACHMENTS,
     CONF_MAILBOX_FULL_CONTENT,
     CONF_MAILBOX_LIMIT,
     DATA_KEYS,
     DEFAULT_MAILBOX_LIMIT,
+    MAX_MAILBOX_ATTACHMENT_MAX_MB,
+    MIN_MAILBOX_ATTACHMENT_MAX_MB,
+    attachment_max_bytes,
+    attachments_enabled,
     cached_selection,
     enabled_data,
     filter_cached_data,
+    mailbox_option_errors,
     merge_selection_options,
 )
 from .live_dashboard import DEFAULT_DASHBOARD, STUDENT_ENTITY_KEYS, async_save_live_dashboard
+from .mail_attachments import AttachmentStore, async_clear_entry_media
 from .mashov_client import (
     MashovAuthError,
     MashovClient,
@@ -244,6 +252,10 @@ SET_OPTIONS_SCHEMA = vol.Schema(
         vol.Optional(CONF_ENABLED_DATA): vol.All(cv.ensure_list, [vol.In(DATA_KEYS)]),
         vol.Optional(CONF_MAILBOX_FULL_CONTENT): cv.boolean,
         vol.Optional(CONF_MAILBOX_LIMIT): _int_in(1, 50),
+        vol.Optional(CONF_MAILBOX_ATTACHMENTS): cv.boolean,
+        vol.Optional(CONF_MAILBOX_ATTACHMENT_MAX_MB): _int_in(
+            MIN_MAILBOX_ATTACHMENT_MAX_MB, MAX_MAILBOX_ATTACHMENT_MAX_MB
+        ),
         vol.Optional(CONF_SCHEDULE_TYPE): vol.In(["daily", "weekly", "interval"]),
         vol.Optional(CONF_SCHEDULE_TIME): vol.Match(r"^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$"),
         vol.Optional(CONF_SCHEDULE_DAY): _int_in(0, 6),
@@ -287,6 +299,12 @@ CREATE_LIVE_DASHBOARD_SCHEMA = vol.Schema(
         vol.Optional("students"): vol.Any(None, vol.All(cv.ensure_list, [LIVE_STUDENT_SCHEMA])),
     }
 )
+
+
+_SERVICE_OPTION_ERRORS = {
+    "mailbox_required": "Select mailbox before enabling full content (which marks messages read)",
+    "full_content_required": "Select mailbox and enable full content before enabling attachments",
+}
 
 
 def _async_register_services(hass: HomeAssistant) -> None:
@@ -335,10 +353,9 @@ def _async_register_services(hass: HomeAssistant) -> None:
                 (candidate for key in hass.data.get(DOMAIN, {}) for candidate in entries if candidate.entry_id == key),
                 entries[0],
             )
-        if payload.get(CONF_MAILBOX_FULL_CONTENT) and "mailbox" not in payload.get(
-            CONF_ENABLED_DATA, enabled_data(entry.options)
-        ):
-            raise ServiceValidationError("Select mailbox before enabling full content (which marks messages read)")
+        _, errors = mailbox_option_errors(payload, entry.options)
+        if errors:
+            raise ServiceValidationError(_SERVICE_OPTION_ERRORS[next(iter(errors.values()))])
         if "mcp_enabled" in payload:
             user = await hass.auth.async_get_user(call.context.user_id) if call.context.user_id else None
             if user is None or not user.is_admin:
@@ -370,6 +387,12 @@ def _async_register_services(hass: HomeAssistant) -> None:
         schema=CREATE_LIVE_DASHBOARD_SCHEMA,
         supports_response=SupportsResponse.OPTIONAL,
     )
+
+
+def _attachment_store(hass: HomeAssistant, entry: ConfigEntry):
+    """Attachment downloads only exist with mailbox, full content and their own opt-in."""
+    max_bytes = attachment_max_bytes(entry.options)
+    return AttachmentStore(hass, entry.entry_id, max_bytes) if max_bytes else None
 
 
 def _frozen_school_year(hass: HomeAssistant, entry: ConfigEntry):
@@ -503,7 +526,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         enabled_data=list(enabled_data(entry.options)),
         mailbox_full_content=entry.options.get(CONF_MAILBOX_FULL_CONTENT, False),
         mailbox_limit=entry.options.get(CONF_MAILBOX_LIMIT, DEFAULT_MAILBOX_LIMIT),
+        attachment_store=_attachment_store(hass, entry),
     )
+    if not attachments_enabled(entry.options):
+        # Turning the option off removes files that were stored while it was on.
+        await async_clear_entry_media(hass, entry.entry_id)
 
     coordinator = MashovCoordinator(hass, client, entry)
 
@@ -610,6 +637,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         != bool(entry.options.get(CONF_MAILBOX_FULL_CONTENT, False))
         or cached_data.get(CONF_MAILBOX_LIMIT, DEFAULT_MAILBOX_LIMIT)
         != entry.options.get(CONF_MAILBOX_LIMIT, DEFAULT_MAILBOX_LIMIT)
+        or bool(cached_data.get(CONF_MAILBOX_ATTACHMENTS, False)) != attachments_enabled(entry.options)
     ):
         do_startup_refresh = True
 
@@ -691,6 +719,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             or set(enabled_data(options)) != set(client.enabled_data)
             or bool(options.get(CONF_MAILBOX_FULL_CONTENT, False)) != client.mailbox_full_content
             or options.get(CONF_MAILBOX_LIMIT, DEFAULT_MAILBOX_LIMIT) != client.mailbox_limit
+            or attachment_max_bytes(options) != getattr(client.attachment_store, "max_bytes", None)
             or options.get(CONF_HOMEWORK_DAYS_BACK, DEFAULT_HOMEWORK_DAYS_BACK) != client.homework_days_back
             or options.get(CONF_HOMEWORK_DAYS_FORWARD, DEFAULT_HOMEWORK_DAYS_FORWARD) != client.homework_days_forward
             or (options.get(CONF_API_BASE, DEFAULT_API_BASE).rstrip("/") + "/") != client._api_base
@@ -763,6 +792,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry):
     # password) is deleted by HA.
     await Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.cache").async_remove()
     await Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.homework_completion").async_remove()
+    await async_clear_entry_media(hass, entry.entry_id)
     hass.data.get(DOMAIN, {}).get("report_logs", {}).pop(entry.entry_id, None)
     _async_clear_issue_notification(hass, entry)
 
