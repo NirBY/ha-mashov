@@ -103,9 +103,10 @@ async def _assign(get_json, record, student_ids, result):
         result["by_student"].setdefault(sid, []).append(_public(record, answer))
     if status != "ok":
         result["answers_failures"] += 1
-    if answers or record["expired"]:
+    # Answered per the list and confirmed with no child of ours: nothing is open.
+    if answers or record["expired"] or (record["is_answered"] and status == "ok"):
         return
-    fallback = STATUS_PENDING if status == "ok" or not record["is_answered"] else STATUS_UNKNOWN
+    fallback = STATUS_UNKNOWN if record["is_answered"] else STATUS_PENDING
     result["unassigned"].append(_public(record, fallback))
 
 
