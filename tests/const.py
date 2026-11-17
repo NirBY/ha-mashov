@@ -68,3 +68,13 @@ TEST_HOLIDAYS = [
         "name": "Test Holiday",
     }
 ]
+
+# Mailbox attachment samples: synthetic ids; the Hebrew name exercises Unicode paths.
+TEST_ENTRY_ID = "entry"
+TEST_CONVERSATION_ID = "11111111-2222-3333-4444-555555555555"
+TEST_OTHER_CONVERSATION_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+TEST_MESSAGE_ID = "99999999-8888-7777-6666-555555555555"
+TEST_FILE_ID = "4242"
+TEST_FILE_NAME = "תמונה של הכיתה.png"
+TEST_FILE_BYTES = b"synthetic image bytes"
+TEST_FILE_CONTENT_TYPE = "image/png; charset=binary"
