@@ -998,14 +998,7 @@ class MashovClient:
         }
 
         if "mailbox" in selected:
-            result["mailbox"] = await fetch_mailbox(
-                self._fetch_account_json,
-                full_content=self.mailbox_full_content,
-                limit=self.mailbox_limit,
-                attachments=self.attachment_store is not None,
-            )
-            if self.attachment_store is not None:
-                await self.attachment_store.async_sync(result["mailbox"], self._download_account_file)
+            result["mailbox"] = await self._async_fetch_mailbox()
 
         _LOGGER.debug("Data fetch completed for %d students", len(students))
         return result
@@ -1055,6 +1048,18 @@ class MashovClient:
         except (aiohttp.ClientError, TimeoutError, ValueError):
             _LOGGER.warning("Unable to fetch Mashov account resource %s", key)
             return "fetch_failed", None
+
+    async def _async_fetch_mailbox(self):
+        """Fetch the account inbox once; store attachments only when opted in."""
+        mailbox = await fetch_mailbox(
+            self._fetch_account_json,
+            full_content=self.mailbox_full_content,
+            limit=self.mailbox_limit,
+            attachments=self.attachment_store is not None,
+        )
+        if self.attachment_store is not None:
+            await self.attachment_store.async_sync(mailbox, self._download_account_file)
+        return mailbox
 
     async def _download_account_file(self, path, max_bytes, write):
         """Stream one attachment through write(); returns (status, content_type).

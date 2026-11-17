@@ -389,10 +389,37 @@ def _async_register_services(hass: HomeAssistant) -> None:
     )
 
 
-def _attachment_store(hass: HomeAssistant, entry: ConfigEntry):
-    """Attachment downloads only exist with mailbox, full content and their own opt-in."""
+async def _async_attachment_store(hass: HomeAssistant, entry: ConfigEntry):
+    """Attachment downloads only exist with mailbox, full content and their own opt-in.
+
+    Without them, files stored while the option was on are removed.
+    """
     max_bytes = attachment_max_bytes(entry.options)
-    return AttachmentStore(hass, entry.entry_id, max_bytes) if max_bytes else None
+    if max_bytes:
+        return AttachmentStore(hass, entry.entry_id, max_bytes)
+    await async_clear_entry_media(hass, entry.entry_id)
+    return None
+
+
+def _fetch_settings_changed(cached_data: dict, options) -> bool:
+    """True when the cache was fetched with a different selection or mailbox scope."""
+    return (
+        cached_selection(cached_data) != set(enabled_data(options))
+        or bool(cached_data.get(CONF_MAILBOX_FULL_CONTENT, False))
+        != bool(options.get(CONF_MAILBOX_FULL_CONTENT, False))
+        or cached_data.get(CONF_MAILBOX_LIMIT, DEFAULT_MAILBOX_LIMIT)
+        != options.get(CONF_MAILBOX_LIMIT, DEFAULT_MAILBOX_LIMIT)
+        or bool(cached_data.get(CONF_MAILBOX_ATTACHMENTS, False)) != attachments_enabled(options)
+    )
+
+
+def _mailbox_client_changed(options, client) -> bool:
+    """True when mailbox settings baked into the client differ from the options."""
+    return (
+        bool(options.get(CONF_MAILBOX_FULL_CONTENT, False)) != client.mailbox_full_content
+        or options.get(CONF_MAILBOX_LIMIT, DEFAULT_MAILBOX_LIMIT) != client.mailbox_limit
+        or attachment_max_bytes(options) != getattr(client.attachment_store, "max_bytes", None)
+    )
 
 
 def _frozen_school_year(hass: HomeAssistant, entry: ConfigEntry):
@@ -526,11 +553,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         enabled_data=list(enabled_data(entry.options)),
         mailbox_full_content=entry.options.get(CONF_MAILBOX_FULL_CONTENT, False),
         mailbox_limit=entry.options.get(CONF_MAILBOX_LIMIT, DEFAULT_MAILBOX_LIMIT),
-        attachment_store=_attachment_store(hass, entry),
+        attachment_store=await _async_attachment_store(hass, entry),
     )
-    if not attachments_enabled(entry.options):
-        # Turning the option off removes files that were stored while it was on.
-        await async_clear_entry_media(hass, entry.entry_id)
 
     coordinator = MashovCoordinator(hass, client, entry)
 
@@ -631,14 +655,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     # Newly selected data must be fetched immediately after Configure, even when
     # the daily schedule or restart cooldown would otherwise defer the refresh.
     cached_data = (cached or {}).get("data") or {}
-    if cached_data and (
-        cached_selection(cached_data) != set(enabled_data(entry.options))
-        or bool(cached_data.get(CONF_MAILBOX_FULL_CONTENT, False))
-        != bool(entry.options.get(CONF_MAILBOX_FULL_CONTENT, False))
-        or cached_data.get(CONF_MAILBOX_LIMIT, DEFAULT_MAILBOX_LIMIT)
-        != entry.options.get(CONF_MAILBOX_LIMIT, DEFAULT_MAILBOX_LIMIT)
-        or bool(cached_data.get(CONF_MAILBOX_ATTACHMENTS, False)) != attachments_enabled(entry.options)
-    ):
+    if cached_data and _fetch_settings_changed(cached_data, entry.options):
         do_startup_refresh = True
 
     # Failure handling below: always mark data stale and notify; keep the cache when
@@ -717,9 +734,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             or data.get(CONF_USERNAME) != client.username
             or data.get(CONF_PASSWORD) != client.password
             or set(enabled_data(options)) != set(client.enabled_data)
-            or bool(options.get(CONF_MAILBOX_FULL_CONTENT, False)) != client.mailbox_full_content
-            or options.get(CONF_MAILBOX_LIMIT, DEFAULT_MAILBOX_LIMIT) != client.mailbox_limit
-            or attachment_max_bytes(options) != getattr(client.attachment_store, "max_bytes", None)
+            or _mailbox_client_changed(options, client)
             or options.get(CONF_HOMEWORK_DAYS_BACK, DEFAULT_HOMEWORK_DAYS_BACK) != client.homework_days_back
             or options.get(CONF_HOMEWORK_DAYS_FORWARD, DEFAULT_HOMEWORK_DAYS_FORWARD) != client.homework_days_forward
             or (options.get(CONF_API_BASE, DEFAULT_API_BASE).rstrip("/") + "/") != client._api_base
