@@ -2,8 +2,9 @@
 
 Handles login (with a cached-session fast path), school lookup, per-student data
 fetching and normalization of the raw API payloads into the snake_case dicts the
-sensors consume. It never submits forms or downloads attachments. The optional
-mailbox full-content GET marks conversations read and requires explicit opt-in.
+sensors consume. It never submits forms. The optional mailbox full-content GET
+marks conversations read and requires explicit opt-in; attachment downloads
+need a further opt-in on top of it.
 
 Failure isolation is deliberate: a school that disables a feature (HTTP 403/404)
 only blanks that one resource for that one student, with a cooldown so we do not
@@ -126,6 +127,7 @@ class MashovClient:
         enabled_data: list[str] | None = None,
         mailbox_full_content: bool = False,
         mailbox_limit: int = DEFAULT_MAILBOX_LIMIT,
+        attachment_store=None,
     ) -> None:
         # school may be semel int or name string (resolved in async_init)
         self.school_id = int(school_id) if str(school_id).isdigit() else None
@@ -145,6 +147,8 @@ class MashovClient:
         self.additional_data = tuple(key for key in STUDENT_RESOURCES if key in self.enabled_data)
         self.mailbox_full_content = bool(mailbox_full_content and "mailbox" in self.enabled_data)
         self.mailbox_limit = max(1, min(50, int(mailbox_limit)))
+        # Attachment ids come only from detail GETs, so they need full content.
+        self.attachment_store = attachment_store if self.mailbox_full_content else None
         # Optional resources: (student_id, resource_key) -> (retry_after_monotonic, last_status)
         self._resource_retry_after: dict[tuple[str, str], tuple[float, str]] = {}
         # Core resources: (student_id, url_key) -> (retry_after_monotonic, consecutive_403_count)
@@ -990,12 +994,18 @@ class MashovClient:
             "enabled_data": list(self.enabled_data),
             "mailbox_full_content": self.mailbox_full_content,
             "mailbox_limit": self.mailbox_limit,
+            "mailbox_attachments": self.attachment_store is not None,
         }
 
         if "mailbox" in selected:
             result["mailbox"] = await fetch_mailbox(
-                self._fetch_account_json, full_content=self.mailbox_full_content, limit=self.mailbox_limit
+                self._fetch_account_json,
+                full_content=self.mailbox_full_content,
+                limit=self.mailbox_limit,
+                attachments=self.attachment_store is not None,
             )
+            if self.attachment_store is not None:
+                await self.attachment_store.async_sync(result["mailbox"], self._download_account_file)
 
         _LOGGER.debug("Data fetch completed for %d students", len(students))
         return result
@@ -1045,6 +1055,29 @@ class MashovClient:
         except (aiohttp.ClientError, TimeoutError, ValueError):
             _LOGGER.warning("Unable to fetch Mashov account resource %s", key)
             return "fetch_failed", None
+
+    async def _download_account_file(self, path, max_bytes, write):
+        """Stream one attachment through write(); returns (status, content_type).
+
+        Statuses are per file: ok, too_large, http_<code> or error. A 401/403
+        never triggers a re-login or backs off other resources.
+        """
+        try:
+            async with self._session.get(self._api_base + path, headers=self._headers) as response:
+                if response.status >= 400:
+                    return f"http_{response.status}", None
+                if (response.content_length or 0) > max_bytes:
+                    return "too_large", None
+                received = 0
+                async for chunk in response.content.iter_any():
+                    received += len(chunk)
+                    if received > max_bytes:
+                        return "too_large", None
+                    await write(chunk)
+                return "ok", response.headers.get("Content-Type")
+        except (aiohttp.ClientError, TimeoutError):
+            _LOGGER.warning("Unable to download a Mashov mailbox attachment")
+            return "error", None
 
     # Normalizers: map Mashov's camelCase (sometimes lowercase) API fields to the
     # snake_case keys the sensors use. They never raise; a malformed payload
