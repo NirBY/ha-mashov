@@ -77,11 +77,9 @@ def filter_cached_data(data, options):
         result["holidays_status"] = "disabled"
         result.pop("holidays_cached", None)
         result.pop("holidays_last_update", None)
-    if "parent_approvals" not in selected:
-        result.pop("parent_approvals", None)
-    if "mailbox" not in selected:
-        result.pop("mailbox", None)
-    else:
+    for key in {"mailbox", "parent_approvals"} - selected:
+        result.pop(key, None)
+    if "mailbox" in selected:
         mailbox = result.get("mailbox", {})
         if "items" in mailbox:
             mailbox["items"] = mailbox["items"][: options.get(CONF_MAILBOX_LIMIT, DEFAULT_MAILBOX_LIMIT)]

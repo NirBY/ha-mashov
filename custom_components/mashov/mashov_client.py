@@ -996,6 +996,13 @@ class MashovClient:
             "mailbox_limit": self.mailbox_limit,
         }
 
+        await self._fetch_account_resources(result, selected, students)
+
+        _LOGGER.debug("Data fetch completed for %d students", len(students))
+        return result
+
+    async def _fetch_account_resources(self, result, selected, students):
+        """Account-level resources, fetched once per account and never per student."""
         if "mailbox" in selected:
             result["mailbox"] = await fetch_mailbox(
                 self._fetch_account_json, full_content=self.mailbox_full_content, limit=self.mailbox_limit
@@ -1004,9 +1011,6 @@ class MashovClient:
             result["parent_approvals"] = await fetch_parent_approvals(
                 self._fetch_account_json, [student["id"] for student in students]
             )
-
-        _LOGGER.debug("Data fetch completed for %d students", len(students))
-        return result
 
     async def _fetch_account_json(self, path, key, expected_type):
         """Fetch a known account route; isolate failures and back off forbidden features."""

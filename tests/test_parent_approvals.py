@@ -104,15 +104,20 @@ def coordinator_for(resource):
     )
 
 
-async def test_parses_splits_per_child_and_bounds_answer_requests():
-    get = router(
+def two_children_router():
+    return router(
         [*TEST_MALFORMED_ACTIVITIES, TEST_OPEN_ACTIVITY, TEST_RECENT_EXPIRED_ACTIVITY, TEST_OLD_ACTIVITY],
         answers={
             OPEN_ID: [user_answer(TEST_CHILD_A, None), user_answer(TEST_CHILD_B, 1)],
             RECENT_ID: [user_answer(TEST_CHILD_A, 3, RECENT_ID)],
         },
     )
-    result = await fetch(get)
+
+
+async def test_answer_requests_are_bounded_and_skip_malformed_items():
+    get = two_children_router()
+    await fetch(get)
+    # The old activity and the malformed items cost no userAnswers request.
     assert requested(get) == [
         ACTIVITIES_PATH,
         answers_path(OPEN_ID),
@@ -120,6 +125,10 @@ async def test_parses_splits_per_child_and_bounds_answer_requests():
         CONSENT_PATH,
         GENERAL_PATH,
     ]
+
+
+async def test_parses_and_splits_one_activity_per_child():
+    result = await fetch(two_children_router())
     child_a = {r["activity_id"]: r for r in result["by_student"][TEST_CHILD_A]}
     child_b = {r["activity_id"]: r for r in result["by_student"][TEST_CHILD_B]}
     assert child_a[OPEN_ID]["status"] == STATUS_PENDING
@@ -223,7 +232,7 @@ async def test_form_parsing_tolerates_invalid_form_data_and_skips_malformed():
     assert result["forms"]["general"][0]["question_count"] is None
 
 
-async def test_sensors_state_and_attributes():
+async def approvals_coordinator():
     get = router(
         [TEST_LATER_ACTIVITY, TEST_OPEN_ACTIVITY, {**TEST_OPEN_ACTIVITY, "id": 106}],
         answers={
@@ -232,7 +241,11 @@ async def test_sensors_state_and_attributes():
         },
         consent=[TEST_CONSENT_FORM, TEST_ANSWERED_FORM],
     )
-    coordinator = coordinator_for(await fetch(get))
+    return coordinator_for(await fetch(get))
+
+
+async def test_child_sensor_counts_pending_sorted_by_deadline():
+    coordinator = await approvals_coordinator()
     child_a = MashovApprovalsSensor(coordinator, TEST_CHILD_A, "a", "A", "entry")
     child_b = MashovApprovalsSensor(coordinator, TEST_CHILD_B, "b", "B", "entry")
     attrs = child_a.extra_state_attributes
@@ -242,6 +255,11 @@ async def test_sensors_state_and_attributes():
     assert attrs["next_deadline"] == attrs["pending"][0]["answer_deadline"]
     assert attrs["data_stale"] is False
     assert child_b.extra_state_attributes["next_deadline"] is None
+    assert child_a.unique_id == f"mashov_entry_{TEST_CHILD_A}_{PARENT_APPROVALS}"
+
+
+async def test_account_sensor_counts_open_forms_and_unassigned_activities():
+    coordinator = await approvals_coordinator()
     account = MashovOpenFormsSensor(coordinator, "entry")
     attrs = account.extra_state_attributes
     assert account.native_value == 2  # one open consent form + one unassigned activity (106)
@@ -253,7 +271,6 @@ async def test_sensors_state_and_attributes():
     assert attrs["unassigned_activities"][0]["activity_id"] == 106
     assert account.device_info["identifiers"] == {("mashov", f"{PARENT_APPROVALS}_entry")}
     assert account.unique_id == f"mashov_entry_{PARENT_APPROVALS}"
-    assert child_a.unique_id == f"mashov_entry_{TEST_CHILD_A}_{PARENT_APPROVALS}"
 
 
 def test_failed_source_is_unknown_not_zero():

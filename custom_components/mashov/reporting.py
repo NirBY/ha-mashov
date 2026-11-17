@@ -163,21 +163,21 @@ def diagnostic_summary(coordinator=None, technical_logs=None):
             bucket = counts.setdefault(key, {})
             bucket[status] = bucket.get(status, 0) + 1
     result["optional_resource_status_counts"] = counts
-    mailbox = data.get("mailbox")
-    if isinstance(mailbox, dict):
-        result["mailbox_status"] = {
-            key: mailbox.get(key) if mailbox.get(key) in _STATUSES else "other_error"
-            for key in ("status", "counts_status")
-        }
-    if isinstance(data.get("parent_approvals"), dict):
-        result["parent_approvals_status"] = _approvals_statuses(data["parent_approvals"])
+    result.update(_account_statuses(data))
     return result
 
 
-def _approvals_statuses(approvals):
-    """Route statuses only; titles, children and forms are never exported."""
-    statuses = {"status": approvals.get("status"), **approvals.get("forms_status", {})}
-    return {key: status if status in _STATUSES else "other_error" for key, status in statuses.items()}
+def _account_statuses(data):
+    """Route statuses of account resources only; never their content."""
+    routes = {}
+    if isinstance(mailbox := data.get("mailbox"), dict):
+        routes["mailbox_status"] = {key: mailbox.get(key) for key in ("status", "counts_status")}
+    if isinstance(approvals := data.get("parent_approvals"), dict):
+        routes["parent_approvals_status"] = {"status": approvals.get("status"), **approvals.get("forms_status", {})}
+    return {
+        name: {key: status if status in _STATUSES else "other_error" for key, status in statuses.items()}
+        for name, statuses in routes.items()
+    }
 
 
 def issue_report_url(title, technical_logs=None):
