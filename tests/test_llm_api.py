@@ -8,8 +8,11 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import llm
 import pytest
 
+from custom_components.mashov.data_schedule import SHARED_DATA
 from custom_components.mashov.data_selection import DATA_KEYS
 from custom_components.mashov.llm_api import MashovCatalogTool, MashovDataAPI, MashovReadTool
+
+from .const import TEST_PENDING_RECORD
 
 
 def setup_api(hass):
@@ -26,12 +29,13 @@ def setup_api(hass):
             "by_slug": {
                 "child": {
                     "source_status": dict.fromkeys(DATA_KEYS, "ok"),
-                    **{key: [{"value": 1}] for key in DATA_KEYS if key not in ("holidays", "mailbox")},
+                    **{key: [{"value": 1}] for key in DATA_KEYS if key not in SHARED_DATA},
                 }
             },
             "holidays": [{"name": "Holiday"}],
             "holidays_status": "ok",
             "mailbox": {"items": [{"subject": "Hello", "messages": [{"body": "secret"}]}], "status": "ok"},
+            "parent_approvals": {"status": "ok", "by_student": {"child": [TEST_PENDING_RECORD]}},
         },
     )
     hass.data["mashov"] = {"account": {"coordinator": coordinator}}

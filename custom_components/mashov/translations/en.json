@@ -278,7 +278,8 @@
         "student_files": "Student files",
         "justification_requests": "Absence justification requests",
         "special_hours": "Individual lessons",
-        "mailbox": "Mailbox — headers and unread count"
+        "mailbox": "Mailbox — headers and unread count",
+        "parent_approvals": "Parent approvals — trips and forms (read only)"
       }
     },
     "schedule_scope": {
@@ -407,6 +408,12 @@
       },
       "mailbox": {
         "name": "Unread conversations"
+      },
+      "parent_approvals": {
+        "name": "Pending approvals"
+      },
+      "open_forms": {
+        "name": "Open forms and approvals"
       }
     },
     "calendar": {
