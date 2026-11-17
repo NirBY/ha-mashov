@@ -19,7 +19,13 @@ from .data_schedule import (
 from .data_selection import DATA_KEYS, enabled_data
 
 FORM_SECTIONS = {
-    "data": {"enabled_data", "mailbox_full_content", "mailbox_limit"},
+    "data": {
+        "enabled_data",
+        "mailbox_full_content",
+        "mailbox_limit",
+        "mailbox_attachments",
+        "mailbox_attachment_max_mb",
+    },
     "refresh": {"schedule_type", "schedule_time", "schedule_days", "schedule_interval", "edit_data_schedules"},
     "account": {"username", "password", "school_name", "automatic_school_year"},
     "advanced": {"homework_days_back", "homework_days_forward", "api_base", "max_items_in_attributes", "mcp_enabled"},
