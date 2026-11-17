@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Opt-in mailbox attachment downloads (#16). Requires Mailbox and full message content, which marks fetched conversations read. Every file type is saved once under `/media/mashov/<entry_id>/…` with a size cap (25 MB by default, 1–100), per-file status and `media_content_id` for image and video previews. Folders of conversations outside the fetched window are deleted; turning the option off or deleting the hub deletes the hub's folder.
+
 ## [1.2.1] - 2026-11-13
 
 ### Fixed
