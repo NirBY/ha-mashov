@@ -65,6 +65,26 @@ async def test_failed_save_does_not_claim_completion(hass):
     assert entity.todo_items[0].status == TodoItemStatus.NEEDS_ACTION
 
 
+async def test_retain_drops_departed_children_and_assignments_that_left_the_window(hass):
+    completion = HomeworkCompletionStore(hass, "account")
+    completion.store.async_save = AsyncMock()
+    completion.completed = {"one": ["a", "b"], "gone": ["x"], "two": ["c"]}
+    await completion.retain({"one": {"a"}, "two": {"c"}}, {"gone"})
+    assert completion.completed == {"one": ["a"], "two": ["c"]}
+    assert completion.store.async_save.call_args.args[0] == {"students": {"one": ["a"], "two": ["c"]}}
+
+
+async def test_retain_keeps_markers_of_failed_fetches_and_saves_only_on_change(hass):
+    completion = HomeworkCompletionStore(hass, "account")
+    completion.store.async_save = AsyncMock()
+    completion.completed = {"one": ["a"]}
+    await completion.retain({"one": {"a"}}, set())
+    # A child whose homework fetch failed is absent from `current`, so nothing is pruned for them.
+    await completion.retain({}, set())
+    assert completion.completed == {"one": ["a"]}
+    completion.store.async_save.assert_not_awaited()
+
+
 async def test_platform_setup_and_service(hass, mock_config_entry, mock_mashov_client):
     mock_config_entry.add_to_hass(hass)
     mock_mashov_client.async_fetch_all.return_value["by_slug"]["student-123"]["homework"] = [

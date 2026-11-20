@@ -42,6 +42,31 @@ class HomeworkCompletionStore:
             await self.store.async_save({"students": students})
             self.completed = students
 
+    async def retain(self, current, departed):
+        """Drop markers for children who left, and for assignments no longer fetched.
+
+        ``current`` maps a student id to the assignment ids in this refresh. Only students
+        whose homework fetch succeeded belong there. A failed fetch is left untouched.
+        """
+        async with self.lock:
+            students = {key: list(value) for key, value in self.completed.items()}
+            changed = False
+            for student_id in departed:
+                if students.pop(student_id, None) is not None:
+                    changed = True
+            for student_id, uids in current.items():
+                kept = [uid for uid in students.get(student_id, []) if uid in uids]
+                if kept != students.get(student_id, []):
+                    changed = True
+                    if kept:
+                        students[student_id] = kept
+                    else:
+                        students.pop(student_id, None)
+            if not changed:
+                return
+            await self.store.async_save({"students": students})
+            self.completed = students
+
 
 def homework_uid(item, year):
     """Stable across ordering/refresh; changed assignment text reopens the task."""
@@ -75,6 +100,25 @@ async def async_setup_entry(hass, entry, async_add_entities):
             and coordinator.last_update_success
         ):
             known.intersection_update(student["id"] for student in students)
+        if (
+            students
+            and getattr(coordinator.client, "roster_refreshed", False) is True
+            and not coordinator.data_stale
+            and coordinator.last_update_success
+        ):
+            present = {student["id"] for student in students}
+            current = {}
+            by_slug = (coordinator.data or {}).get("by_slug", {})
+            for student in students:
+                resource = by_slug.get(student.get("slug"), {})
+                if resource.get("source_status", {}).get("homework", "ok") != "ok":
+                    continue
+                current[student["id"]] = {
+                    homework_uid(item, student.get("year"))
+                    for item in resource.get("homework", [])
+                    if isinstance(item, dict) and (item.get("homework") or "").strip()
+                }
+            hass.async_create_task(completion.retain(current, set(completion.completed) - present))
         for student in students:
             if student["id"] not in known:
                 known.add(student["id"])

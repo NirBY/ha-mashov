@@ -10,9 +10,9 @@
           "password": "Password",
           "school_name": "School",
           "enabled_data": "Data to fetch",
-          "mailbox_full_content": "Full message content (marks conversations read)",
+          "mailbox_full_content": "Full message content (already-read conversations)",
           "mailbox_limit": "Recent inbox conversations",
-          "mailbox_attachments": "Download attachments (all file types, saved under /media)",
+          "mailbox_attachments": "Download attachments (all file types, saved in the config folder)",
           "mailbox_attachment_max_mb": "Maximum attachment size (MB)",
           "schedule_type": "Schedule type (daily/weekly/interval)",
           "schedule_time": "Refresh time (HH:MM or HH:MM:SS)",
@@ -22,9 +22,9 @@
         },
         "data_description": {
           "enabled_data": "Choose only the data you need. Existing hubs retain their previous selection. Warning: an empty selection creates no school-data sensors. Dashboards and blueprints require their corresponding categories to be selected.",
-          "mailbox_full_content": "Full message content is off by default. Enabling it marks fetched conversations as read in Mashov, even if you have not opened them yourself.",
+          "mailbox_full_content": "Full message content is off by default. When on, bodies and attachments are fetched only for conversations you have already read in Mashov, so unread conversations stay unread until you open them in Mashov.",
           "mailbox_limit": "Up to 50 recent inbox conversations. Older conversations are not fetched.",
-          "mailbox_attachments": "Off by default. Needs Mailbox and full message content. Saves every attachment of the fetched conversations to /media/mashov so images and videos can be previewed. Files there are readable by Home Assistant users with media access.",
+          "mailbox_attachments": "Off by default. Needs Mailbox and full message content. Saves attachments of already-read conversations in the Home Assistant config folder (mashov_files), where they are included in backups. Only signed-in Home Assistant users can download them.",
           "mailbox_attachment_max_mb": "Larger attachments are skipped and marked too_large (1–100 MB, default 25)."
         },
         "sections": {
@@ -32,16 +32,16 @@
             "name": "Data to fetch",
             "data": {
               "enabled_data": "Data to fetch",
-              "mailbox_full_content": "Full message content (marks conversations read)",
+              "mailbox_full_content": "Full message content (already-read conversations)",
               "mailbox_limit": "Recent inbox conversations",
-              "mailbox_attachments": "Download attachments (all file types, saved under /media)",
+              "mailbox_attachments": "Download attachments (all file types, saved in the config folder)",
               "mailbox_attachment_max_mb": "Maximum attachment size (MB)"
             },
             "data_description": {
               "enabled_data": "Choose only the data you need. Existing hubs retain their previous selection. Warning: an empty selection creates no school-data sensors. Dashboards and blueprints require their corresponding categories to be selected.",
-              "mailbox_full_content": "Full message content is off by default. Enabling it marks fetched conversations as read in Mashov, even if you have not opened them yourself.",
+              "mailbox_full_content": "Full message content is off by default. When on, bodies and attachments are fetched only for conversations you have already read in Mashov, so unread conversations stay unread until you open them in Mashov.",
               "mailbox_limit": "Up to 50 recent inbox conversations. Older conversations are not fetched.",
-              "mailbox_attachments": "Off by default. Needs Mailbox and full message content. Saves every attachment of the fetched conversations to /media/mashov so images and videos can be previewed. Files there are readable by Home Assistant users with media access.",
+              "mailbox_attachments": "Off by default. Needs Mailbox and full message content. Saves attachments of already-read conversations in the Home Assistant config folder (mashov_files), where they are included in backups. Only signed-in Home Assistant users can download them.",
               "mailbox_attachment_max_mb": "Larger attachments are skipped and marked too_large (1–100 MB, default 25)."
             }
           },
@@ -135,18 +135,18 @@
           "max_items_in_attributes": "Max items stored in attributes",
           "automatic_school_year": "Automatic school year (changes on September 1)",
           "enabled_data": "Data to fetch",
-          "mailbox_full_content": "Full message content (marks conversations read)",
+          "mailbox_full_content": "Full message content (already-read conversations)",
           "mailbox_limit": "Recent inbox conversations",
-          "mailbox_attachments": "Download attachments (all file types, saved under /media)",
+          "mailbox_attachments": "Download attachments (all file types, saved in the config folder)",
           "mailbox_attachment_max_mb": "Maximum attachment size (MB)",
           "edit_data_schedules": "Edit schedules by data type",
           "mcp_enabled": "Expose this account to MCP / Assist (read only)"
         },
         "data_description": {
           "enabled_data": "Choose only the data you need. Existing hubs retain their previous selection. Warning: an empty selection creates no school-data sensors. Dashboards and blueprints require their corresponding categories to be selected.",
-          "mailbox_full_content": "Full message content is off by default. Enabling it marks fetched conversations as read in Mashov, even if you have not opened them yourself.",
+          "mailbox_full_content": "Full message content is off by default. When on, bodies and attachments are fetched only for conversations you have already read in Mashov, so unread conversations stay unread until you open them in Mashov.",
           "mailbox_limit": "Up to 50 recent inbox conversations. Older conversations are not fetched.",
-          "mailbox_attachments": "Off by default. Needs Mailbox and full message content. Saves every attachment of the fetched conversations to /media/mashov so images and videos can be previewed. Files there are readable by Home Assistant users with media access.",
+          "mailbox_attachments": "Off by default. Needs Mailbox and full message content. Saves attachments of already-read conversations in the Home Assistant config folder (mashov_files), where they are included in backups. Only signed-in Home Assistant users can download them.",
           "mailbox_attachment_max_mb": "Larger attachments are skipped and marked too_large (1–100 MB, default 25).",
           "mcp_enabled": "Off by default. Authenticated administrators can read all children in this account, limited to selected data sources. Select the Mashov API in MCP Server settings."
         },
@@ -155,16 +155,16 @@
             "name": "Data to fetch",
             "data": {
               "enabled_data": "Data to fetch",
-              "mailbox_full_content": "Full message content (marks conversations read)",
+              "mailbox_full_content": "Full message content (already-read conversations)",
               "mailbox_limit": "Recent inbox conversations",
-              "mailbox_attachments": "Download attachments (all file types, saved under /media)",
+              "mailbox_attachments": "Download attachments (all file types, saved in the config folder)",
               "mailbox_attachment_max_mb": "Maximum attachment size (MB)"
             },
             "data_description": {
               "enabled_data": "Choose only the data you need. Existing hubs retain their previous selection. Warning: an empty selection creates no school-data sensors. Dashboards and blueprints require their corresponding categories to be selected.",
-              "mailbox_full_content": "Full message content is off by default. Enabling it marks fetched conversations as read in Mashov, even if you have not opened them yourself.",
+              "mailbox_full_content": "Full message content is off by default. When on, bodies and attachments are fetched only for conversations you have already read in Mashov, so unread conversations stay unread until you open them in Mashov.",
               "mailbox_limit": "Up to 50 recent inbox conversations. Older conversations are not fetched.",
-              "mailbox_attachments": "Off by default. Needs Mailbox and full message content. Saves every attachment of the fetched conversations to /media/mashov so images and videos can be previewed. Files there are readable by Home Assistant users with media access.",
+              "mailbox_attachments": "Off by default. Needs Mailbox and full message content. Saves attachments of already-read conversations in the Home Assistant config folder (mashov_files), where they are included in backups. Only signed-in Home Assistant users can download them.",
               "mailbox_attachment_max_mb": "Larger attachments are skipped and marked too_large (1–100 MB, default 25)."
             }
           },
@@ -445,6 +445,12 @@
       }
     }
   },
+  "issues": {
+    "closed_feature": {
+      "title": "Mashov data type turned off",
+      "description": "{hub}: the school portal returned HTTP 5xx errors for **{feature}** on several separate refreshes, so the integration stopped fetching it. This usually means the school has closed this feature.\n\nTo fetch it again when the school reopens it, select **{feature}** under the hub's Configure → Data to fetch."
+    }
+  },
   "services": {
     "refresh_now": {
       "name": "Refresh data",
@@ -500,16 +506,16 @@
           "description": "Choose only the data you need. Existing hubs retain their previous selection."
         },
         "mailbox_full_content": {
-          "name": "Full message content (marks conversations read)",
-          "description": "Full message content is off by default. Enabling it marks fetched conversations as read in Mashov, even if you have not opened them yourself."
+          "name": "Full message content (already-read conversations)",
+          "description": "Full message content is off by default. When on, bodies and attachments are fetched only for conversations you have already read in Mashov, so unread conversations stay unread until you open them in Mashov."
         },
         "mailbox_limit": {
           "name": "Recent inbox conversations",
           "description": "Up to 50 recent inbox conversations. Older conversations are not fetched."
         },
         "mailbox_attachments": {
-          "name": "Download attachments (all file types, saved under /media)",
-          "description": "Off by default. Needs Mailbox and full message content. Saves every attachment of the fetched conversations to /media/mashov so images and videos can be previewed. Files there are readable by Home Assistant users with media access."
+          "name": "Download attachments (all file types, saved in the config folder)",
+          "description": "Off by default. Needs Mailbox and full message content. Saves attachments of already-read conversations in the Home Assistant config folder (mashov_files), where they are included in backups. Only signed-in Home Assistant users can download them."
         },
         "mailbox_attachment_max_mb": {
           "name": "Maximum attachment size (MB)",

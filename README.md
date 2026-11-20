@@ -6,6 +6,16 @@ Unofficial integration for **משו״ב (Mashov)**. Choose which school data to 
 
 Community project; not affiliated with Mashov. [Release notes](RELEASE_NOTES.md) · [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md)
 
+## What it looks like
+
+Mashov Live on the desktop, homework grouped by date, and the weekly timetable with plans. Student names in the card pictures are covered.
+
+![Mashov Live desktop layout](docs/images/mashov_live_desktop.png)
+
+![Homework grouped by date](examples/screenshots/homework_list_by_date.png)
+
+![Timetable and weekly plan](examples/screenshots/weekly_plan_table_advanced.png)
+
 ## 📦 Installation
 
 Requires **Home Assistant 2025.3 or newer**.
@@ -44,7 +54,7 @@ YAML overrides the shared UI schedule. Separate student/data schedules remain in
 - **Student-specific General and per-data schedules:** daily, weekly or interval, edited inside Setup/Configure. One Submit saves all drafts.
 - **One refresh queue** across hubs, including scheduled, manual and startup requests. Selective refreshes preserve other students’ values and timestamps.
 - **Sensors and holiday calendars**, with structured records, formatted summaries, actual update times, source status and stale-data indicators.
-- **Opt-in account mailbox:** unread count and recent headers, with separately consented plain-text content and optional attachment downloads with media previews.
+- **Opt-in account mailbox:** unread count and recent headers, with separately consented plain-text content for already-read conversations and optional attachment downloads for signed-in Home Assistant users.
 - **Cache and session persistence**, retry/backoff for unavailable sources, automatic school-year rollover and cleanup of departed students after a verified roster refresh.
 - **English, Hebrew, Arabic, Russian and Ukrainian** UI labels; Hebrew/Arabic schedule editing supports right-to-left layout.
 - **Mashov Live dashboard**, individual Lovelace cards and three announcement/reminder blueprints; see the linked guides below.
@@ -100,18 +110,19 @@ Removing a category clears its active/disk cache **before login**, even if refre
 
 ### Mailbox (optional)
 
-Select **Mailbox — headers and unread count** for one sensor per account/school hub. Headers do not mark conversations read. **Full message content is off by default; enabling it marks fetched conversations read in Mashov**, even if you never open them. It fetches plain-text bodies only; attachments are a separate opt-in (below). Removing Mailbox resets full-content consent; enabling it again starts with headers only.
+Select **Mailbox — headers and unread count** for one sensor per account/school hub. Headers do not mark conversations read. **Full message content is off by default.** When enabled, bodies are fetched only for conversations you have already read in Mashov. Unread conversations are never opened by the integration, so they stay unread until you open them in Mashov, and their bodies appear after that. The integration fetches plain-text bodies only; attachments are a separate opt-in (below). Removing Mailbox resets full-content consent; enabling it again starts with headers only.
 
 The limit applies to recent inbox conversations (20 by default, 1–50). Sent mail, drafts, archives and older inbox pages are not fetched. Long bodies may be shortened in attributes; check `stored_conversations`, `fetched_conversations`, `body_truncated` and `content_status`. Failed counts are not displayed as zero. See [Privacy & Security](#-privacy--security) before enabling access.
 
 #### Mail attachments (optional)
 
-**Download mail attachments** is off by default. It requires Mailbox **and** full message content, because attachment IDs only come from the conversation request that marks conversations read. Turning off Mailbox or full content turns attachments off as well.
+**Download mail attachments** is off by default. It requires Mailbox **and** full message content, because attachment IDs come from the conversation request, which is made only for conversations already read in Mashov. Turning off Mailbox or full content turns attachments off as well.
 
-- Every file type is saved, once per attachment, under `/media/mashov/<entry_id>/<conversation>/<message>/<fileId>-<name>` (Home Assistant's local media folder). File names are sanitized; Hebrew names are kept.
-- Each message lists `attachments` with `fileId`, `fileName`, `mime_type`, `size`, `status` and `media_content_id`; the sensor adds `attachment_count`. Images and videos preview in the Media browser and in Lovelace cards that accept a `media-source://` ID.
+- Every file type is saved, once per attachment, under `<config>/mashov_files/<entry_id>/<conversation>/<message>/<fileId>-<name>` (the Home Assistant configuration folder, so backups include it). File names are sanitized; Hebrew names are kept.
+- Each message lists `attachments` with `fileId`, `fileName`, `mime_type`, `size`, `status` and `download_url`; the sensor adds `attachment_count`. Files are not added to the Media browser and are not previewed there.
+- `download_url` (`/api/mashov/attachment/...`) works only for signed-in Home Assistant users. It always sends the file as a download (`Content-Disposition: attachment`) with `X-Content-Type-Options: nosniff`, so a browser never displays it inline.
 - Files above **Maximum attachment size** (25 MB by default, 1–100) are skipped with status `too_large`; no partial file is kept, and the file is not downloaded again until Home Assistant restarts. All of a hub's attachments together are limited to **500 MB**; a file that would exceed it gets `quota_exceeded`. Other statuses are `ok`, `http_<code>` and `error`. A failed file never fails the refresh; `http_<code>` and `error` are retried on the next one.
-- SVG files can contain script, so they are stored inert as `<name>.svg.txt` with `neutralized: true` and no `media_content_id`. They are kept on disk but never served or previewed by Home Assistant.
+- SVG files can contain script, so they are stored as `<name>.svg.txt` with `neutralized: true` and are served only as plain text.
 - Retention: after each successful inbox fetch, folders of conversations outside the fetched window are deleted. Turning the option off or deleting the hub deletes the hub's whole folder.
 
 ### Parent approvals (optional)
@@ -169,6 +180,7 @@ message channels and do not connect to MCP by themselves.
 
 - **401 / authentication failures**: check credentials and school choice, and update credentials through **Configure**. Password-change responses display a link to the Mashov login page.
 - **403 / school-disabled resources**: core resources such as weekly plan retry after 1 hour, then 6 hours, then 24 hours. Each student's resource has its own cooldown, which resets after success. Optional resources use a separate 24-hour cooldown. A school permission denial does not necessarily mean the password is wrong.
+- **HTTP 5xx on a data type (possibly closed by the school)**: when every request for one data type returns a server error on three separate refreshes, at least an hour apart, the integration stops fetching that type and creates a **Mashov data type turned off** notice under **Settings → System → Repairs**. One successful or non-5xx result resets the count. A failed refresh never switches anything off. To fetch the type again, select it under **Configure → Data to fetch**. The count is kept in memory, so after a restart it starts again; with a daily schedule, three refreshes take about three days.
 - **Startup connection failures**: HA retries transient setup failures when no cached data is available. When cached data exists, the integration retains it until a refresh succeeds.
 - **Different host**: open **Options → API base** and paste the base prefix you see in your browser DevTools Network tab (up to `/api/`).
   Common defaults: `https://web.mashov.info/api/`, sometimes `https://mobileapi.mashov.info/api/`.
@@ -192,7 +204,7 @@ Credentials are stored by Home Assistant; saved sessions and school data also li
 
 **Every Home Assistant user, including a non-admin child account, can read mailbox sensor attributes.** Dashboard visibility hides cards only; it does not restrict entity access. Enable Mailbox only if that access is acceptable.
 
-**Downloaded mail attachments are ordinary files under `/media`.** Any Home Assistant user with media access can open them in the Media browser, and they are included in backups that contain the media folder. Enable attachments only if that is acceptable.
+**Downloaded mail attachments are stored in `<config>/mashov_files`.** Any signed-in Home Assistant user, including a non-admin child account, can download them through `download_url`, and they are included in backups of the configuration folder. Enable attachments only if that is acceptable.
 
 Mailbox `items` is excluded from new Recorder history automatically. Previously recorded content remains. The integration keeps the latest snapshot without age-based expiry; failed requests can leave it visible as stale. Turning off full content removes cached bodies; removing Mailbox removes headers and resets consent. Deleting a hub removes its integration cache and saved session, not existing Recorder history or backups.
 

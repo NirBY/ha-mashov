@@ -281,7 +281,7 @@ class MashovMailboxSensor(MashovEntity, SensorEntity):
             "content_failures": content_failures,
             "inbox_count": resource.get("inbox_count"),
             "full_content": resource.get("full_content", False),
-            "marks_as_read": resource.get("full_content", False),
+            "marks_as_read": False,
             "body_format": "plain_text",
             "fetched_conversations": len(resource.get("items", [])),
             "attachment_count": sum(

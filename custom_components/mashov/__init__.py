@@ -20,10 +20,12 @@ from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady, Serv
 from homeassistant.helpers import (
     config_validation as cv,  # type: ignore
     device_registry as dr,
+    issue_registry as ir,  # type: ignore
 )
 from homeassistant.helpers.event import async_track_time_change, async_track_time_interval  # type: ignore
 from homeassistant.helpers.service import async_register_admin_service  # type: ignore
 from homeassistant.helpers.storage import Store  # type: ignore
+from homeassistant.helpers.translation import async_get_translations  # type: ignore
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed  # type: ignore
 from homeassistant.loader import async_get_integration  # type: ignore
 from homeassistant.util import dt as dt_util  # type: ignore
@@ -84,7 +86,7 @@ from .data_selection import (
     merge_selection_options,
 )
 from .live_dashboard import DEFAULT_DASHBOARD, STUDENT_ENTITY_KEYS, async_save_live_dashboard
-from .mail_attachments import AttachmentStore, async_clear_entry_media
+from .mail_attachments import AttachmentStore, async_clear_entry_media, async_clear_legacy_entry_media
 from .mashov_client import (
     MashovAuthError,
     MashovClient,
@@ -189,6 +191,58 @@ def _async_clear_issue_notification(hass: HomeAssistant, entry: ConfigEntry) -> 
     persistent_notification.async_dismiss(hass, _issue_notification_id(entry))
 
 
+def _closed_issue_id(entry_id: str, key: str) -> str:
+    """Repairs issue id for one data type that was switched off because the school closed it."""
+    return f"closed_feature_{entry_id}_{key}"
+
+
+async def _async_data_labels(hass: HomeAssistant, keys) -> dict[str, str]:
+    """Translated data-type names from the selector strings (current language, then English)."""
+    labels: dict[str, str] = {}
+    for language in dict.fromkeys((hass.config.language, "en")):
+        translations = await async_get_translations(hass, language, "selector", [DOMAIN])
+        for key in keys:
+            label = translations.get(f"component.{DOMAIN}.selector.enabled_data.options.{key}")
+            if label and key not in labels:
+                labels[key] = label
+    return {key: labels.get(key, key) for key in keys}
+
+
+async def async_retire_data_types(hass: HomeAssistant, entry: ConfigEntry, keys) -> None:
+    """Stop fetching data types the school stopped serving: notify, then persist the opt-out.
+
+    The opt-out is stored in the hub's selected data, so it survives restarts and shows
+    as unchecked in Configure. Selecting the data type again clears the notice and fetches.
+    """
+    if hass.config_entries.async_get_entry(entry.entry_id) is None:
+        return
+    current = entry.options
+    keys = [key for key in keys if key in enabled_data(current)]
+    if not keys:
+        return
+    labels = await _async_data_labels(hass, keys)
+    for key in keys:
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            _closed_issue_id(entry.entry_id, key),
+            is_fixable=False,
+            is_persistent=True,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="closed_feature",
+            translation_placeholders={"hub": entry.title, "feature": labels[key]},
+        )
+    _LOGGER.warning(
+        "Mashov stopped fetching %s for %s: the school returned HTTP 5xx on several separate refreshes",
+        ", ".join(keys),
+        entry.title,
+    )
+    remaining = [key for key in enabled_data(current) if key not in keys]
+    hass.config_entries.async_update_entry(
+        entry, options=merge_selection_options(current, {CONF_ENABLED_DATA: remaining})
+    )
+
+
 # Optional YAML block (`mashov:` in configuration.yaml). Values here override the UI
 # options for every hub (see _async_setup_scheduler); ALLOW_EXTRA lets HA's full
 # config pass through this top-level schema.
@@ -225,6 +279,11 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     else:
         _LOGGER.debug("No YAML options provided for Mashov")
     _async_register_services(hass)
+    if "http" in hass.config.components and not hass.data[DOMAIN].get("attachment_view"):
+        from .mail_attachments import MashovAttachmentView
+
+        hass.http.register_view(MashovAttachmentView())
+        hass.data[DOMAIN]["attachment_view"] = True
     if {"frontend", "http", "websocket_api"}.issubset(hass.config.components):
         from .schedule_panel import async_setup_panel
 
@@ -303,7 +362,7 @@ CREATE_LIVE_DASHBOARD_SCHEMA = vol.Schema(
 
 
 _SERVICE_OPTION_ERRORS = {
-    "mailbox_required": "Select mailbox before enabling full content (which marks messages read)",
+    "mailbox_required": "Select mailbox before enabling full message content",
     "full_content_required": "Select mailbox and enable full content before enabling attachments",
 }
 
@@ -400,6 +459,7 @@ async def _async_attachment_store(hass: HomeAssistant, entry: ConfigEntry):
     """
     max_bytes = attachment_max_bytes(entry.options)
     if max_bytes:
+        await async_clear_legacy_entry_media(hass, entry.entry_id)
         return AttachmentStore(hass, entry.entry_id, max_bytes)
     await async_clear_entry_media(hass, entry.entry_id)
     return None
@@ -744,6 +804,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             or options.get(CONF_HOMEWORK_DAYS_FORWARD, DEFAULT_HOMEWORK_DAYS_FORWARD) != client.homework_days_forward
             or (options.get(CONF_API_BASE, DEFAULT_API_BASE).rstrip("/") + "/") != client._api_base
         )
+        # Selecting a data type again answers its closure notice; the next refresh tests it.
+        for key in set(enabled_data(options)) - set(client.enabled_data):
+            ir.async_delete_issue(hass, DOMAIN, _closed_issue_id(updated_entry.entry_id, key))
         if client_changed:
             if credentials_changed:
                 # A valid old cookie must not bypass newly supplied credentials.
@@ -821,6 +884,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Remove credentials and cached school data when a hub is deleted."""
+    for key in DATA_KEYS:
+        ir.async_delete_issue(hass, DOMAIN, _closed_issue_id(entry.entry_id, key))
     if unregister := hass.data.get(DOMAIN, {}).get("llm_apis", {}).pop(entry.entry_id, None):
         unregister()
     # The cache holds session cookies and student data; the entry itself (with the
@@ -1178,6 +1243,8 @@ class MashovCoordinator(DataUpdateCoordinator):
                 if student_data is not None:
                     kwargs["student_data"] = student_data
                 data = await asyncio.create_task(self.client.async_fetch_all(**kwargs))
+            # Not cached: the school-closure check is a per-refresh decision, not stored data.
+            closed_features = data.pop("closed_features", [])
             # Merge by student identity even across a changed roster. An older
             # cache without per-source timestamps inherits its last known refresh.
             previous = self.data or {}
@@ -1262,6 +1329,8 @@ class MashovCoordinator(DataUpdateCoordinator):
                 student["id"] for student in previous.get("students", [])
             } != {student["id"] for student in data.get("students", [])}:
                 self.hass.async_create_task(_async_setup_scheduler(self.hass, self.entry, expected_coordinator=self))
+            if closed_features:
+                self.hass.async_create_task(async_retire_data_types(self.hass, self.entry, closed_features))
             return data
         # Auth problems need user action, so they notify every time and, with cached
         # data, return it instead of failing (entities stay available, marked stale).
@@ -1304,6 +1373,7 @@ class MashovCoordinator(DataUpdateCoordinator):
             # (not on every later one) to avoid notification spam.
             self.data_stale = True
             self._consecutive_failures += 1
+            self.client.note_refresh_failed()
             if not self.data or self._consecutive_failures == 3:
                 _async_show_error_notification(self.hass, self.entry, "Mashov refresh failed", exc)
             _LOGGER.error("Mashov error during data update: %s", exc)
@@ -1311,6 +1381,7 @@ class MashovCoordinator(DataUpdateCoordinator):
         except Exception as exc:
             self.data_stale = True
             self._consecutive_failures += 1
+            self.client.note_refresh_failed()
             # Internal (programming) errors: notify once with report links.
             # Other unexpected errors (network, timeouts): same rule as MashovError.
             reportable = is_internal_error(exc)

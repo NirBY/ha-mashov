@@ -147,8 +147,8 @@ set_options:
       selector:
         object: {}
     mailbox_full_content:
-      name: "Full message content (marks conversations read)"
-      description: "Off by default. Fetched conversations are marked read in Mashov even if you have not opened them yourself. Mailbox must be selected."
+      name: "Full message content (already-read conversations)"
+      description: "Off by default. Bodies and attachments are fetched only for conversations you have already read in Mashov, so unread conversations stay unread until you open them. Mailbox must be selected."
       selector:
         boolean: {}
     mailbox_limit:
@@ -161,7 +161,7 @@ set_options:
           mode: box
     mailbox_attachments:
       name: "Download mail attachments"
-      description: "Off by default. Saves every attachment of the fetched conversations under /media/mashov so images and videos can be previewed. Needs mailbox and full message content. Files are readable by Home Assistant users with media access."
+      description: "Off by default. Saves attachments of already-read conversations in the Home Assistant config folder (mashov_files), where they are included in backups. Needs mailbox and full message content. Only signed-in Home Assistant users can download them."
       selector:
         boolean: {}
     mailbox_attachment_max_mb:

@@ -163,6 +163,11 @@ def merge_partial_data(previous, incoming, requested, student_data=None):
             if key not in student_requested:
                 current[key] = deepcopy(old.get(key, []))
                 current.setdefault("source_status", {})[key] = old.get("source_status", {}).get(key, "not_fetched")
+            elif _is_transient_failure({"status": current.get("source_status", {}).get(key)}) and (
+                old.get("source_status", {}).get(key, "ok") == "ok"
+            ):
+                # Core server error: the status stays real (state unknown), last good items remain visible.
+                current[key] = deepcopy(old.get(key, []))
         for key, resource in old.get("additional_data", {}).items():
             if key not in student_requested:
                 current.setdefault("additional_data", {})[key] = deepcopy(resource)

@@ -20,23 +20,24 @@ CID = "11111111-2222-3333-4444-555555555555"
 CID2 = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 MESSAGE = {"messageId": "m1", "senderName": "Private sender", "subject": "Private subject", "isNew": True}
 INBOX = [{"conversationId": CID, "subject": "Private subject", "isNew": True, "messages": [MESSAGE]}]
+# Already-read thread: the only kind full content may open (opening it marks it read at Mashov).
+READ_MESSAGE = {**MESSAGE, "isNew": False}
+READ_INBOX = [{**INBOX[0], "isNew": False, "messages": [READ_MESSAGE]}]
 
 
-def getter():
-    read = False
-
+def getter(inbox=READ_INBOX):
     async def get(path, key, expected):
-        nonlocal read
         if key == "mail_counts":
-            return "ok", {"unreadConversations": 0 if read else 1, "inboxConversations": 23}
+            return "ok", {"unreadConversations": 1, "inboxConversations": 23}
         if key == "mailbox":
             # Even an unexpected body in a list response must not be exposed.
-            return "ok", deepcopy([{**INBOX[0], "messages": [{**MESSAGE, "body": "should be removed"}]}])
-        read = True
+            return "ok", deepcopy(
+                [{**inbox[0], "messages": [{**inbox[0]["messages"][0], "body": "should be removed"}]}]
+            )
         return "ok", {
             "conversationId": CID,
             "messages": [
-                {**MESSAGE, "body": "<p>Full message</p><p>Second line</p>", "recipients": ["Private recipient"]}
+                {**READ_MESSAGE, "body": "<p>Full message</p><p>Second line</p>", "recipients": ["Private recipient"]}
             ],
         }
 
@@ -44,7 +45,7 @@ def getter():
 
 
 async def test_headers_never_fetch_bodies_or_change_unread_count():
-    get = getter()
+    get = getter(INBOX)
     result = await fetch_mailbox(get)
     assert result["unread_count"] == 1
     assert result["inbox_count"] == 23
@@ -52,11 +53,10 @@ async def test_headers_never_fetch_bodies_or_change_unread_count():
     assert [call.args[0] for call in get.await_args_list] == ["mail/counts", "mail/inbox/conversations?skip=0&take=20"]
 
 
-async def test_full_content_is_explicit_and_updates_unread_count_after_get():
+async def test_full_content_opens_only_read_conversations():
     get = getter()
     result = await fetch_mailbox(get, full_content=True, limit=1)
-    assert result["unread_before_fetch"] == 1
-    assert result["unread_count"] == 0
+    assert result["unread_count"] == 1
     item = result["items"][0]
     assert item["content_status"] == "ok"
     assert not item["isNew"]
@@ -66,21 +66,28 @@ async def test_full_content_is_explicit_and_updates_unread_count_after_get():
         "mail/counts",
         "mail/inbox/conversations?skip=0&take=1",
         f"mail/conversations/{CID}",
-        "mail/counts",
     ]
+
+
+async def test_unread_conversations_are_never_opened():
+    get = getter(INBOX)
+    result = await fetch_mailbox(get, full_content=True)
+    assert not any(call.args[1] == "mail_content" for call in get.await_args_list)
+    item = result["items"][0]
+    assert "content_status" not in item
+    assert "body" not in item["messages"][0]
+    assert result["unread_count"] == 1
 
 
 @pytest.mark.parametrize("failure", ["forbidden", "unsupported", "unauthorized", "invalid_response", "http_500"])
 async def test_content_failures_keep_headers_and_have_explicit_status(failure):
-    get = AsyncMock(
-        side_effect=[("ok", {"unreadConversations": 1}), ("ok", INBOX), (failure, None), ("fetch_failed", None)]
-    )
+    get = AsyncMock(side_effect=[("ok", {"unreadConversations": 1}), ("ok", READ_INBOX), (failure, None)])
     result = await fetch_mailbox(get, full_content=True)
     assert result["status"] == "ok"
     assert result["items"][0]["content_status"] == failure
     assert "body" not in result["items"][0]["messages"][0]
-    assert result["unread_count"] is None
-    assert result["counts_status"] == "fetch_failed"
+    assert result["unread_count"] == 1
+    assert result["counts_status"] == "ok"
 
 
 @pytest.mark.parametrize("payload", [["not a record"], [{"conversationId": "../../logout", "messages": []}]])
@@ -95,9 +102,8 @@ async def test_mismatched_detail_does_not_attach_another_conversations_body():
     get = AsyncMock(
         side_effect=[
             ("ok", {}),
-            ("ok", INBOX),
-            ("ok", {"conversationId": CID2, "messages": [{**MESSAGE, "body": "wrong account"}]}),
-            ("ok", {}),
+            ("ok", READ_INBOX),
+            ("ok", {"conversationId": CID2, "messages": [{**READ_MESSAGE, "body": "wrong account"}]}),
         ]
     )
     result = await fetch_mailbox(get, full_content=True)
@@ -106,8 +112,8 @@ async def test_mismatched_detail_does_not_attach_another_conversations_body():
 
 
 async def test_limit_bounds_full_content_requests_even_if_server_ignores_take():
-    inbox = [*INBOX, {**INBOX[0], "conversationId": CID2}]
-    get = AsyncMock(side_effect=[("ok", {}), ("ok", inbox), ("forbidden", None), ("ok", {})])
+    inbox = [*READ_INBOX, {**READ_INBOX[0], "conversationId": CID2}]
+    get = AsyncMock(side_effect=[("ok", {}), ("ok", inbox), ("forbidden", None)])
     result = await fetch_mailbox(get, full_content=True, limit=1)
     assert len(result["items"]) == 1
     assert len([c for c in get.await_args_list if c.args[1] == "mail_content"]) == 1

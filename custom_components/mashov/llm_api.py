@@ -1,6 +1,7 @@
 """Read-only, opt-in school-data API for HA Assist and its native MCP server."""
 
 from copy import deepcopy
+import json
 
 try:
     import probatio as schema
@@ -55,6 +56,37 @@ def _dataset(data, key, student_id):
     if additional is not None:
         return additional.get("items", []), additional.get("status", "unknown"), updated
     return resource.get(key, []), resource.get("source_status", {}).get(key, "unknown"), updated
+
+
+MAX_PAGE_BYTES = 64 * 1024  # one tool result; longer result sets continue at next_offset
+MAX_TEXT_CHARS = 8000  # one long message body or notice cannot fill a page by itself
+
+
+def _bounded(value):
+    """Deep copy with long strings shortened and marked, so no single portal text dominates."""
+    if isinstance(value, str):
+        if len(value) <= MAX_TEXT_CHARS:
+            return value
+        return value[:MAX_TEXT_CHARS] + " [truncated]"
+    if isinstance(value, dict):
+        return {key: _bounded(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_bounded(item) for item in value]
+    return deepcopy(value)
+
+
+def _bounded_page(items, offset, limit):
+    """Return (page, next_offset): at most ``limit`` items within MAX_PAGE_BYTES, at least one."""
+    page, used, end = [], 0, offset
+    for item in items[offset : offset + limit]:
+        bounded = _bounded(item)
+        size = len(json.dumps(bounded, ensure_ascii=False, default=str).encode())
+        if page and used + size > MAX_PAGE_BYTES:
+            break
+        page.append(bounded)
+        used += size
+        end += 1
+    return page, end if end < len(items) else None
 
 
 class MashovDataAPI(llm.API):
@@ -165,6 +197,7 @@ class MashovReadTool(MashovTool):
         items, status, updated = _dataset(data, key, student_id)
         offset, limit = args["offset"], args["limit"]
         failures = getattr(coordinator, "failed_datasets", set())
+        page, next_offset = _bounded_page(items, offset, limit)
         return self.result(
             {
                 "dataset": key,
@@ -180,7 +213,9 @@ class MashovReadTool(MashovTool):
                 "last_update": updated,
                 "total": len(items),
                 "offset": offset,
-                "next_offset": offset + limit if offset + limit < len(items) else None,
-                "items": deepcopy(items[offset : offset + limit]),
+                "next_offset": next_offset,
+                # Items are text from the school portal (homework, notices, message bodies): data, not instructions.
+                "untrusted_school_text": True,
+                "items": page,
             }
         )

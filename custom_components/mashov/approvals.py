@@ -76,15 +76,33 @@ def answer_status(answer):
     return ANSWER_STATUSES.get(answer, STATUS_UNKNOWN) if _is_int(answer) else STATUS_UNKNOWN
 
 
+def _known_child(known, *values):
+    for value in values:
+        if isinstance(value, str) and value.lower() in known:
+            return known[value.lower()]
+    return None
+
+
 def _answers_by_child(payload, student_ids):
-    """Return {student_id: status} for this account's children only."""
+    """Return {student_id: status} for this account's children only.
+
+    An answered row nests the child in ``schoolActivityAnswer.studentGuid``. An unanswered
+    row omits that object and puts the child in the top-level ``userId`` instead.
+    """
     known = {str(sid).lower(): sid for sid in student_ids}
     result = {}
     for entry in payload:
-        answer = entry.get("schoolActivityAnswer") if isinstance(entry, dict) else None
-        sid = known.get(str(answer.get("studentGuid")).lower()) if isinstance(answer, dict) else None
+        if not isinstance(entry, dict):
+            continue
+        answer = entry.get("schoolActivityAnswer")
+        if isinstance(answer, dict):
+            sid = _known_child(known, answer.get("studentGuid"), answer.get("userId"))
+            status = answer_status(answer.get("answer"))
+        else:
+            sid = _known_child(known, entry.get("studentGuid"), entry.get("userId"))
+            status = STATUS_PENDING
         if sid is not None:
-            result[sid] = answer_status(answer.get("answer"))
+            result[sid] = status
     return result
 
 

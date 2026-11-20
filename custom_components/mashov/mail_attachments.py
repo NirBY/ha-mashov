@@ -1,8 +1,10 @@
-"""Opt-in mailbox attachment files under the local media folder.
+"""Opt-in mailbox attachment files under the config folder.
 
-Files live at <media>/mashov/<entry_id>/<conversationId>/<messageId>/<fileId>-<name>
-so Home Assistant's media browser and Lovelace can preview them. Every file
-operation runs in the executor, and nothing outside the entry folder is removed.
+Files live at <config>/mashov_files/<entry_id>/<conversationId>/<messageId>/<fileId>-<name>.
+That directory is on the config volume, so it survives a container recreate and is part of
+a config backup. Home Assistant's media browser only serves image, audio and video, so
+documents are downloaded from an authenticated view instead. Every file operation runs in
+the executor, and nothing outside the entry folder is removed.
 """
 
 from __future__ import annotations
@@ -15,10 +17,14 @@ import shutil
 import unicodedata
 from urllib.parse import quote
 
+from aiohttp import web
+from homeassistant.components.http import HomeAssistantView
+
 _LOGGER = logging.getLogger(__name__)
 
-MEDIA_FOLDER = "mashov"
-MEDIA_SOURCE_PREFIX = "media-source://media_source/local/"
+STORAGE_FOLDER = "mashov_files"
+LEGACY_MEDIA_FOLDER = "mashov"
+DOWNLOAD_URL = "/api/mashov/attachment/{entry_id}/{conversation_id}/{message_id}/{file_id}"
 # Keeps "<fileId>-<name>.part" well under the 255-byte file-name limit, even
 # for Hebrew names (two bytes per letter in UTF-8).
 MAX_NAME_LENGTH = 100
@@ -58,12 +64,27 @@ def _is_safe_component(value) -> bool:
 
 
 def media_dir(hass) -> Path:
-    """Home Assistant's local media folder (the "local" media source)."""
-    return Path(hass.config.media_dirs.get("local") or hass.config.path("media"))
+    """Attachment root on the config volume, not the container media mount."""
+    return Path(hass.config.path(STORAGE_FOLDER))
 
 
 def entry_media_dir(hass, entry_id: str) -> Path:
-    return media_dir(hass) / MEDIA_FOLDER / entry_id
+    return media_dir(hass) / entry_id
+
+
+def legacy_entry_media_dir(hass, entry_id: str) -> Path:
+    """Earlier builds stored files in the local media source, which Docker keeps outside config."""
+    base = Path(hass.config.media_dirs.get("local") or hass.config.path("media"))
+    return base / LEGACY_MEDIA_FOLDER / entry_id
+
+
+def download_url(entry_id: str, conversation_id: str, message_id: str, file_id: str) -> str:
+    return DOWNLOAD_URL.format(
+        entry_id=quote(entry_id, safe=""),
+        conversation_id=quote(conversation_id, safe=""),
+        message_id=quote(message_id, safe=""),
+        file_id=quote(file_id, safe=""),
+    )
 
 
 def _inside(path: Path, container: Path) -> bool:
@@ -116,13 +137,27 @@ def _finish(handle, partial: Path, target: Path, keep: bool) -> None:
         partial.unlink(missing_ok=True)
 
 
-async def async_clear_entry_media(hass, entry_id: str) -> None:
-    """Delete every stored attachment of one hub (option off or hub removed)."""
-    root = entry_media_dir(hass, entry_id)
+async def _async_remove_entry_dir(hass, root: Path) -> None:
     try:
-        await hass.async_add_executor_job(_remove_tree, root, root.parent)
+        if root.exists():
+            await hass.async_add_executor_job(_remove_tree, root, root.parent)
     except OSError as err:
         _LOGGER.warning("Could not remove stored Mashov attachments (%s)", type(err).__name__)
+
+
+async def async_clear_legacy_entry_media(hass, entry_id: str) -> None:
+    """Remove this hub's files from the old media folder once they live under config."""
+    legacy = legacy_entry_media_dir(hass, entry_id)
+    if legacy != entry_media_dir(hass, entry_id):
+        await _async_remove_entry_dir(hass, legacy)
+
+
+async def async_clear_entry_media(hass, entry_id: str) -> None:
+    """Delete every stored attachment of one hub, including files left in the old media folder."""
+    await _async_remove_entry_dir(hass, entry_media_dir(hass, entry_id))
+    legacy = legacy_entry_media_dir(hass, entry_id)
+    if legacy != entry_media_dir(hass, entry_id):
+        await _async_remove_entry_dir(hass, legacy)
 
 
 class AttachmentStore:
@@ -130,8 +165,8 @@ class AttachmentStore:
 
     def __init__(self, hass, entry_id: str, max_bytes: int) -> None:
         self._hass = hass
+        self._entry_id = entry_id
         self.max_bytes = max_bytes
-        self.media_dir = media_dir(hass)
         self.root = entry_media_dir(hass, entry_id)
         # target path -> permanent status (e.g. too_large): skip re-downloading every refresh.
         self._permanent: dict[Path, str] = {}
@@ -169,7 +204,7 @@ class AttachmentStore:
 
     async def _async_save(self, download, conversation_id: str, message_id, attachment: dict) -> dict:
         file_id, name = attachment["fileId"], attachment["fileName"]
-        if not (_is_safe_component(message_id) and _is_safe_component(file_id)):
+        if not all(_is_safe_component(part) for part in (conversation_id, message_id, file_id)):
             return self._metadata(None, "error", None, name)
         stored_name, neutralized = stored_file_name(name)
         target = self.root / conversation_id / message_id / f"{file_id}-{stored_name}"
@@ -182,10 +217,18 @@ class AttachmentStore:
         except Exception as err:  # One attachment must never fail the refresh.
             _LOGGER.warning("Could not store a Mashov mailbox attachment (%s)", type(err).__name__)
             status, content_type, size = "error", None, None
-        metadata = self._metadata(target if status == "ok" else None, status, content_type, name, size)
+        metadata = self._metadata(
+            target if status == "ok" else None,
+            status,
+            content_type,
+            name,
+            size,
+            conversation_id,
+            message_id,
+            file_id,
+        )
         if neutralized:
-            # Stored inert: no media-source preview for script-capable types.
-            metadata.update(media_content_id=None, neutralized=True)
+            metadata["neutralized"] = True
         return metadata
 
     async def _async_fetch_once(self, download, path: str, target: Path):
@@ -213,9 +256,58 @@ class AttachmentStore:
             self._used_bytes += await self._run(os.path.getsize, target)
         return status, content_type
 
-    def _metadata(self, target, status, content_type, name, size=None) -> dict:
+    def _metadata(
+        self, target, status, content_type, name, size=None, conversation_id=None, message_id=None, file_id=None
+    ) -> dict:
         mime_type = (content_type or "").split(";")[0].strip().lower()
         if not mime_type or mime_type == DEFAULT_MIME_TYPE:
             mime_type = mimetypes.guess_type(name)[0] or DEFAULT_MIME_TYPE
-        media_id = MEDIA_SOURCE_PREFIX + target.relative_to(self.media_dir).as_posix() if target else None
-        return {"mime_type": mime_type, "size": size, "status": status, "media_content_id": media_id}
+        # The local media source cannot serve documents, and must never serve active content.
+        url = None
+        if target is not None and conversation_id and message_id and file_id:
+            url = download_url(self._entry_id, conversation_id, message_id, file_id)
+        return {"mime_type": mime_type, "size": size, "status": status, "download_url": url}
+
+
+def _matching_files(folder: Path, file_id: str) -> list[Path]:
+    if not folder.is_dir():
+        return []
+    prefix = f"{file_id}-"
+    return [
+        path for path in folder.iterdir() if path.is_file() and not path.is_symlink() and path.name.startswith(prefix)
+    ]
+
+
+class MashovAttachmentView(HomeAssistantView):
+    """Serve one stored attachment as a download. Documents are not in the media browser.
+
+    Active types (SVG) are stored with a .txt suffix and served as plain text, always as an
+    attachment, so a script in a school file cannot run on Home Assistant's origin.
+    """
+
+    url = "/api/mashov/attachment/{entry_id}/{conversation_id}/{message_id}/{file_id}"
+    name = "api:mashov:attachment"
+    requires_auth = True
+
+    async def get(self, request, entry_id, conversation_id, message_id, file_id):
+        hass = request.app["hass"]
+        if not all(_is_safe_component(part) for part in (entry_id, conversation_id, message_id, file_id)):
+            return web.Response(status=404)
+        root = entry_media_dir(hass, entry_id)
+        folder = root / conversation_id / message_id
+        if not _inside(folder, root):
+            return web.Response(status=404)
+        matches = await hass.async_add_executor_job(_matching_files, folder, file_id)
+        if len(matches) != 1 or not _inside(matches[0], root):
+            return web.Response(status=404)
+        path = matches[0]
+        mime_type = mimetypes.guess_type(path.name)[0] or DEFAULT_MIME_TYPE
+        if mime_type in ACTIVE_MIME_TYPES or path.name.endswith(INERT_SUFFIX):
+            mime_type = "text/plain"
+        filename = path.name[len(file_id) + 1 :] if path.name.startswith(f"{file_id}-") else path.name
+        response = web.FileResponse(path)
+        response.content_type = mime_type
+        response.headers["Content-Disposition"] = f"attachment; filename*=UTF-8''{quote(filename)}"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Cache-Control"] = "no-store"
+        return response

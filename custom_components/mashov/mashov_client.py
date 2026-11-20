@@ -3,8 +3,9 @@
 Handles login (with a cached-session fast path), school lookup, per-student data
 fetching and normalization of the raw API payloads into the snake_case dicts the
 sensors consume. It never submits forms. The optional mailbox full-content GET
-marks conversations read and requires explicit opt-in; attachment downloads
-need a further opt-in on top of it.
+requires explicit opt-in and is made only for conversations already read in
+Mashov (opening one marks it read there); attachment downloads need a further
+opt-in on top of it.
 
 Failure isolation is deliberate: a school that disables a feature (HTTP 403/404)
 only blanks that one resource for that one student, with a cooldown so we do not
@@ -60,6 +61,17 @@ CORE_RESOURCE_BACKOFF_STEPS = (3600, 21600, 86400)  # 1h -> 6h -> 24h
 # Account routes for one item (a conversation, an activity's answers). They back off
 # per path, and a 404 (item removed) is not parked, so one item never blocks the others.
 PER_ITEM_ACCOUNT_KEYS = frozenset({"mail_content", ANSWERS_KEY})
+
+# A data type is retired only after this many refreshes in a row in which every attempt
+# got HTTP 5xx. Refreshes closer together than the spacing count once, so repeated manual
+# refreshes cannot confirm a closure faster than real time passes.
+CLOSED_FEATURE_THRESHOLD = 3
+CLOSED_FEATURE_MIN_SPACING = 3600
+
+
+def _dataset_for_account_key(key: str) -> str:
+    """Map an account route's log key to the data type it belongs to."""
+    return "mailbox" if key.startswith("mail") else "parent_approvals"
 
 
 class MashovError(Exception):
@@ -164,6 +176,10 @@ class MashovClient:
         self._resource_errors_logged: set[tuple[str, str]] = set()
         # Core resources: (student_id, url_key) -> (retry_after_monotonic, consecutive_403_count)
         self._endpoint_cooldown: dict[tuple[str, str], tuple[float, int]] = {}
+        # Data type -> statuses of every attempt in the current refresh (reset per refresh).
+        self._refresh_statuses: dict[str, set[str]] = {}
+        # Data type -> (consecutive refreshes that were server-side failures, monotonic time counted).
+        self._server_error_streak: dict[str, tuple[int, float]] = {}
 
         self._session: aiohttp.ClientSession | None = None
         self._headers: dict[str, str] = {}
@@ -806,6 +822,7 @@ class MashovClient:
         and holiday failures are absorbed so partial data is still returned.
         """
         selected = set(self.enabled_data) if selected_data is None else set(selected_data) & set(self.enabled_data)
+        self._refresh_statuses = {}
         _LOGGER.info("Fetching %d selected data sources", len(selected))
         # --- Session / login. Ensure session and authentication are available (lazy login)
         if not self._session or self._session.closed:
@@ -871,8 +888,9 @@ class MashovClient:
                 """Fetch one core resource, recording its outcome in ``source_status``.
 
                 401 -> one shared re-login and retry; 400/404 -> empty result;
-                403 -> password-change check, else escalating cooldown; other
-                errors raise MashovError and fail the whole refresh.
+                403 -> password-change check, else escalating cooldown; 5xx -> empty
+                result for this resource only (other resources still refresh);
+                other errors raise MashovError and fail the whole refresh.
                 """
                 if url_key not in self.enabled_data:
                     source_status[url_key] = "disabled"
@@ -917,6 +935,17 @@ class MashovClient:
                             source_status[url_key] = "forbidden"
                             self._register_endpoint_forbidden(cooldown_key)
                             return []
+                        if 500 <= resp.status < 600:
+                            if cooldown_key not in self._resource_errors_logged:
+                                self._resource_errors_logged.add(cooldown_key)
+                                _LOGGER.warning(
+                                    "Student resource %s failed on Mashov's server (HTTP %s); "
+                                    "retrying at the next refresh",
+                                    url_key,
+                                    resp.status,
+                                )
+                            source_status[url_key] = f"http_{resp.status}"
+                            return []
                         if resp.status >= 400:
                             raise MashovError(f"HTTP {resp.status} fetching {url_key}")
                         try:
@@ -925,6 +954,7 @@ class MashovClient:
                             source_status[url_key] = "ok"
                             # Success resets the 403 escalation for this student/resource.
                             self._endpoint_cooldown.pop(cooldown_key, None)
+                            self._resource_errors_logged.discard(cooldown_key)
                             return data
                         except (ValueError, aiohttp.ClientError) as e:
                             raise MashovError(f"Invalid JSON fetching {url_key}") from e
@@ -952,6 +982,10 @@ class MashovClient:
                 if key not in student_selected:
                     continue
                 additional[key] = await self._fetch_student_resource(sid, key, from_dt, to_dt)
+                self._record_status(key, additional[key]["status"])
+            for key, status in source_status.items():
+                if status not in ("disabled", "not_fetched"):
+                    self._record_status(key, status)
             return {
                 "homework": self._normalize_homework(homework),
                 "behavior": self._normalize_behavior(behavior),
@@ -993,6 +1027,8 @@ class MashovClient:
             raise
         except Exception:
             holidays_status = "fetch_failed"
+        if "holidays" in selected:
+            self._record_status("holidays", holidays_status)
         if "holidays" in selected and holidays_status not in ("ok", "disabled"):
             _LOGGER.warning("Holidays refresh failed (%s); student data is retained", holidays_status)
 
@@ -1022,9 +1058,41 @@ class MashovClient:
         }
 
         await self._fetch_account_resources(result, selected, students)
+        result["closed_features"] = self._closed_features(selected)
 
         _LOGGER.debug("Data fetch completed for %d students", len(students))
         return result
+
+    def _record_status(self, dataset: str, status: str) -> None:
+        """Remember every attempt's outcome for this refresh; see ``_closed_features``."""
+        self._refresh_statuses.setdefault(dataset, set()).add(status)
+
+    def note_refresh_failed(self) -> None:
+        """A refresh that failed for another reason (network, server) does not confirm anything."""
+        self._server_error_streak.clear()
+
+    def _closed_features(self, selected) -> list[str]:
+        """Data types the school appears to have closed: HTTP 5xx on every attempt, several refreshes in a row.
+
+        A single attempt that succeeds, is refused (403/404), or fails for a network reason
+        resets that data type's streak, so transient faults never accumulate into a closure.
+        """
+        now = time.monotonic()
+        closed = []
+        for dataset in sorted(selected):
+            statuses = self._refresh_statuses.get(dataset)
+            if not statuses:
+                continue
+            if not all(status.startswith("http_5") for status in statuses):
+                self._server_error_streak.pop(dataset, None)
+                continue
+            count, last_counted = self._server_error_streak.get(dataset, (0, None))
+            if last_counted is None or now - last_counted >= CLOSED_FEATURE_MIN_SPACING:
+                count, last_counted = count + 1, now
+            self._server_error_streak[dataset] = (count, last_counted)
+            if count >= CLOSED_FEATURE_THRESHOLD:
+                closed.append(dataset)
+        return closed
 
     async def _fetch_account_resources(self, result, selected, students):
         """Account-level resources, fetched once per account and never per student."""
@@ -1036,6 +1104,12 @@ class MashovClient:
             )
 
     async def _fetch_account_json(self, path, key, expected_type):
+        """Fetch a known account route, recording its outcome for the closed-feature check."""
+        status, payload = await self._fetch_account_route(path, key, expected_type)
+        self._record_status(_dataset_for_account_key(key), status)
+        return status, payload
+
+    async def _fetch_account_route(self, path, key, expected_type):
         """Fetch a known account route; isolate failures and back off forbidden features."""
         cache_key = ("account", path if key in PER_ITEM_ACCOUNT_KEYS else key)
         retry_after, previous = self._resource_retry_after.get(cache_key, (0, "not_fetched"))

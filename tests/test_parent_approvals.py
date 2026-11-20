@@ -178,6 +178,15 @@ async def test_expired_activities_are_never_counted_as_pending():
     assert [r["activity_id"] for r in open_pending(result["by_student"][TEST_CHILD_A])] == [OPEN_ID]
 
 
+async def test_unanswered_row_uses_the_child_on_user_id():
+    """Mashov omits schoolActivityAnswer until someone answers, and puts the child in userId."""
+    get = router([TEST_OPEN_ACTIVITY], answers={OPEN_ID: [{"userId": TEST_CHILD_A}]})
+    result = await fetch(get)
+    assert result["unassigned"] == []
+    assert result["by_student"][TEST_CHILD_A][0]["status"] == STATUS_PENDING
+    assert TEST_CHILD_B not in result["by_student"]
+
+
 async def test_open_activity_without_a_known_child_is_unassigned_pending():
     unknown_child = [user_answer("someone-else", 1)]
     get = router(

@@ -1,4 +1,4 @@
-"""Bounded inbox retrieval. Full-content GETs mark conversations read at Mashov."""
+"""Bounded inbox retrieval. Unread conversations are never opened."""
 
 from html.parser import HTMLParser
 import re
@@ -82,9 +82,10 @@ def _count(counts, key):
 async def fetch_mailbox(get_json, *, full_content=False, limit=20, attachments=False):
     """Fetch at most limit inbox conversations once per account, never per student.
 
-    get_json returns (status, payload) and handles authentication/backoff. Only
-    the explicit full_content branch accesses conversation-detail URLs; that GET
-    itself marks read, even though no markAsRead PUT is sent.
+    get_json returns (status, payload) and handles authentication/backoff. Detail
+    URLs are requested only for conversations the parent has already read: Mashov
+    marks a conversation read when its detail is fetched, so an unread thread is
+    left as headers until the parent opens it.
     """
     result = {"status": "not_fetched", "items": [], "full_content": full_content, "limit": limit}
     counts_status, counts = await get_json("mail/counts", "mail_counts", dict)
@@ -120,8 +121,8 @@ async def fetch_mailbox(get_json, *, full_content=False, limit=20, attachments=F
         result["items"].append(item)
 
     if full_content:
-        result["unread_before_fetch"] = result.get("unread_count")
-        for item in result["items"]:
+        opened = [item for item in result["items"] if item.get("isNew") is False]
+        for item in opened:
             status, detail = await get_json(
                 "mail/conversations/" + quote(item["conversationId"], safe=""),
                 "mail_content",
@@ -140,13 +141,6 @@ async def fetch_mailbox(get_json, *, full_content=False, limit=20, attachments=F
                     for message in item["messages"]:
                         message["isNew"] = False
             item["content_status"] = status
-        # Reading bodies changes the authoritative unread count. Never expose the
-        # old count as fresh, even if this last request fails.
-        counts_status, counts = await get_json("mail/counts", "mail_counts", dict)
-        result["counts_status"] = counts_status
-        result["unread_count"] = _count(counts, "unreadConversations") if counts_status == "ok" else None
-        if counts_status == "ok" and result["unread_count"] is None:
-            result["counts_status"] = "invalid_response"
-        if counts_status == "ok":
-            result["inbox_count"] = _count(counts, "inboxConversations")
+        # Opened threads were already read, so the unread count from the first
+        # counts request remains accurate; no second counts request is needed.
     return result

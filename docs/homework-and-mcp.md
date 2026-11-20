@@ -43,8 +43,10 @@ resources, mailbox and pending parent approvals (title, child name, deadline and
 no IDs). Source status and staleness accompany each response. Follow
 `next_offset` until null for complete results. A failed source does not imply an empty
 successful result. Calls do not refresh the portal, change homework, mark messages
-read or control devices. Mailbox bodies require the existing full-content opt-in;
-the existing fetching behavior of that option still marks conversations read in Mashov.
+read or control devices. Mailbox bodies require the existing full-content opt-in and
+are fetched only for conversations already read in Mashov, so the integration never
+marks unread conversations read. Tool results are flagged `untrusted_school_text`, and
+each page is bounded in size.
 
 The API checks that the caller is an authenticated HA administrator and that the hub
 still permits MCP on every call, including calls from a previously created session.

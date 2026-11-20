@@ -4,7 +4,18 @@
 
 ### Added
 - Opt-in, read-only parent approvals (`parent_approvals`, off by default). Each child gets a pending-approvals sensor for trips and school activities, sorted by answer deadline with `next_deadline`. The hub gets one sensor for open consent questionnaires and online forms, plus open activities not assigned to any child. Assist/MCP reads list title, child, deadline and status, never IDs. Nothing is ever answered or submitted.
-- Opt-in mailbox attachment downloads (#16). Requires Mailbox and full message content, which marks fetched conversations read. Every file type is saved once under `/media/mashov/<entry_id>/…` with a size cap (25 MB by default, 1–100), per-file status and `media_content_id` for image and video previews. Folders of conversations outside the fetched window are deleted; turning the option off or deleting the hub deletes the hub's folder.
+- Opt-in mailbox attachment downloads (#16). Requires Mailbox and full message content, which is fetched only for conversations already read in Mashov. Every file type is saved once under `<config>/mashov_files/<entry_id>/…` with a size cap (25 MB by default, 1–100), per-file status and a `download_url` served only to signed-in Home Assistant users as a download (never inline). SVG files are stored as inert `.svg.txt`. Folders of conversations outside the fetched window are deleted; turning the option off or deleting the hub deletes the hub's folder.
+- Mashov data types that the school closes are switched off automatically. When every request for a type returns HTTP 5xx on three separate refreshes at least an hour apart, fetching stops, a translated Repairs notice explains it, and the type can be selected again under Configure. Any other result resets the count; a failed refresh never switches anything off.
+
+### Changed
+- Mailbox full content no longer opens unread conversations. Unread threads keep their state at Mashov; their bodies appear after you open them in Mashov.
+- Mailbox attachments are stored in the Home Assistant configuration folder instead of the media folder, so they are not listed in the Media browser.
+- The LLM read tool returns bounded pages (at most 64 KB per call; long text fields are cut at 8,000 characters) and reports the next offset.
+
+### Fixed
+- Mailbox and attachment paths refuse conversation, message and file IDs that are not plain path components.
+- A 5xx response from a core resource is scoped to that resource instead of failing the whole refresh.
+- Homework checklist completion markers are removed for children who left the roster and for assignments no longer fetched. A failed homework fetch keeps them untouched.
 
 ## [1.2.1] - 2026-11-13
 

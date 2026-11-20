@@ -30,6 +30,7 @@ from custom_components.mashov.mail_attachments import (
     MAX_ENTRY_BYTES,
     MAX_NAME_LENGTH,
     AttachmentStore,
+    MashovAttachmentView,
     _remove_tree,
     async_clear_entry_media,
     safe_file_name,
@@ -58,14 +59,21 @@ def _attachment():
 
 
 def _getter(files):
-    """Account JSON fake: one unread conversation whose detail lists ``files``."""
-    message = {"messageId": TEST_MESSAGE_ID, "subject": "Subject", "isNew": True}
+    """Account JSON fake: one already-read conversation whose detail lists ``files``."""
+    message = {"messageId": TEST_MESSAGE_ID, "subject": "Subject", "isNew": False}
 
     async def get(path, key, expected):
         if key == "mail_counts":
-            return "ok", {"unreadConversations": 1, "inboxConversations": 1}
+            return "ok", {"unreadConversations": 0, "inboxConversations": 1}
         if key == "mailbox":
-            return "ok", [{"conversationId": TEST_CONVERSATION_ID, "hasAttachments": True, "messages": [message]}]
+            return "ok", [
+                {
+                    "conversationId": TEST_CONVERSATION_ID,
+                    "hasAttachments": True,
+                    "isNew": False,
+                    "messages": [message],
+                }
+            ]
         detail = {**message, "body": "<p>Body</p>", "files": deepcopy(files)}
         return "ok", {"conversationId": TEST_CONVERSATION_ID, "messages": [detail]}
 
@@ -115,8 +123,9 @@ def _stream_response(status=200, chunks=(TEST_FILE_BYTES,), content_length=None)
 
 @pytest.fixture(name="media")
 def media_fixture(hass, tmp_path):
-    hass.config.media_dirs = {"local": str(tmp_path)}
-    return tmp_path
+    """Stand-in for <config>/mashov_files."""
+    hass.config.config_dir = str(tmp_path)
+    return tmp_path / "mashov_files"
 
 
 def _stored_files(media):
@@ -301,9 +310,7 @@ async def test_download_writes_file_and_exposes_media_metadata(hass, media):
     download = _download()
     mailbox = _mailbox()
     await store.async_sync(mailbox, download)
-    stored = (
-        media / "mashov" / TEST_ENTRY_ID / TEST_CONVERSATION_ID / TEST_MESSAGE_ID / f"{TEST_FILE_ID}-{TEST_FILE_NAME}"
-    )
+    stored = media / TEST_ENTRY_ID / TEST_CONVERSATION_ID / TEST_MESSAGE_ID / f"{TEST_FILE_ID}-{TEST_FILE_NAME}"
     assert _stored_files(media) == [stored]
     assert stored.read_bytes() == TEST_FILE_BYTES
     assert _first(mailbox) == {
@@ -311,7 +318,7 @@ async def test_download_writes_file_and_exposes_media_metadata(hass, media):
         "mime_type": "image/png",
         "size": len(TEST_FILE_BYTES),
         "status": "ok",
-        "media_content_id": "media-source://media_source/local/" + stored.relative_to(media).as_posix(),
+        "download_url": f"/api/mashov/attachment/{TEST_ENTRY_ID}/{TEST_CONVERSATION_ID}/{TEST_MESSAGE_ID}/{TEST_FILE_ID}",
     }
     path = download.await_args.args[0]
     assert path.startswith(f"mail/messages/{TEST_MESSAGE_ID}/files/{TEST_FILE_ID}/download/")
@@ -337,7 +344,7 @@ async def test_failed_download_leaves_no_file_and_a_status(hass, media, status):
     await store.async_sync(mailbox, _download(status))
     assert _stored_files(media) == []
     assert _first(mailbox)["status"] == status
-    assert _first(mailbox)["media_content_id"] is None
+    assert _first(mailbox)["download_url"] is None
 
 
 async def test_unexpected_error_is_scoped_to_one_attachment(hass, media):
@@ -377,7 +384,10 @@ async def test_cleanup_never_escapes_the_entry_folder(hass, media, tmp_path_fact
     (outside / "keep.txt").write_bytes(TEST_FILE_BYTES)
     store = AttachmentStore(hass, TEST_ENTRY_ID, len(TEST_FILE_BYTES))
     store.root.mkdir(parents=True)
-    os.symlink(outside, store.root / TEST_OTHER_CONVERSATION_ID)
+    try:
+        os.symlink(outside, store.root / TEST_OTHER_CONVERSATION_ID)
+    except OSError as err:  # Windows needs the symlink privilege; CI on Linux always runs this.
+        pytest.skip(f"symbolic links unavailable here ({err.winerror if hasattr(err, 'winerror') else err})")
     await store.async_sync(_mailbox(TEST_CONVERSATION_ID), _download())
     _remove_tree(outside, store.root)
     _remove_tree(store.root, store.root)
@@ -389,8 +399,8 @@ async def test_clearing_one_hub_keeps_other_hubs(hass, media):
     for entry_id in (TEST_ENTRY_ID, "other"):
         await AttachmentStore(hass, entry_id, len(TEST_FILE_BYTES)).async_sync(_mailbox(), _download())
     await async_clear_entry_media(hass, TEST_ENTRY_ID)
-    assert not (media / "mashov" / TEST_ENTRY_ID).exists()
-    assert (media / "mashov" / "other").is_dir()
+    assert not (media / TEST_ENTRY_ID).exists()
+    assert (media / "other").is_dir()
 
 
 async def test_removing_the_entry_deletes_its_files(hass, media, mock_config_entry):
@@ -508,10 +518,10 @@ def _sensor(items):
 
 def test_sensor_exposes_attachment_metadata_and_count():
     mailbox = _mailbox()
-    _first(mailbox).update(status="ok", mime_type="image/png", size=1, media_content_id="media-source://x")
+    _first(mailbox).update(status="ok", mime_type="image/png", size=1, download_url="/api/mashov/attachment/x")
     attrs = _sensor(mailbox["items"]).extra_state_attributes
     assert attrs["attachment_count"] == 1
-    assert _first(attrs)["media_content_id"] == "media-source://x"
+    assert _first(attrs)["download_url"] == "/api/mashov/attachment/x"
 
 
 def test_sensor_attachment_metadata_respects_the_attribute_budget():
@@ -559,12 +569,32 @@ async def test_svg_attachment_is_never_previewable(hass, media):
     (stored,) = _stored_files(media)
     assert stored.name.endswith(".svg.txt")
     assert _first(mailbox)["neutralized"] is True
-    assert _first(mailbox)["media_content_id"] is None
+    assert _first(mailbox)["download_url"].endswith(TEST_FILE_ID)
+    response = await MashovAttachmentView().get(
+        SimpleNamespace(app={"hass": hass}), TEST_ENTRY_ID, TEST_CONVERSATION_ID, TEST_MESSAGE_ID, TEST_FILE_ID
+    )
+    assert response.content_type == "text/plain"
+    assert response.headers["Content-Disposition"].startswith("attachment;")
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+
+
+async def test_view_serves_a_document_and_rejects_a_path_escape(hass, media):
+    mailbox = _mailbox()
+    _first(mailbox)["fileName"] = "report.pdf"
+    await AttachmentStore(hass, TEST_ENTRY_ID, 1024).async_sync(mailbox, _download(chunks=(b"%PDF-1.4",)))
+    view = MashovAttachmentView()
+    request = SimpleNamespace(app={"hass": hass})
+    response = await view.get(request, TEST_ENTRY_ID, TEST_CONVERSATION_ID, TEST_MESSAGE_ID, TEST_FILE_ID)
+    assert response.content_type == "application/pdf"
+    assert response.headers["Content-Disposition"].startswith("attachment;")
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    denied = await view.get(request, TEST_ENTRY_ID, "../" + TEST_CONVERSATION_ID, TEST_MESSAGE_ID, TEST_FILE_ID)
+    assert denied.status == 404
 
 
 async def test_hub_ceiling_skips_new_files_without_partial_data(hass, media):
     store = AttachmentStore(hass, TEST_ENTRY_ID, 1024)
-    root = media / "mashov" / TEST_ENTRY_ID / TEST_CONVERSATION_ID
+    root = media / TEST_ENTRY_ID / TEST_CONVERSATION_ID
     root.mkdir(parents=True)
     with patch("custom_components.mashov.mail_attachments.MAX_ENTRY_BYTES", 10):
         (root / "existing.bin").write_bytes(b"x" * 10)
@@ -579,7 +609,7 @@ async def test_hub_ceiling_skips_new_files_without_partial_data(hass, media):
 
 async def test_remaining_budget_overflow_is_quota_not_too_large(hass, media):
     store = AttachmentStore(hass, TEST_ENTRY_ID, 1024)
-    root = media / "mashov" / TEST_ENTRY_ID / TEST_CONVERSATION_ID
+    root = media / TEST_ENTRY_ID / TEST_CONVERSATION_ID
     root.mkdir(parents=True)
     (root / "existing.bin").write_bytes(b"x" * 8)
     with patch("custom_components.mashov.mail_attachments.MAX_ENTRY_BYTES", 10):
