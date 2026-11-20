@@ -8,7 +8,7 @@ import json
 
 from homeassistant.components.todo import TodoItem, TodoItemStatus, TodoListEntity, TodoListEntityFeature
 from homeassistant.core import callback
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.storage import Store
 
 from .const import DEVICE_MANUFACTURER, DEVICE_MODEL, DOMAIN
@@ -157,8 +157,8 @@ class MashovHomeworkTodo(MashovStudentEntity, TodoListEntity):
                 current.due,
                 current.description or None,
             ):
-                raise HomeAssistantError("Mashov assignments are read-only; only completion can be changed")
+                raise ServiceValidationError("Mashov assignments are read-only; only completion can be changed")
             if item.status not in (TodoItemStatus.COMPLETED, TodoItemStatus.NEEDS_ACTION):
-                raise HomeAssistantError("Invalid homework completion status")
+                raise ServiceValidationError("Invalid homework completion status")
             await self._completion.update(self._student_id, item.uid, item.status == TodoItemStatus.COMPLETED)
             self.async_write_ha_state()
