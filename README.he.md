@@ -12,6 +12,10 @@
 
 ![שימוש במשו״ב לייב](docs/images/mashov-usage.gif)
 
+ייבוא הבלופרינט של תצוגת Mashov Live, ואז [מדריך הדשבורד](docs/dashboard.md):
+
+[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint URL.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FNirBY%2Fha-mashov%2Fmain%2Fblueprints%2Fscript%2Fmashov%2Fmashov_live_dashboard.yaml)
+
 ## התקנה
 
 נדרש **Home Assistant 2025.3 ומעלה**.
