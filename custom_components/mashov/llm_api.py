@@ -68,7 +68,19 @@ class MashovDataAPI(llm.API):
         self.entry_id = entry.entry_id
 
     async def async_get_api_instance(self, llm_context):
-        await _authorize(self.hass, self.entry_id, llm_context)
+        try:
+            await _authorize(self.hass, self.entry_id, llm_context)
+        except HomeAssistantError as err:
+            # HA merges every selected API into one session and does not isolate errors:
+            # raising here would break Assist/MCP entirely (device control included) for
+            # voice satellites, automations, non-admins, or while this hub is not loaded.
+            # Offer no tools instead; each tool call is still authorized separately.
+            return llm.APIInstance(
+                api=self,
+                api_prompt=f"Mashov school data is not available for this request ({err}). Do not guess it.",
+                llm_context=llm_context,
+                tools=[],
+            )
         return llm.APIInstance(
             api=self,
             api_prompt=(

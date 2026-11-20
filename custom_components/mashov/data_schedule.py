@@ -146,6 +146,11 @@ def student_schedule_groups(options, students):
     return list(groups.values())
 
 
+def _is_transient_failure(resource) -> bool:
+    status = str((resource or {}).get("status", ""))
+    return status == "fetch_failed" or status.startswith("http_5")
+
+
 def merge_partial_data(previous, incoming, requested, student_data=None):
     """Preserve unrequested resources, matching students by identity, never position."""
     result = deepcopy(incoming)
@@ -161,6 +166,16 @@ def merge_partial_data(previous, incoming, requested, student_data=None):
         for key, resource in old.get("additional_data", {}).items():
             if key not in student_requested:
                 current.setdefault("additional_data", {})[key] = deepcopy(resource)
+            elif _is_transient_failure(current.get("additional_data", {}).get(key)) and (
+                resource.get("status") == "ok" or resource.get("retained")
+            ):
+                # Keep the last good items through a server/network failure. The status stays
+                # the real error so source_last_update is not advanced.
+                current["additional_data"][key] = {
+                    **current["additional_data"][key],
+                    "items": deepcopy(resource.get("items", [])),
+                    "retained": True,
+                }
         current["source_last_update"] = dict(old.get("source_last_update", {}))
     for key in ("holidays", "holidays_status", "holidays_cached", "holidays_last_update"):
         if "holidays" not in requested and key in previous:

@@ -82,6 +82,27 @@ async def test_platform_setup_and_service(hass, mock_config_entry, mock_mashov_c
         blocking=True,
     )
     assert hass.states.get(lists[0].entity_id).state == "0"
+    # The item editor saves the unchanged title and description together with the status.
+    await hass.services.async_call(
+        "todo",
+        "update_item",
+        {
+            "entity_id": lists[0].entity_id,
+            "item": "English: Read",
+            "rename": "English: Read",
+            "description": "",
+            "status": "needs_action",
+        },
+        blocking=True,
+    )
+    assert hass.states.get(lists[0].entity_id).state == "1"
+    with pytest.raises(HomeAssistantError, match="read-only"):
+        await hass.services.async_call(
+            "todo",
+            "update_item",
+            {"entity_id": lists[0].entity_id, "item": "English: Read", "description": "edited"},
+            blocking=True,
+        )
 
 
 async def test_no_checklist_when_homework_deselected(hass, mock_config_entry, mock_mashov_client):

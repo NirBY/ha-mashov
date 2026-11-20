@@ -90,7 +90,10 @@ class MashovHomeworkTodo(MashovStudentEntity, TodoListEntity):
     """A child's assignments, with independent durable completion markers."""
 
     _attr_translation_key = "homework_checklist"
-    _attr_supported_features = TodoListEntityFeature.UPDATE_TODO_ITEM
+    # The item editor always sends the description, and HA rejects fields an entity does not
+    # declare. Declaring it lets the editor save a status change; any actual edit of the
+    # description is still refused in async_update_todo_item (assignments are read-only).
+    _attr_supported_features = TodoListEntityFeature.UPDATE_TODO_ITEM | TodoListEntityFeature.SET_DESCRIPTION_ON_ITEM
     _attr_icon = "mdi:clipboard-check-outline"
     _data_key = "homework"
 
@@ -149,7 +152,11 @@ class MashovHomeworkTodo(MashovStudentEntity, TodoListEntity):
             current = next((task for task in self.todo_items or [] if task.uid == item.uid), None)
             if current is None:
                 raise HomeAssistantError("Homework assignment is no longer available")
-            if (item.summary, item.due, item.description) != (current.summary, current.due, current.description):
+            if (item.summary, item.due, item.description or None) != (
+                current.summary,
+                current.due,
+                current.description or None,
+            ):
                 raise HomeAssistantError("Mashov assignments are read-only; only completion can be changed")
             if item.status not in (TodoItemStatus.COMPLETED, TodoItemStatus.NEEDS_ACTION):
                 raise HomeAssistantError("Invalid homework completion status")

@@ -339,6 +339,14 @@ def _truncate_body(attributes, message):
     message["body"] = original_body[:low]
 
 
+def _as_int(value) -> int | None:
+    """Mashov sends weekday numbers as int or str."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _student_meta(data: dict, student_id, fallback_slug: str) -> dict:
     """Find a student by stable id; the slug embeds the class name and changes every school year.
 
@@ -389,7 +397,9 @@ class MashovAdditionalSensor(MashovStudentEntity, SensorEntity):
 
     @property
     def native_value(self):
-        return len(self._resource.get("items", [])) if self.available and self._resource.get("status") == "ok" else None
+        resource = self._resource
+        usable = resource.get("status") == "ok" or resource.get("retained")
+        return len(resource.get("items", [])) if self.available and usable else None
 
     @property
     def device_info(self):
@@ -426,6 +436,7 @@ class MashovAdditionalSensor(MashovStudentEntity, SensorEntity):
             "student_name": self.student_name,
             "data_stale": self.data_stale,
             "source_status": resource.get("status", "not_fetched"),
+            **({"items_retained": True} if resource.get("retained") else {}),
             "total_items": len(items),
             "stored_items": len(stored),
             "items": stored,
@@ -534,6 +545,20 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
             "schedule_friendly": schedule_info.get("friendly"),
             "next_scheduled_refresh": schedule_info.get("next"),
         }
+        if self._data_key == "timetable":
+            # Distinct Mashov weekdays (1=Sunday..7=Saturday) from the FULL timetable. The items
+            # attribute is size-bounded and can drop whole weekdays; next-school-day templates
+            # use this small list instead.
+            attributes["school_days"] = sorted(
+                {
+                    day
+                    for item in items
+                    if isinstance(item, dict)
+                    and isinstance(item.get("timeTable"), dict)
+                    and isinstance(day := _as_int(item["timeTable"].get("day")), int)
+                    and 1 <= day <= 7
+                }
+            )
         # Final pass: the per-item limit ignores the formatted fields, which duplicate the items.
         return self._bound_attributes(attributes)
 

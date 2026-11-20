@@ -159,7 +159,11 @@ async def test_api_registration_is_opt_in_and_unloaded(hass, hass_admin_user, mo
     )
     await hass.async_block_till_done()
     assert api_id in {api.id for api in llm.async_get_apis(hass)}
+    # Unload/retry keeps the API registered so agents that selected it keep working
+    # (it offers no tools while the hub is not loaded); removing the hub unregisters it.
     assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
+    assert api_id in {api.id for api in llm.async_get_apis(hass)}
+    await hass.config_entries.async_remove(mock_config_entry.entry_id)
     assert api_id not in {api.id for api in llm.async_get_apis(hass)}
 
 
@@ -170,3 +174,41 @@ async def test_mcp_option_is_present_in_grouped_configure_form(hass, mock_config
     advanced = next(value for key, value in schema.schema.items() if str(key) == "advanced")
     assert "mcp_enabled" in {str(key) for key in advanced.schema.schema}
     assert schema({"advanced": {"mcp_enabled": True}})["mcp_enabled"] is True
+
+
+async def test_unauthorized_session_gets_no_tools_instead_of_an_error(hass):
+    """Non-admins, voice satellites (no user) and a disabled API must not break merged Assist sessions."""
+    entry, coordinator, context = setup_api(hass)
+    hass.auth.async_get_user.return_value = SimpleNamespace(is_admin=False)
+    api = await MashovDataAPI(hass, entry).async_get_api_instance(context)
+    assert api.tools == []
+    assert "not available" in api.api_prompt
+    context.context = None
+    assert (await MashovDataAPI(hass, entry).async_get_api_instance(context)).tools == []
+    hass.auth.async_get_user.return_value = SimpleNamespace(is_admin=True)
+    context.context = Context(user_id="admin")
+    entry.options["mcp_enabled"] = False
+    assert (await MashovDataAPI(hass, entry).async_get_api_instance(context)).tools == []
+
+
+async def test_set_options_requires_an_administrator(hass, hass_read_only_user, mock_config_entry, mock_mashov_client):
+    """A non-admin user cannot redirect api_base (where the stored password is sent)."""
+    from homeassistant.exceptions import Unauthorized
+
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+    with pytest.raises(Unauthorized):
+        await hass.services.async_call(
+            "mashov",
+            "set_options",
+            {"entry_id": mock_config_entry.entry_id, "api_base": "https://attacker.invalid/"},
+            blocking=True,
+            context=Context(user_id=hass_read_only_user.id),
+        )
+    assert "api_base" not in mock_config_entry.options
+    # Automations and scripts (no user) keep working.
+    await hass.services.async_call(
+        "mashov", "set_options", {"entry_id": mock_config_entry.entry_id, "homework_days_back": 3}, blocking=True
+    )
+    assert mock_config_entry.options["homework_days_back"] == 3

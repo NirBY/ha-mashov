@@ -153,10 +153,14 @@ variables:
   target_result: >-
     {% if next_school_day %}
     {% set timetable_items = state_attr(timetable_entity, 'Items') or state_attr(timetable_entity, 'items') or [] %}
+    {% set school_days_attr = state_attr(timetable_entity, 'school_days') or [] %}
     {% set holiday_items = state_attr(holiday_entity, 'Items') or state_attr(holiday_entity, 'items') or [] %}
     {%- set target = namespace(offset=1, found=false) -%}
     {%- set school = namespace(days=[]) -%}
-    {%- for item in timetable_items if item.timeTable is defined -%}
+    {%- for day in (school_days_attr if school_days_attr is defined and school_days_attr else []) -%}
+      {%- if 1 <= day | int(-1) <= 6 -%}{%- set school.days = school.days + [day | int] -%}{%- endif -%}
+    {%- endfor -%}
+    {%- for item in (timetable_items if not school.days else []) if item.timeTable is defined -%}
       {%- set day = item.timeTable.day | int(-1) -%}
       {%- if 1 <= day <= 6 and day not in school.days -%}
         {%- set school.days = school.days + [day] -%}

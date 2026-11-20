@@ -376,7 +376,10 @@ def _async_register_services(hass: HomeAssistant) -> None:
         return await async_save_live_dashboard(hass, dict(call.data))
 
     hass.services.async_register(DOMAIN, "refresh_now", _handle_refresh, schema=REFRESH_NOW_SCHEMA)
-    hass.services.async_register(DOMAIN, "set_options", _handle_set_options, schema=SET_OPTIONS_SCHEMA)
+    # Admin-only: set_options can change api_base (where the stored credentials are sent),
+    # enable sources that mark mail read, and widen what is exposed. Calls without a user
+    # (automations, scripts) are still allowed by Home Assistant.
+    async_register_admin_service(hass, DOMAIN, "set_options", _handle_set_options, schema=SET_OPTIONS_SCHEMA)
     # Admin-only: it creates/overwrites a dashboard in HA's Lovelace storage, which
     # non-admin users must not be able to do. Response is optional so it also works
     # from automations/scripts that do not ask for one.
@@ -460,6 +463,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         _LOGGER.info("Setting up Mashov integration for entry: %s", entry.title)
 
     hass.data.setdefault(DOMAIN, {})
+    _async_sync_llm_api(hass, entry)
 
     # Preserve exactly what older hubs (including v1.0.7+) fetched. New sources
     # are never added to the frozen historical default during an upgrade.
@@ -760,14 +764,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    if entry.options.get("mcp_enabled", False):
+    return True
+
+
+@callback
+def _async_sync_llm_api(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Register the opt-in school-data API before any network I/O; unregister when disabled.
+
+    Registration outlives a failed or retrying setup on purpose: agents and MCP servers
+    that selected this API fail with "API not found" if it disappears. While the hub is
+    not loaded the API offers no tools (see MashovDataAPI.async_get_api_instance).
+    """
+    registered = hass.data.setdefault(DOMAIN, {}).setdefault("llm_apis", {})
+    enabled = bool(entry.options.get("mcp_enabled", False))
+    if enabled and entry.entry_id not in registered:
         from homeassistant.helpers import llm
 
         from .llm_api import MashovDataAPI
 
-        entry.async_on_unload(llm.async_register_api(hass, MashovDataAPI(hass, entry)))
-
-    return True
+        registered[entry.entry_id] = llm.async_register_api(hass, MashovDataAPI(hass, entry))
+    elif not enabled and entry.entry_id in registered:
+        registered.pop(entry.entry_id)()
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
@@ -804,6 +821,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Remove credentials and cached school data when a hub is deleted."""
+    if unregister := hass.data.get(DOMAIN, {}).get("llm_apis", {}).pop(entry.entry_id, None):
+        unregister()
     # The cache holds session cookies and student data; the entry itself (with the
     # password) is deleted by HA.
     await Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.cache").async_remove()

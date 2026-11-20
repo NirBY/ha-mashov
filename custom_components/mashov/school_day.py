@@ -2,12 +2,19 @@
 
 The blueprint carries the same Jinja search because HA blueprints cannot import
 Python helpers. Regression tests render both against the same calendar cases.
+
+School days come from the timetable sensor's ``school_days`` attribute (computed from
+the full timetable) when available: the ``items`` attribute is size-bounded and can
+drop whole weekdays. Older sensors without it fall back to deriving days from items.
 """
 
 SCHOOL_DAY_SEARCH = """
 {%- set target = namespace(offset=1, found=false) -%}
 {%- set school = namespace(days=[]) -%}
-{%- for item in timetable_items if item.timeTable is defined -%}
+{%- for day in (school_days_attr if school_days_attr is defined and school_days_attr else []) -%}
+  {%- if 1 <= day | int(-1) <= 6 -%}{%- set school.days = school.days + [day | int] -%}{%- endif -%}
+{%- endfor -%}
+{%- for item in (timetable_items if not school.days else []) if item.timeTable is defined -%}
   {%- set day = item.timeTable.day | int(-1) -%}
   {%- if 1 <= day <= 6 and day not in school.days -%}
     {%- set school.days = school.days + [day] -%}

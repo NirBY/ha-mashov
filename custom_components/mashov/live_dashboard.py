@@ -480,6 +480,8 @@ def _school_target(s: dict[str, Any]) -> str:
         search = (
             "{%- set timetable_items = "
             + (f"state_attr('{timetable}', 'items') or []" if timetable else "[]")
+            + " -%}{%- set school_days_attr = "
+            + (f"state_attr('{timetable}', 'school_days') or []" if timetable else "[]")
             + " -%}{%- set holiday_items = "
             + (f"state_attr('{holidays}', 'items') or []" if holidays else "[]")
             + " -%}"

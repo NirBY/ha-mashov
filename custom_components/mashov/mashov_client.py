@@ -160,6 +160,8 @@ class MashovClient:
         self.attachment_store = attachment_store if self.mailbox_full_content else None
         # Optional resources: (student_id, resource_key) -> (retry_after_monotonic, last_status)
         self._resource_retry_after: dict[tuple[str, str], tuple[float, str]] = {}
+        # (student_id, resource_key) pairs whose current 5xx streak was already logged.
+        self._resource_errors_logged: set[tuple[str, str]] = set()
         # Core resources: (student_id, url_key) -> (retry_after_monotonic, consecutive_403_count)
         self._endpoint_cooldown: dict[tuple[str, str], tuple[float, int]] = {}
 
@@ -251,7 +253,8 @@ class MashovClient:
             if time.time() - self._last_login_timestamp < 10:
                 return
 
-            _LOGGER.debug("Ensuring valid session (under lock)")
+            # One line per actual re-login; parallel requests that hit the same 401 log at debug.
+            _LOGGER.info("Mashov session expired; logging in again")
             await self.async_init(None)
             self._last_login_timestamp = time.time()
 
@@ -767,11 +770,23 @@ class MashovClient:
                         self._resource_retry_after[cache_key] = (time.monotonic() + 86400, status)
                         return {"items": [], "status": status}
                     if response.status >= 400:
+                        if response.status >= 500 and cache_key not in self._resource_errors_logged:
+                            # Server-side failure: visible once per streak, not on every refresh.
+                            self._resource_errors_logged.add(cache_key)
+                            _LOGGER.warning(
+                                "Optional student resource %s failed on Mashov's server (HTTP %s); "
+                                "retrying at the next refresh",
+                                key,
+                                response.status,
+                            )
                         return {"items": [], "status": f"http_{response.status}"}
                     payload = await response.json()
                     if not isinstance(payload, list) or any(not isinstance(item, dict) for item in payload):
                         return {"items": [], "status": "invalid_response"}
                     self._resource_retry_after.pop(cache_key, None)
+                    if cache_key in self._resource_errors_logged:
+                        self._resource_errors_logged.discard(cache_key)
+                        _LOGGER.info("Optional student resource %s recovered", key)
                     return {"items": payload, "status": "ok"}
         except MashovPasswordChangeRequiredError:
             raise
@@ -878,7 +893,7 @@ class MashovClient:
                         _LOGGER.debug("Student resource response received")
                         if resp.status == 401:
                             if attempt == 0:
-                                _LOGGER.warning("Student resource unauthorized; retrying login")
+                                _LOGGER.debug("Student resource unauthorized; retrying after login")
                                 await self._ensure_valid_session()  # Thread-safe re-login
                                 return await fetch(url_key, attempt=1)
                             _LOGGER.warning("Student resource unauthorized after retry")

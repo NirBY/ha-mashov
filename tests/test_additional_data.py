@@ -6,6 +6,7 @@ after a 403/404, masking failures as empty lists, and oversized sensor attribute
 
 import asyncio
 import json
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -100,6 +101,17 @@ def test_empty_list_is_success_and_transient_errors_are_retried():
     assert fetch(client)["status"] == "http_500"
     fetch(client)
     assert client._session.get.call_count == 2
+
+
+def test_server_error_is_logged_once_per_streak(caplog):
+    client = make_client(status=503)
+    with caplog.at_level(logging.INFO, logger="custom_components.mashov.mashov_client"):
+        fetch(client)
+        fetch(client)
+        assert sum("HTTP 503" in record.getMessage() for record in caplog.records) == 1
+        client._session.get.return_value.__aenter__.return_value.status = 200
+        assert fetch(client)["status"] == "ok"
+        assert any("recovered" in record.getMessage() for record in caplog.records)
 
 
 def make_sensor(resource=None):

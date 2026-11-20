@@ -245,6 +245,22 @@ async def test_actual_september_and_hanukkah_ranges(hass, freezer, school_days):
         assert "מחר 1 שיעורים" in Template(_tomorrow_line(student), hass).async_render()
 
 
+async def test_school_days_attribute_beats_truncated_items(hass, freezer):
+    """Items cut to the size budget can lose Sunday; the full-timetable list must still find it."""
+    freezer.move_to("2026-10-23T09:00:00+00:00")
+    hass.states.async_set("sensor.schedule", "6", {"items": [lesson(3)], "school_days": [1, 2, 3, 4, 5]})
+    hass.states.async_set("sensor.holidays", "0", {"items": []})
+    student = normalize_students(
+        [{"name": "Noa", "timetable": "sensor.schedule", "holidays": "sensor.holidays", "next_school_day": True}]
+    )[0]
+    assert Template(_school_target(student) + "{{ t.isoformat() }}", hass).async_render() == "2026-10-25"
+    blueprint = load_blueprint("blueprints/automation/mashov/bag_reminder_tomorrow.yaml")
+    variables = {"next_school_day": True, "timetable_entity": "sensor.schedule", "holiday_entity": "sensor.holidays"}
+    for key in ("target_result", "target_offset", "target_label", "tomorrow_date_iso"):
+        variables[key] = Template(blueprint["variables"][key], hass).async_render(variables)
+    assert variables["tomorrow_date_iso"] == "2026-10-25"
+
+
 async def test_contributed_popup_table_keeps_rows_and_cells_intact(hass, freezer):
     """PR #15: whitespace trimming and API text must not break Markdown tables."""
     freezer.move_to("2026-10-22T09:00:00+00:00")

@@ -147,8 +147,15 @@ def main():
     update_changelog(new_version, args.pre_release)
 
     # Commit and push to main.
-    # Stage ALL changes so manual edits (icons, examples, etc.) are included
-    subprocess.run(["git", "add", "-A"], check=True)
+    # Stage changes to tracked files only. "git add -A" would also publish untracked
+    # files (personal screenshots, local notes) into the public repository; add new
+    # files deliberately with "git add <path>" before running the release.
+    untracked = subprocess.run(
+        ["git", "ls-files", "--others", "--exclude-standard"], check=True, capture_output=True, text=True
+    ).stdout.split()
+    if untracked:
+        print("⚠️  Not included (untracked): " + ", ".join(untracked))
+    subprocess.run(["git", "add", "-u"], check=True)
     subprocess.run(["git", "commit", "-m", f"Bump version to {new_version}"], check=True)
     subprocess.run(["git", "push", "origin", "main"], check=True)
 

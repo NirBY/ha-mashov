@@ -198,6 +198,33 @@ def test_merge_never_copies_unrequested_data_to_a_different_student():
     assert previous["by_slug"]["s"]["grades"] == ["old grades"]
 
 
+@pytest.mark.parametrize(
+    ("status", "retained"),
+    [("http_503", True), ("fetch_failed", True), ("forbidden", False), ("unsupported", False)],
+)
+def test_server_failure_keeps_last_optional_items(status, retained):
+    students = [{"id": "1", "slug": "s"}]
+    previous = {
+        "students": students,
+        "by_slug": {"s": {"additional_data": {"message_board": {"items": [{"id": 1}], "status": "ok"}}}},
+    }
+    incoming = {
+        "students": students,
+        "by_slug": {"s": {"additional_data": {"message_board": {"items": [], "status": status}}}},
+    }
+    first = merge_partial_data(previous, incoming, {"message_board"})["by_slug"]["s"]["additional_data"][
+        "message_board"
+    ]
+    assert first["status"] == status
+    assert first["items"] == ([{"id": 1}] if retained else [])
+    assert bool(first.get("retained")) is retained
+    if retained:
+        again = merge_partial_data(
+            {**previous, "by_slug": {"s": {"additional_data": {"message_board": first}}}}, incoming, {"message_board"}
+        )
+        assert again["by_slug"]["s"]["additional_data"]["message_board"]["items"] == [{"id": 1}]
+
+
 @pytest.mark.parametrize("source", ["setup", "options"])
 async def test_flow_navigates_multiple_datasets_and_commits_only_on_save(hass, mock_config_entry, source):
     with (
