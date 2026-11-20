@@ -8,8 +8,12 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import llm
 import pytest
 
+from custom_components.mashov.approvals import PARENT_APPROVALS
+from custom_components.mashov.data_schedule import SHARED_DATA
 from custom_components.mashov.data_selection import DATA_KEYS
 from custom_components.mashov.llm_api import MashovCatalogTool, MashovDataAPI, MashovReadTool
+
+from .const import TEST_PENDING_RECORD
 
 
 def setup_api(hass):
@@ -26,7 +30,7 @@ def setup_api(hass):
             "by_slug": {
                 "child": {
                     "source_status": dict.fromkeys(DATA_KEYS, "ok"),
-                    **{key: [{"value": 1}] for key in DATA_KEYS if key not in ("holidays", "mailbox")},
+                    **{key: [{"value": 1}] for key in DATA_KEYS if key not in SHARED_DATA},
                 }
             },
             "holidays": [{"name": "Holiday"}],
@@ -80,7 +84,8 @@ async def test_optional_resource_timestamp_and_failed_child_scope(hass):
 
 @pytest.mark.parametrize("dataset", DATA_KEYS)
 async def test_read_all_selected_datasets(hass, dataset):
-    _, _, context = setup_api(hass)
+    _, coordinator, context = setup_api(hass)
+    coordinator.data[PARENT_APPROVALS] = {"status": "ok", "by_student": {"child": [TEST_PENDING_RECORD]}}
     result = unwrap(
         await MashovReadTool("account").async_call(
             hass,

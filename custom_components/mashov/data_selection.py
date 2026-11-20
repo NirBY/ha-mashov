@@ -12,7 +12,7 @@ DEFAULT_MAILBOX_LIMIT = 20
 # Frozen historical default, including installations from v1.0.7. Never extend
 # this tuple when adding a resource: upgrades must not enable new data sources.
 LEGACY_CORE_DATA = ("homework", "behavior", "weekly_plan", "timetable", "lessons_history", "grades", "holidays")
-DATA_KEYS = (*LEGACY_CORE_DATA, *STUDENT_RESOURCES, "mailbox")
+DATA_KEYS = (*LEGACY_CORE_DATA, *STUDENT_RESOURCES, "mailbox", "parent_approvals")
 
 
 def enabled_data(options):
@@ -77,9 +77,9 @@ def filter_cached_data(data, options):
         result["holidays_status"] = "disabled"
         result.pop("holidays_cached", None)
         result.pop("holidays_last_update", None)
-    if "mailbox" not in selected:
-        result.pop("mailbox", None)
-    else:
+    for key in {"mailbox", "parent_approvals"} - selected:
+        result.pop(key, None)
+    if "mailbox" in selected:
         mailbox = result.get("mailbox", {})
         if "items" in mailbox:
             mailbox["items"] = mailbox["items"][: options.get(CONF_MAILBOX_LIMIT, DEFAULT_MAILBOX_LIMIT)]

@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Opt-in, read-only parent approvals (`parent_approvals`, off by default). Each child gets a pending-approvals sensor for trips and school activities, sorted by answer deadline with `next_deadline`. The hub gets one sensor for open consent questionnaires and online forms, plus open activities not assigned to any child. Assist/MCP reads list title, child, deadline and status, never IDs. Nothing is ever answered or submitted.
+
 ## [1.2.1] - 2026-11-13
 
 ### Fixed

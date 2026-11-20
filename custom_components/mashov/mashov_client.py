@@ -24,6 +24,7 @@ from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 import aiohttp  # type: ignore[import]
 
 from .additional_data import STUDENT_RESOURCES
+from .approvals import ANSWERS_KEY, fetch_parent_approvals
 from .const import CONF_YEAR
 from .data_selection import (
     CONF_ADDITIONAL_DATA,
@@ -50,6 +51,9 @@ API_BASE = "https://web.mashov.info/api/"  # default; can be overridden
 
 # Escalating cooldowns for core student endpoints that answer HTTP 403 (feature disabled by the school).
 CORE_RESOURCE_BACKOFF_STEPS = (3600, 21600, 86400)  # 1h -> 6h -> 24h
+# Account routes for one item (a conversation, an activity's answers). They back off
+# per path, and a 404 (item removed) is not parked, so one item never blocks the others.
+PER_ITEM_ACCOUNT_KEYS = frozenset({"mail_content", ANSWERS_KEY})
 
 
 class MashovError(Exception):
@@ -992,17 +996,25 @@ class MashovClient:
             "mailbox_limit": self.mailbox_limit,
         }
 
-        if "mailbox" in selected:
-            result["mailbox"] = await fetch_mailbox(
-                self._fetch_account_json, full_content=self.mailbox_full_content, limit=self.mailbox_limit
-            )
+        await self._fetch_account_resources(result, selected, students)
 
         _LOGGER.debug("Data fetch completed for %d students", len(students))
         return result
 
+    async def _fetch_account_resources(self, result, selected, students):
+        """Account-level resources, fetched once per account and never per student."""
+        if "mailbox" in selected:
+            result["mailbox"] = await fetch_mailbox(
+                self._fetch_account_json, full_content=self.mailbox_full_content, limit=self.mailbox_limit
+            )
+        if "parent_approvals" in selected:
+            result["parent_approvals"] = await fetch_parent_approvals(
+                self._fetch_account_json, [student["id"] for student in students]
+            )
+
     async def _fetch_account_json(self, path, key, expected_type):
         """Fetch a known account route; isolate failures and back off forbidden features."""
-        cache_key = ("account", path if key == "mail_content" else key)
+        cache_key = ("account", path if key in PER_ITEM_ACCOUNT_KEYS else key)
         retry_after, previous = self._resource_retry_after.get(cache_key, (0, "not_fetched"))
         if time.monotonic() < retry_after:
             return previous, None
@@ -1024,8 +1036,7 @@ class MashovClient:
                             )
                     if response.status in (403, 404):
                         status = "forbidden" if response.status == 403 else "unsupported"
-                        # A single removed conversation (404) must not block other details.
-                        if key != "mail_content" or response.status == 403:
+                        if key not in PER_ITEM_ACCOUNT_KEYS or response.status == 403:
                             self._resource_retry_after[cache_key] = (time.monotonic() + 86400, status)
                         return status, None
                     if response.status >= 400:
