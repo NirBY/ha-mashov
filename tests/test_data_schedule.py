@@ -225,6 +225,30 @@ def test_server_failure_keeps_last_optional_items(status, retained):
         assert again["by_slug"]["s"]["additional_data"]["message_board"]["items"] == [{"id": 1}]
 
 
+@pytest.mark.parametrize(
+    ("key", "good", "failed", "status", "retained"),
+    [
+        ("mailbox", {"unread": 4, "items": [{"id": 1}]}, {"unread": None, "items": []}, "http_503", True),
+        ("mailbox", {"unread": 4, "items": [{"id": 1}]}, {"unread": None, "items": []}, "fetch_failed", True),
+        ("mailbox", {"unread": 4, "items": [{"id": 1}]}, {"unread": None, "items": []}, "forbidden", False),
+        ("parent_approvals", {"pending": [{"id": 1}]}, {"pending": []}, "http_503", True),
+        ("parent_approvals", {"pending": [{"id": 1}]}, {"pending": []}, "fetch_failed", True),
+        ("parent_approvals", {"pending": [{"id": 1}]}, {"pending": []}, "forbidden", False),
+    ],
+)
+def test_transient_account_failure_keeps_last_snapshot(key, good, failed, status, retained):
+    previous = {key: {**good, "status": "ok"}}
+    incoming = {key: {**failed, "status": status}}
+    first = merge_partial_data(previous, incoming, {key})[key]
+    assert first["status"] == status
+    assert bool(first.get("retained")) is retained
+    expected = good if retained else failed
+    assert {name: first.get(name) for name in good} == expected
+    if retained:
+        again = merge_partial_data({key: first}, incoming, {key})[key]
+        assert {name: again.get(name) for name in good} == good
+
+
 @pytest.mark.parametrize("source", ["setup", "options"])
 async def test_flow_navigates_multiple_datasets_and_commits_only_on_save(hass, mock_config_entry, source):
     with (

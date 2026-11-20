@@ -190,4 +190,17 @@ def merge_partial_data(previous, incoming, requested, student_data=None):
     for key in SHARED_DATA - {"holidays"}:
         if key not in requested and key in previous:
             result[key] = deepcopy(previous[key])
+            continue
+        current = result.get(key)
+        old = previous.get(key)
+        if (
+            isinstance(current, dict)
+            and isinstance(old, dict)
+            and _is_transient_failure(current)
+            and (old.get("status") == "ok" or old.get("retained"))
+        ):
+            kept = deepcopy(old)
+            kept["status"] = current.get("status")
+            kept["retained"] = True
+            result[key] = kept
     return result

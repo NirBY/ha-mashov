@@ -152,9 +152,14 @@ def main():
     # files deliberately with "git add <path>" before running the release.
     untracked = subprocess.run(
         ["git", "ls-files", "--others", "--exclude-standard"], check=True, capture_output=True, text=True
-    ).stdout.split()
+    ).stdout.splitlines()
     if untracked:
         print("⚠️  Not included (untracked): " + ", ".join(untracked))
+    branch = subprocess.run(
+        ["git", "branch", "--show-current"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    if branch != "main":
+        raise SystemExit(f"Refusing to release from {branch or 'a detached HEAD'}; checkout main first")
     subprocess.run(["git", "add", "-u"], check=True)
     subprocess.run(["git", "commit", "-m", f"Bump version to {new_version}"], check=True)
     subprocess.run(["git", "push", "origin", "main"], check=True)
