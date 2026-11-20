@@ -79,6 +79,27 @@ async def test_unread_conversations_are_never_opened():
     assert result["unread_count"] == 1
 
 
+def test_unread_conversation_is_not_a_content_failure():
+    coordinator = SimpleNamespace(
+        data={
+            "mailbox": {
+                "status": "ok",
+                "counts_status": "ok",
+                "unread_count": 1,
+                "full_content": True,
+                "items": [{**INBOX[0]}],
+            }
+        },
+        entry=SimpleNamespace(title="Test", options={}),
+        last_update_success=True,
+        data_stale=False,
+        last_successful_update=None,
+    )
+    attrs = MashovMailboxSensor(coordinator, "entry").extra_state_attributes
+    assert attrs["content_failures"] == 0
+    assert attrs["data_stale"] is False
+
+
 @pytest.mark.parametrize("failure", ["forbidden", "unsupported", "unauthorized", "invalid_response", "http_500"])
 async def test_content_failures_keep_headers_and_have_explicit_status(failure):
     get = AsyncMock(side_effect=[("ok", {"unreadConversations": 1}), ("ok", READ_INBOX), (failure, None)])

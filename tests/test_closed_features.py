@@ -301,3 +301,32 @@ def test_student_schedules_partial_student_coverage_does_not_retire_features(clo
         assert client._closed_features(SELECTED, student_count=2) == []
         clock.advance(CLOSED_FEATURE_MIN_SPACING)
     assert "homework" not in client._server_error_streak
+
+
+def test_outage_with_a_forbidden_source_does_not_retire_the_rest(clock):
+    client = _client()
+    for _ in range(CLOSED_FEATURE_THRESHOLD):
+        assert (
+            _refresh(
+                client,
+                {
+                    "weekly_plan": {"forbidden"},
+                    "homework": {"http_503"},
+                    "behavior": {"http_503"},
+                    "mailbox": {"http_503"},
+                },
+            )
+            == []
+        )
+        clock.advance(CLOSED_FEATURE_MIN_SPACING)
+    assert client._server_error_streak == {}
+
+
+def test_partial_refresh_success_resets_an_existing_streak(clock):
+    client = _client()
+    client._server_error_streak["homework"] = (2, clock.now)
+    client._refresh_statuses = {}
+    client._refresh_students = {}
+    client._record_status("homework", "ok", "child_1")
+    assert client._closed_features(SELECTED, student_count=2) == []
+    assert "homework" not in client._server_error_streak

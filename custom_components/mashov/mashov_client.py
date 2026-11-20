@@ -1083,10 +1083,13 @@ class MashovClient:
         resets that data type's streak, so transient faults never accumulate into a closure.
         """
         tested = {k: v for k, v in self._refresh_statuses.items() if v}
-        if len(tested) >= 2 and all(
-            all(status.startswith("http_5") for status in statuses) for statuses in tested.values()
-        ):
-            # General outage across the whole portal: do not treat as individual closed features.
+        if len(tested) >= 2 and not any("ok" in statuses for statuses in tested.values()):
+            # Nothing succeeded. A 403 cooldown on one source must not turn a portal-wide
+            # 5xx outage into closures of every other source. A source that was refused
+            # (not 5xx) still loses its streak.
+            for dataset, statuses in tested.items():
+                if not all(status.startswith("http_5") for status in statuses):
+                    self._server_error_streak.pop(dataset, None)
             return []
 
         now = time.monotonic()
@@ -1095,14 +1098,14 @@ class MashovClient:
             statuses = self._refresh_statuses.get(dataset)
             if not statuses:
                 continue
+            if not all(status.startswith("http_5") for status in statuses):
+                self._server_error_streak.pop(dataset, None)
+                continue
             if (
                 dataset not in SHARED_DATA
                 and student_count > 1
                 and len(self._refresh_students.get(dataset, set())) < student_count
             ):
-                continue
-            if not all(status.startswith("http_5") for status in statuses):
-                self._server_error_streak.pop(dataset, None)
                 continue
             count, last_counted = self._server_error_streak.get(dataset, (0, None))
             if last_counted is None or now - last_counted >= CLOSED_FEATURE_MIN_SPACING:

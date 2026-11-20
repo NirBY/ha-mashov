@@ -85,7 +85,11 @@ async def test_optional_resource_timestamp_and_failed_child_scope(hass):
 @pytest.mark.parametrize("dataset", DATA_KEYS)
 async def test_read_all_selected_datasets(hass, dataset):
     _, coordinator, context = setup_api(hass)
-    coordinator.data[PARENT_APPROVALS] = {"status": "ok", "by_student": {"child": [TEST_PENDING_RECORD]}}
+    coordinator.data[PARENT_APPROVALS] = {
+        "status": "ok",
+        "forms_status": {"consent": "ok", "general": "ok"},
+        "by_student": {"child": [TEST_PENDING_RECORD]},
+    }
     result = unwrap(
         await MashovReadTool("account").async_call(
             hass,
@@ -96,6 +100,28 @@ async def test_read_all_selected_datasets(hass, dataset):
     assert result["total"] == 1
     assert result["status"] == "ok"
     assert result["next_offset"] is None
+
+
+async def test_healthy_parent_approvals_are_not_a_partial_failure(hass):
+    """forms_status is a dict of kinds, not the string "ok"."""
+    _, coordinator, context = setup_api(hass)
+    coordinator.data[PARENT_APPROVALS] = {
+        "status": "ok",
+        "answers_failures": 0,
+        "forms_status": {"consent": "ok", "general": "ok"},
+        "by_student": {},
+        "last_update": 123456,
+    }
+    tool = MashovReadTool("account")
+    request = llm.ToolInput(tool_name=tool.name, tool_args={"dataset": PARENT_APPROVALS})
+    result = unwrap(await tool.async_call(hass, request, context))
+    assert result["status"] == "ok"
+    assert result["data_stale"] is False
+
+    coordinator.data[PARENT_APPROVALS]["forms_status"] = {"consent": "ok", "general": "http_503"}
+    result = unwrap(await tool.async_call(hass, request, context))
+    assert result["status"] == "partial_failure"
+    assert result["data_stale"] is True
 
 
 async def test_permission_revocation_wrong_child_and_pagination(hass):

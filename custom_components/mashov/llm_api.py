@@ -11,7 +11,7 @@ except ImportError:  # HA before the schema migration
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import llm
 
-from .approvals import PARENT_APPROVALS, pending_summary
+from .approvals import FORM_KINDS, PARENT_APPROVALS, pending_summary
 from .const import DOMAIN
 from .data_schedule import SHARED_DATA
 from .data_selection import DATA_KEYS, enabled_data, filter_cached_data
@@ -40,7 +40,9 @@ def _account_dataset(data, key):
     if key == PARENT_APPROVALS:
         items = pending_summary(resource, data.get("students", []))
         status = resource.get("status", "unknown")
-        if status == "ok" and (resource.get("answers_failures", 0) > 0 or resource.get("forms_status", "ok") != "ok"):
+        forms_status = resource.get("forms_status")
+        forms_failed = not isinstance(forms_status, dict) or any(forms_status.get(kind) != "ok" for kind in FORM_KINDS)
+        if status == "ok" and (resource.get("answers_failures", 0) > 0 or forms_failed):
             status = "partial_failure"
         return items, status, resource.get("last_update")
     if key == "mailbox":
