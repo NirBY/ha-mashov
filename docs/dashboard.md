@@ -38,13 +38,9 @@ Blueprint file location: `blueprints/script/mashov/mashov_live_dashboard.yaml`.
 
 ## Picture examples
 
-Desktop layout with fictitious student names:
+Desktop usage. The children, classes, subjects, dates and messages in the clip are fictional examples:
 
-![Mashov Live desktop layout](images/mashov_live_desktop.png)
-
-Mobile layout:
-
-![Mashov Live mobile layout](images/mashov_live_mobile.png)
+![Mashov Live usage](images/mashov-usage.gif)
 
 For individual timetable, homework and behavior cards, see the [Lovelace card examples](../examples/lovelace/README.md).
 

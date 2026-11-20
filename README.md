@@ -8,13 +8,9 @@ Community project; not affiliated with Mashov. [Release notes](RELEASE_NOTES.md)
 
 ## What it looks like
 
-Mashov Live on the desktop, homework grouped by date, and the weekly timetable with plans. Student names in the card pictures are covered.
+Mashov Live on the desktop, then a student detail with the timetable, homework, behavior and noticeboard. The children, classes, subjects, dates and messages in the clip are fictional examples.
 
-![Mashov Live desktop layout](docs/images/mashov_live_desktop.png)
-
-![Homework grouped by date](examples/screenshots/homework_list_by_date.png)
-
-![Timetable and weekly plan](examples/screenshots/weekly_plan_table_advanced.png)
+![Mashov Live usage](docs/images/mashov-usage.gif)
 
 ## 📦 Installation
 
