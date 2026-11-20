@@ -40,6 +40,8 @@ The easiest way to get started is using VS Code with Dev Containers:
 
 ## Making Changes
 
+The Mashov endpoints, schemas and side effects (which calls mark mail read, which ones write) are mapped in [docs/mashov-api-reference.md](docs/mashov-api-reference.md). Check it before adding a new API call.
+
 ### Code Style
 
 We use [Ruff](https://docs.astral.sh/ruff/) for linting and formatting:
