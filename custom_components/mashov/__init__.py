@@ -623,6 +623,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     coordinator = MashovCoordinator(hass, client, entry)
 
+    for key in enabled_data(entry.options):
+        ir.async_delete_issue(hass, DOMAIN, _closed_issue_id(entry.entry_id, key))
+
     # Inject cached data into coordinator if available, so platforms create entities
     # from the cache even when no startup refresh runs.
     if isinstance(cached, dict) and cached.get("data"):

@@ -100,18 +100,12 @@ async def async_setup_entry(hass, entry, async_add_entities):
             and coordinator.last_update_success
         ):
             known.intersection_update(student["id"] for student in students)
-        if (
-            students
-            and getattr(coordinator.client, "roster_refreshed", False) is True
-            and not coordinator.data_stale
-            and coordinator.last_update_success
-        ):
             present = {student["id"] for student in students}
             current = {}
             by_slug = (coordinator.data or {}).get("by_slug", {})
             for student in students:
                 resource = by_slug.get(student.get("slug"), {})
-                if resource.get("source_status", {}).get("homework", "ok") != "ok":
+                if "homework" not in resource or resource.get("source_status", {}).get("homework") != "ok":
                     continue
                 current[student["id"]] = {
                     homework_uid(item, student.get("year"))
@@ -188,7 +182,11 @@ class MashovHomeworkTodo(MashovStudentEntity, TodoListEntity):
 
     @property
     def extra_state_attributes(self):
-        return {"student_id": self._student_id, "student_name": self.student_name, "data_stale": self.data_stale}
+        data = self.coordinator.data or {}
+        student = next((s for s in data.get("students", []) if s["id"] == self._student_id), {})
+        resource = data.get("by_slug", {}).get(student.get("slug", self._slug), {})
+        stale = self.data_stale or resource.get("source_status", {}).get("homework", "ok") != "ok"
+        return {"student_id": self._student_id, "student_name": self.student_name, "data_stale": stale}
 
     async def async_update_todo_item(self, item):
         """Only completion may change; reject assignment edits rather than losing them."""

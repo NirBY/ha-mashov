@@ -5,7 +5,12 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from .data_schedule import CONF_DATA_SCHEDULES, CONF_STUDENT_SCHEDULES, effective_schedule
+from .data_schedule import (
+    CONF_DATA_SCHEDULES,
+    CONF_STUDENT_SCHEDULES,
+    SHARED_DATA,
+    effective_schedule,
+)
 from .data_selection import DATA_KEYS, enabled_data
 
 
@@ -80,7 +85,7 @@ class MashovEntity(CoordinatorEntity):
             "schedule_scope": "student_custom"
             if key in student_schedule.get("overrides", {})
             else "student_general"
-            if student_schedule.get("general")
+            if student_id and key not in SHARED_DATA and student_schedule.get("general")
             else "custom"
             if key in options.get(CONF_DATA_SCHEDULES, {})
             else "shared",

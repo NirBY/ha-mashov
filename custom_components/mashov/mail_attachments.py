@@ -20,6 +20,9 @@ from urllib.parse import quote
 from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
 
+from .const import DOMAIN
+from .data_selection import attachments_enabled
+
 _LOGGER = logging.getLogger(__name__)
 
 STORAGE_FOLDER = "mashov_files"
@@ -139,8 +142,7 @@ def _finish(handle, partial: Path, target: Path, keep: bool) -> None:
 
 async def _async_remove_entry_dir(hass, root: Path) -> None:
     try:
-        if root.exists():
-            await hass.async_add_executor_job(_remove_tree, root, root.parent)
+        await hass.async_add_executor_job(_remove_tree, root, root.parent)
     except OSError as err:
         _LOGGER.warning("Could not remove stored Mashov attachments (%s)", type(err).__name__)
 
@@ -278,6 +280,16 @@ def _matching_files(folder: Path, file_id: str) -> list[Path]:
     ]
 
 
+def _resolve_attachment_file(root: Path, conversation_id: str, message_id: str, file_id: str) -> Path | None:
+    folder = root / conversation_id / message_id
+    if not _inside(folder, root):
+        return None
+    matches = _matching_files(folder, file_id)
+    if len(matches) != 1 or not _inside(matches[0], root):
+        return None
+    return matches[0]
+
+
 class MashovAttachmentView(HomeAssistantView):
     """Serve one stored attachment as a download. Documents are not in the media browser.
 
@@ -293,14 +305,15 @@ class MashovAttachmentView(HomeAssistantView):
         hass = request.app["hass"]
         if not all(_is_safe_component(part) for part in (entry_id, conversation_id, message_id, file_id)):
             return web.Response(status=404)
+        entry = hass.config_entries.async_get_entry(entry_id)
+        if entry is None or entry.domain != DOMAIN or entry.disabled_by is not None:
+            return web.Response(status=404)
+        if not attachments_enabled(entry.options):
+            return web.Response(status=404)
         root = entry_media_dir(hass, entry_id)
-        folder = root / conversation_id / message_id
-        if not _inside(folder, root):
+        path = await hass.async_add_executor_job(_resolve_attachment_file, root, conversation_id, message_id, file_id)
+        if path is None:
             return web.Response(status=404)
-        matches = await hass.async_add_executor_job(_matching_files, folder, file_id)
-        if len(matches) != 1 or not _inside(matches[0], root):
-            return web.Response(status=404)
-        path = matches[0]
         mime_type = mimetypes.guess_type(path.name)[0] or DEFAULT_MIME_TYPE
         if mime_type in ACTIVE_MIME_TYPES or path.name.endswith(INERT_SUFFIX):
             mime_type = "text/plain"

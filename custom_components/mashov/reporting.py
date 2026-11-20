@@ -64,16 +64,25 @@ _INTERNAL_ERRORS = (
 # Only traceback frames from these integration files are kept (by basename).
 _SOURCE_FILES = {
     "__init__.py",
-    "mashov_client.py",
-    "sensor.py",
-    "calendar.py",
-    "entity.py",
-    "config_flow.py",
-    "holidays_utils.py",
-    "mailbox.py",
+    "additional_data.py",
     "approvals.py",
-    "mail_attachments.py",
+    "calendar.py",
+    "config_flow.py",
+    "const.py",
+    "data_schedule.py",
     "data_selection.py",
+    "entity.py",
+    "holidays_utils.py",
+    "live_dashboard.py",
+    "llm_api.py",
+    "mailbox.py",
+    "mail_attachments.py",
+    "mashov_client.py",
+    "schedule_flow.py",
+    "schedule_panel.py",
+    "school_day.py",
+    "sensor.py",
+    "todo.py",
 }
 
 

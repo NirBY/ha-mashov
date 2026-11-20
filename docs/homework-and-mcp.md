@@ -11,8 +11,9 @@ creates an open task. Empty homework is ignored and identical duplicate records 
 collapsed. Lesson dates appear in descriptions: they are not assumed to be deadlines.
 Assignments cannot be renamed, created or deleted through this list. No completion
 or edit is sent to Mashov. Lists cover the configured homework date window; completed
-markers are retained when a task temporarily leaves that window. Deleting a hub
-removes its completion store as well as its portal cache.
+markers are retained while the assignment remains in the fetched window, and are
+preserved through failed refreshes. Deleting a hub removes its completion store as well
+as its portal cache.
 
 ## MCP through Home Assistant
 

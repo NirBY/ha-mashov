@@ -197,6 +197,15 @@ def test_core_server_error_keeps_the_last_good_items():
     assert merged["by_slug"]["s"]["homework"] == [{"homework": "old"}]
     assert merged["by_slug"]["s"]["source_status"]["homework"] == "http_503"
 
+    # Second consecutive 5xx failure: must STILL retain the items!
+    incoming_second = {
+        "students": students,
+        "by_slug": {"s": {"homework": [], "source_status": {"homework": "http_503"}, "additional_data": {}}},
+    }
+    merged_second = merge_partial_data(merged, incoming_second, {"homework"})
+    assert merged_second["by_slug"]["s"]["homework"] == [{"homework": "old"}]
+    assert merged_second["by_slug"]["s"]["source_status"]["homework"] == "http_503"
+
 
 def test_llm_page_is_bounded_and_always_has_one_item():
     items = [{"body": "x" * (MAX_TEXT_CHARS * 2)} for _ in range(50)]
@@ -262,3 +271,33 @@ def test_closed_feature_text_has_both_placeholders_in_every_language(language):
     issue = json.loads((root / f"{language}.json").read_text(encoding="utf-8"))["issues"]["closed_feature"]
     assert issue["title"].strip()
     assert "{hub}" in issue["description"] and "{feature}" in issue["description"]
+
+
+def test_general_outage_across_all_tested_datasets_does_not_retire_features(clock):
+    client = _client()
+    # When multiple datasets all return 5xx simultaneously, it's a general server outage
+    for _ in range(CLOSED_FEATURE_THRESHOLD + 2):
+        res = _refresh(
+            client,
+            {
+                "justification_requests": {"http_503"},
+                "homework": {"http_503"},
+                "mailbox": {"http_503"},
+            },
+        )
+        assert res == []
+        clock.advance(CLOSED_FEATURE_MIN_SPACING)
+    assert not client._server_error_streak
+
+
+def test_student_schedules_partial_student_coverage_does_not_retire_features(clock):
+    client = _client()
+    # 2 students in hub, but only 1 student was queried for homework in this refresh
+    for _ in range(CLOSED_FEATURE_THRESHOLD + 2):
+        client._refresh_statuses = {}
+        client._refresh_students = {}
+        client._record_status("homework", "http_503", "child_1")
+        # client._closed_features with student_count=2
+        assert client._closed_features(SELECTED, student_count=2) == []
+        clock.advance(CLOSED_FEATURE_MIN_SPACING)
+    assert "homework" not in client._server_error_streak

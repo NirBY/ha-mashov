@@ -29,6 +29,7 @@ import yarl  # type: ignore[import]
 from .additional_data import STUDENT_RESOURCES
 from .approvals import ANSWERS_KEY, fetch_parent_approvals
 from .const import CONF_YEAR
+from .data_schedule import SHARED_DATA
 from .data_selection import (
     CONF_ADDITIONAL_DATA,
     CONF_ENABLED_DATA,
@@ -178,6 +179,7 @@ class MashovClient:
         self._endpoint_cooldown: dict[tuple[str, str], tuple[float, int]] = {}
         # Data type -> statuses of every attempt in the current refresh (reset per refresh).
         self._refresh_statuses: dict[str, set[str]] = {}
+        self._refresh_students: dict[str, set[str]] = {}
         # Data type -> (consecutive refreshes that were server-side failures, monotonic time counted).
         self._server_error_streak: dict[str, tuple[int, float]] = {}
 
@@ -465,7 +467,7 @@ class MashovClient:
                 # Restore cookies
                 saved_cookies = saved_auth.get("cookies", {})
                 if saved_cookies:
-                    self._session.cookie_jar.update_cookies(saved_cookies)
+                    self._session.cookie_jar.update_cookies(saved_cookies, response_url=yarl.URL(self._api_base))
                     _LOGGER.debug("Restored %d cookies from cache", len(saved_cookies))
 
                 # Restore headers
@@ -823,6 +825,7 @@ class MashovClient:
         """
         selected = set(self.enabled_data) if selected_data is None else set(selected_data) & set(self.enabled_data)
         self._refresh_statuses = {}
+        self._refresh_students = {}
         _LOGGER.info("Fetching %d selected data sources", len(selected))
         # --- Session / login. Ensure session and authentication are available (lazy login)
         if not self._session or self._session.closed:
@@ -982,10 +985,10 @@ class MashovClient:
                 if key not in student_selected:
                     continue
                 additional[key] = await self._fetch_student_resource(sid, key, from_dt, to_dt)
-                self._record_status(key, additional[key]["status"])
+                self._record_status(key, additional[key]["status"], sid)
             for key, status in source_status.items():
                 if status not in ("disabled", "not_fetched"):
-                    self._record_status(key, status)
+                    self._record_status(key, status, sid)
             return {
                 "homework": self._normalize_homework(homework),
                 "behavior": self._normalize_behavior(behavior),
@@ -1058,30 +1061,45 @@ class MashovClient:
         }
 
         await self._fetch_account_resources(result, selected, students)
-        result["closed_features"] = self._closed_features(selected)
+        result["closed_features"] = self._closed_features(selected, len(students))
 
         _LOGGER.debug("Data fetch completed for %d students", len(students))
         return result
 
-    def _record_status(self, dataset: str, status: str) -> None:
+    def _record_status(self, dataset: str, status: str, student_id: str | None = None) -> None:
         """Remember every attempt's outcome for this refresh; see ``_closed_features``."""
         self._refresh_statuses.setdefault(dataset, set()).add(status)
+        if student_id is not None:
+            self._refresh_students.setdefault(dataset, set()).add(student_id)
 
     def note_refresh_failed(self) -> None:
         """A refresh that failed for another reason (network, server) does not confirm anything."""
         self._server_error_streak.clear()
 
-    def _closed_features(self, selected) -> list[str]:
+    def _closed_features(self, selected, student_count: int = 1) -> list[str]:
         """Data types the school appears to have closed: HTTP 5xx on every attempt, several refreshes in a row.
 
         A single attempt that succeeds, is refused (403/404), or fails for a network reason
         resets that data type's streak, so transient faults never accumulate into a closure.
         """
+        tested = {k: v for k, v in self._refresh_statuses.items() if v}
+        if len(tested) >= 2 and all(
+            all(status.startswith("http_5") for status in statuses) for statuses in tested.values()
+        ):
+            # General outage across the whole portal: do not treat as individual closed features.
+            return []
+
         now = time.monotonic()
         closed = []
         for dataset in sorted(selected):
             statuses = self._refresh_statuses.get(dataset)
             if not statuses:
+                continue
+            if (
+                dataset not in SHARED_DATA
+                and student_count > 1
+                and len(self._refresh_students.get(dataset, set())) < student_count
+            ):
                 continue
             if not all(status.startswith("http_5") for status in statuses):
                 self._server_error_streak.pop(dataset, None)
@@ -1184,9 +1202,12 @@ class MashovClient:
                 ) as response:
                     if response.status in (301, 302, 303, 307, 308) and response.headers.get("Location"):
                         url = str(response.url.join(yarl.URL(response.headers["Location"])))
-                        if urlsplit(url).scheme not in ("http", "https"):
+                        parsed = urlsplit(url)
+                        if parsed.scheme not in ("http", "https"):
                             return "error", None
-                        if urlsplit(url).netloc != api_host:
+                        if urlsplit(self._api_base).scheme == "https" and parsed.scheme == "http":
+                            return "error", None
+                        if parsed.netloc != api_host:
                             headers = {"Accept": "*/*"}
                         continue
                     if response.status >= 300:  # error, or a redirect without a usable Location

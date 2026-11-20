@@ -96,7 +96,13 @@ def _answers_by_child(payload, student_ids):
             continue
         answer = entry.get("schoolActivityAnswer")
         if isinstance(answer, dict):
-            sid = _known_child(known, answer.get("studentGuid"), answer.get("userId"))
+            sid = _known_child(
+                known,
+                answer.get("studentGuid"),
+                answer.get("userId"),
+                entry.get("studentGuid"),
+                entry.get("userId"),
+            )
             status = answer_status(answer.get("answer"))
         else:
             sid = _known_child(known, entry.get("studentGuid"), entry.get("userId"))

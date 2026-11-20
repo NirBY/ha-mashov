@@ -267,7 +267,10 @@ class MashovMailboxSensor(MashovEntity, SensorEntity):
     def extra_state_attributes(self):
         resource = self._resource
         content_failures = (
-            sum(item.get("content_status") != "ok" for item in resource.get("items", []))
+            sum(
+                bool(item.get("content_status") and item.get("content_status") != "ok")
+                for item in resource.get("items", [])
+            )
             if resource.get("full_content")
             else 0
         )
@@ -432,10 +435,11 @@ class MashovAdditionalSensor(MashovStudentEntity, SensorEntity):
                 break
             if len(json.dumps([*stored, item], ensure_ascii=True).encode("utf-8")) <= 12 * 1024:
                 stored.append(item)
+        status = resource.get("status", "not_fetched")
         return {
             "student_name": self.student_name,
-            "data_stale": self.data_stale,
-            "source_status": resource.get("status", "not_fetched"),
+            "data_stale": self.data_stale or status != "ok",
+            "source_status": status,
             **({"items_retained": True} if resource.get("retained") else {}),
             "total_items": len(items),
             "stored_items": len(stored),
@@ -513,10 +517,12 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
         total_count = len(items)
         stored_count = len(items_for_attributes)
 
+        source_status = group.get("source_status", {}).get(self._data_key, "ok")
+
         attributes = {
             "student_name": self.student_name,
-            "data_stale": self.data_stale,
-            "source_status": group.get("source_status", {}).get(self._data_key, "ok"),
+            "data_stale": self.data_stale or source_status != "ok",
+            "source_status": source_status,
             "student_id": self._student_id,
             "year": student_meta.get("year"),
             "school_id": student_meta.get("school_id"),

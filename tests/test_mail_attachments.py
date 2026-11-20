@@ -14,6 +14,7 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import llm
 from homeassistant.helpers.json import json_bytes
 import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 import voluptuous as vol
 import yarl
 
@@ -562,6 +563,12 @@ def test_script_capable_types_are_stored_inert(name):
 
 
 async def test_svg_attachment_is_never_previewable(hass, media):
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        entry_id=TEST_ENTRY_ID,
+        options={"enabled_data": ["mailbox"], "mailbox_full_content": True, "mailbox_attachments": True},
+    )
+    entry.add_to_hass(hass)
     store = AttachmentStore(hass, TEST_ENTRY_ID, 1024)
     mailbox = _mailbox()
     _first(mailbox)["fileName"] = "evil.svg"
@@ -579,6 +586,12 @@ async def test_svg_attachment_is_never_previewable(hass, media):
 
 
 async def test_view_serves_a_document_and_rejects_a_path_escape(hass, media):
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        entry_id=TEST_ENTRY_ID,
+        options={"enabled_data": ["mailbox"], "mailbox_full_content": True, "mailbox_attachments": True},
+    )
+    entry.add_to_hass(hass)
     mailbox = _mailbox()
     _first(mailbox)["fileName"] = "report.pdf"
     await AttachmentStore(hass, TEST_ENTRY_ID, 1024).async_sync(mailbox, _download(chunks=(b"%PDF-1.4",)))
@@ -590,6 +603,15 @@ async def test_view_serves_a_document_and_rejects_a_path_escape(hass, media):
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     denied = await view.get(request, TEST_ENTRY_ID, "../" + TEST_CONVERSATION_ID, TEST_MESSAGE_ID, TEST_FILE_ID)
     assert denied.status == 404
+
+    # Disabled attachments option returns 404
+    hass.config_entries.async_update_entry(entry, options={"mailbox_attachments": False})
+    disabled_resp = await view.get(request, TEST_ENTRY_ID, TEST_CONVERSATION_ID, TEST_MESSAGE_ID, TEST_FILE_ID)
+    assert disabled_resp.status == 404
+
+    # Unknown entry returns 404
+    unknown_resp = await view.get(request, "unknown-entry", TEST_CONVERSATION_ID, TEST_MESSAGE_ID, TEST_FILE_ID)
+    assert unknown_resp.status == 404
 
 
 async def test_hub_ceiling_skips_new_files_without_partial_data(hass, media):

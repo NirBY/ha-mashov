@@ -37,10 +37,22 @@ def _account_dataset(data, key):
     if key == "holidays":
         return data.get(key, []), data.get("holidays_status", "unknown"), data.get("holidays_last_update")
     resource = data.get(key, {})
-    items = (
-        pending_summary(resource, data.get("students", [])) if key == PARENT_APPROVALS else resource.get("items", [])
-    )
-    return items, resource.get("status", "unknown"), resource.get("last_update")
+    if key == PARENT_APPROVALS:
+        items = pending_summary(resource, data.get("students", []))
+        status = resource.get("status", "unknown")
+        if status == "ok" and (resource.get("answers_failures", 0) > 0 or resource.get("forms_status", "ok") != "ok"):
+            status = "partial_failure"
+        return items, status, resource.get("last_update")
+    if key == "mailbox":
+        items = resource.get("items", [])
+        status = resource.get("status", "unknown")
+        if status == "ok" and (
+            resource.get("counts_status", "ok") != "ok"
+            or any(item.get("content_status") and item.get("content_status") != "ok" for item in items)
+        ):
+            status = "partial_failure"
+        return items, status, resource.get("last_update")
+    return resource.get("items", []), resource.get("status", "unknown"), resource.get("last_update")
 
 
 def _dataset(data, key, student_id):
