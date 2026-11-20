@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 
 import aiohttp  # type: ignore[import]
+import yarl  # type: ignore[import]
 
 from .additional_data import STUDENT_RESOURCES
 from .approvals import ANSWERS_KEY, fetch_parent_approvals
@@ -49,6 +50,10 @@ def _trace(msg: str, *args):
 
 
 API_BASE = "https://web.mashov.info/api/"  # default; can be overridden
+
+# Attachment downloads: generous total time for large files, but a stalled read still fails.
+DOWNLOAD_TIMEOUT = aiohttp.ClientTimeout(total=600, sock_connect=30, sock_read=60)
+MAX_DOWNLOAD_REDIRECTS = 3
 
 # Escalating cooldowns for core student endpoints that answer HTTP 403 (feature disabled by the school).
 CORE_RESOURCE_BACKOFF_STEPS = (3600, 21600, 86400)  # 1h -> 6h -> 24h
@@ -1078,19 +1083,35 @@ class MashovClient:
         Statuses are per file: ok, too_large, http_<code> or error. A 401/403
         never triggers a re-login or backs off other resources.
         """
+        url = self._api_base + path
+        api_host = urlsplit(self._api_base).netloc
+        # Files are not JSON. Session headers (incl. the CSRF token) go only to Mashov's own
+        # host; a redirect elsewhere (e.g. a CDN) is followed without them.
+        headers = {**self._headers, "Accept": "*/*"}
         try:
-            async with self._session.get(self._api_base + path, headers=self._headers) as response:
-                if response.status >= 400:
-                    return f"http_{response.status}", None
-                if (response.content_length or 0) > max_bytes:
-                    return "too_large", None
-                received = 0
-                async for chunk in response.content.iter_any():
-                    received += len(chunk)
-                    if received > max_bytes:
+            for _redirect in range(MAX_DOWNLOAD_REDIRECTS + 1):
+                async with self._session.get(
+                    url, headers=headers, allow_redirects=False, timeout=DOWNLOAD_TIMEOUT
+                ) as response:
+                    if response.status in (301, 302, 303, 307, 308) and response.headers.get("Location"):
+                        url = str(response.url.join(yarl.URL(response.headers["Location"])))
+                        if urlsplit(url).scheme not in ("http", "https"):
+                            return "error", None
+                        if urlsplit(url).netloc != api_host:
+                            headers = {"Accept": "*/*"}
+                        continue
+                    if response.status >= 300:  # error, or a redirect without a usable Location
+                        return f"http_{response.status}", None
+                    if (response.content_length or 0) > max_bytes:
                         return "too_large", None
-                    await write(chunk)
-                return "ok", response.headers.get("Content-Type")
+                    received = 0
+                    async for chunk in response.content.iter_any():
+                        received += len(chunk)
+                        if received > max_bytes:
+                            return "too_large", None
+                        await write(chunk)
+                    return "ok", response.headers.get("Content-Type")
+            return "error", None
         except (aiohttp.ClientError, TimeoutError):
             _LOGGER.warning("Unable to download a Mashov mailbox attachment")
             return "error", None

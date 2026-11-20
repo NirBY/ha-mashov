@@ -1437,6 +1437,8 @@ class MashovApprovalsSensor(MashovAdditionalSensor):
     """Pending activity approvals (trips, culture basket) of one child. Never answered here."""
 
     _attr_icon = "mdi:clipboard-check-outline"
+    # Titles and descriptions stay available live but are kept out of Recorder history.
+    _unrecorded_attributes = frozenset({"pending"})
 
     def __init__(self, coordinator, student_id, slug, name, entry_id):
         super().__init__(coordinator, student_id, slug, name, PARENT_APPROVALS, entry_id)
@@ -1477,6 +1479,8 @@ class MashovOpenFormsSensor(MashovEntity, SensorEntity):
 
     _attr_icon = "mdi:form-select"
     _attr_translation_key = "open_forms"
+    # Activity and form titles stay available live but are kept out of Recorder history.
+    _unrecorded_attributes = frozenset({"unassigned_activities", "consent_forms", "general_forms"})
 
     def __init__(self, coordinator, entry_id):
         super().__init__(coordinator)

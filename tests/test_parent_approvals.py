@@ -398,3 +398,11 @@ async def test_diagnostics_export_route_statuses_only():
     report = diagnostic_summary(coordinator)
     assert report["parent_approvals_status"] == {"status": "ok", "consent": "ok", "general": "other_error"}
     assert TEST_ACTIVITY_TITLE not in json.dumps(report)
+
+
+def test_approval_titles_stay_out_of_recorder_history():
+    """Titles/descriptions are live-only attributes, like mailbox items."""
+    from custom_components.mashov.sensor import MashovApprovalsSensor, MashovOpenFormsSensor
+
+    assert "pending" in MashovApprovalsSensor._unrecorded_attributes
+    assert {"unassigned_activities", "consent_forms", "general_forms"} <= MashovOpenFormsSensor._unrecorded_attributes

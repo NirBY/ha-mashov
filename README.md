@@ -110,7 +110,8 @@ The limit applies to recent inbox conversations (20 by default, 1–50). Sent ma
 
 - Every file type is saved, once per attachment, under `/media/mashov/<entry_id>/<conversation>/<message>/<fileId>-<name>` (Home Assistant's local media folder). File names are sanitized; Hebrew names are kept.
 - Each message lists `attachments` with `fileId`, `fileName`, `mime_type`, `size`, `status` and `media_content_id`; the sensor adds `attachment_count`. Images and videos preview in the Media browser and in Lovelace cards that accept a `media-source://` ID.
-- Files above **Maximum attachment size** (25 MB by default, 1–100) are skipped with status `too_large`; no partial file is kept. Other statuses are `ok`, `http_<code>` and `error`. A failed file never fails the refresh and is retried on the next one.
+- Files above **Maximum attachment size** (25 MB by default, 1–100) are skipped with status `too_large`; no partial file is kept, and the file is not downloaded again until Home Assistant restarts. All of a hub's attachments together are limited to **500 MB**; a file that would exceed it gets `quota_exceeded`. Other statuses are `ok`, `http_<code>` and `error`. A failed file never fails the refresh; `http_<code>` and `error` are retried on the next one.
+- SVG files can contain script, so they are stored inert as `<name>.svg.txt` with `neutralized: true` and no `media_content_id`. They are kept on disk but never served or previewed by Home Assistant.
 - Retention: after each successful inbox fetch, folders of conversations outside the fetched window are deleted. Turning the option off or deleting the hub deletes the hub's whole folder.
 
 ### Parent approvals (optional)

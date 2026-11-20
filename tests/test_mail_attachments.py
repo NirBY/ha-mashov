@@ -15,6 +15,7 @@ from homeassistant.helpers import llm
 from homeassistant.helpers.json import json_bytes
 import pytest
 import voluptuous as vol
+import yarl
 
 import custom_components.mashov as integration
 from custom_components.mashov.const import DOMAIN
@@ -26,11 +27,13 @@ from custom_components.mashov.data_selection import (
 from custom_components.mashov.llm_api import MashovReadTool
 from custom_components.mashov.mail_attachments import (
     FALLBACK_NAME,
+    MAX_ENTRY_BYTES,
     MAX_NAME_LENGTH,
     AttachmentStore,
     _remove_tree,
     async_clear_entry_media,
     safe_file_name,
+    stored_file_name,
 )
 from custom_components.mashov.mailbox import fetch_mailbox
 from custom_components.mashov.mashov_client import MashovClient
@@ -465,7 +468,9 @@ async def test_client_streams_attachment_into_store(hass, media):
     assert result["mailbox_attachments"] is True
     assert _first(result["mailbox"])["status"] == "ok"
     assert [path.read_bytes() for path in _stored_files(media)] == [TEST_FILE_BYTES]
-    assert client._session.get.call_args.kwargs["headers"] == client._headers
+    # Mashov's own host still gets the session headers (CSRF); files are requested as */*.
+    assert client._session.get.call_args.kwargs["headers"] == {**client._headers, "Accept": "*/*"}
+    assert client._session.get.call_args.kwargs["allow_redirects"] is False
 
 
 async def test_option_off_means_zero_download_calls():
@@ -533,3 +538,91 @@ async def test_llm_read_exposes_attachment_metadata_only_with_consent(hass):
     entry.options["mailbox_attachments"] = True
     result = unwrap(await tool.async_call(hass, request, context))
     assert result["items"][0]["messages"][0]["attachments"] == [_attachment()]
+
+
+# --- Local review hardening: active content, hub ceiling, retries, redirects ---
+
+
+@pytest.mark.parametrize("name", ["drawing.svg", "DRAWING.SVG", "בדיקה.svg"])
+def test_script_capable_types_are_stored_inert(name):
+    stored, neutralized = stored_file_name(name)
+    assert neutralized
+    assert stored.lower().endswith(".svg.txt")
+    assert stored_file_name("photo.png") == ("photo.png", False)
+
+
+async def test_svg_attachment_is_never_previewable(hass, media):
+    store = AttachmentStore(hass, TEST_ENTRY_ID, 1024)
+    mailbox = _mailbox()
+    _first(mailbox)["fileName"] = "evil.svg"
+    await store.async_sync(mailbox, _download(chunks=(b"<svg onload=alert(1)>",)))
+    (stored,) = _stored_files(media)
+    assert stored.name.endswith(".svg.txt")
+    assert _first(mailbox)["neutralized"] is True
+    assert _first(mailbox)["media_content_id"] is None
+
+
+async def test_hub_ceiling_skips_new_files_without_partial_data(hass, media):
+    store = AttachmentStore(hass, TEST_ENTRY_ID, 1024)
+    root = media / "mashov" / TEST_ENTRY_ID / TEST_CONVERSATION_ID
+    root.mkdir(parents=True)
+    with patch("custom_components.mashov.mail_attachments.MAX_ENTRY_BYTES", 10):
+        (root / "existing.bin").write_bytes(b"x" * 10)
+        download = _download()
+        mailbox = _mailbox()
+        await store.async_sync(mailbox, download)
+    download.assert_not_awaited()
+    assert _first(mailbox)["status"] == "quota_exceeded"
+    assert [path.name for path in _stored_files(media)] == ["existing.bin"]
+    assert MAX_ENTRY_BYTES == 500 * 1024 * 1024
+
+
+async def test_remaining_budget_overflow_is_quota_not_too_large(hass, media):
+    store = AttachmentStore(hass, TEST_ENTRY_ID, 1024)
+    root = media / "mashov" / TEST_ENTRY_ID / TEST_CONVERSATION_ID
+    root.mkdir(parents=True)
+    (root / "existing.bin").write_bytes(b"x" * 8)
+    with patch("custom_components.mashov.mail_attachments.MAX_ENTRY_BYTES", 10):
+        download = _download(status="too_large")
+        mailbox = _mailbox()
+        await store.async_sync(mailbox, download)
+    assert download.await_args.args[1] == 2  # only the remaining budget is allowed
+    assert _first(mailbox)["status"] == "quota_exceeded"
+
+
+async def test_too_large_is_not_downloaded_again(hass, media):
+    store = AttachmentStore(hass, TEST_ENTRY_ID, 1)
+    await store.async_sync(_mailbox(), _download(status="too_large"))
+    download = _download()
+    mailbox = _mailbox()
+    await store.async_sync(mailbox, download)
+    download.assert_not_awaited()
+    assert _first(mailbox)["status"] == "too_large"
+
+
+def _redirect(location):
+    response = MagicMock(status=302, headers={"Location": location}, url=yarl.URL("https://web.mashov.info/api/path"))
+    context = MagicMock()
+    context.__aenter__ = AsyncMock(return_value=response)
+    context.__aexit__ = AsyncMock(return_value=False)
+    return context
+
+
+async def test_cross_host_redirect_drops_session_headers():
+    client = _client()
+    client._session.get.side_effect = [_redirect("https://cdn.example/file"), _stream_response()]
+    write = AsyncMock()
+    status, _ = await client._download_account_file("path", len(TEST_FILE_BYTES), write)
+    assert status == "ok"
+    first, second = client._session.get.call_args_list
+    assert first.kwargs["headers"]["X-Csrf-Token"] == "synthetic"
+    assert second.args[0] == "https://cdn.example/file"
+    assert second.kwargs["headers"] == {"Accept": "*/*"}
+
+
+async def test_same_host_redirect_keeps_headers_and_loops_are_bounded():
+    client = _client()
+    client._session.get.side_effect = [_redirect("/api/other")] * 10
+    assert await client._download_account_file("path", 10, AsyncMock()) == ("error", None)
+    assert client._session.get.call_count == 4  # first request + 3 redirects
+    assert all(call.kwargs["headers"]["X-Csrf-Token"] == "synthetic" for call in client._session.get.call_args_list)

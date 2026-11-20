@@ -27,6 +27,15 @@ DEFAULT_MIME_TYPE = "application/octet-stream"
 _UNSAFE_CHARACTERS = frozenset('/\\:*?"<>|')
 # encodeURIComponent leaves these unescaped; the web client builds the URL with it.
 _URI_COMPONENT_SAFE = "!~*'()"
+# Home Assistant's media view serves image/video/audio types from the local media folder
+# on its own origin. SVG is an image type that can run script there (stored XSS from any
+# sender), so it is stored inert with a .txt suffix: kept on disk, never served as an image.
+ACTIVE_MIME_TYPES = frozenset({"image/svg+xml"})
+INERT_SUFFIX = ".txt"
+# Ceiling for all stored attachments of one hub; files that would exceed it are skipped.
+MAX_ENTRY_BYTES = 500 * 1024 * 1024
+# Statuses that will not change on retry within this run; such files are not downloaded again.
+_PERMANENT_STATUSES = frozenset({"too_large"})
 
 
 def safe_file_name(name: str) -> str:
@@ -71,6 +80,20 @@ def _remove_tree(path: Path, container: Path) -> None:
     shutil.rmtree(path)
 
 
+def stored_file_name(name: str) -> tuple[str, bool]:
+    """Sanitized on-disk name; active types get an inert suffix. Returns (name, neutralized)."""
+    cleaned = safe_file_name(name)
+    if mimetypes.guess_type(cleaned)[0] in ACTIVE_MIME_TYPES:
+        return cleaned + INERT_SUFFIX, True
+    return cleaned, False
+
+
+def _folder_size(root: Path) -> int:
+    if not root.is_dir():
+        return 0
+    return sum(path.stat().st_size for path in root.rglob("*") if path.is_file() and not path.is_symlink())
+
+
 def _retain(root: Path, keep: set[str]) -> None:
     if root.is_dir():
         for child in root.iterdir():
@@ -110,6 +133,9 @@ class AttachmentStore:
         self.max_bytes = max_bytes
         self.media_dir = media_dir(hass)
         self.root = entry_media_dir(hass, entry_id)
+        # target path -> permanent status (e.g. too_large): skip re-downloading every refresh.
+        self._permanent: dict[Path, str] = {}
+        self._used_bytes = 0
 
     def _run(self, func, *args):
         return self._hass.async_add_executor_job(func, *args)
@@ -120,6 +146,18 @@ class AttachmentStore:
         download(path, max_bytes, write) streams one file and returns
         (status, content_type). A failure only affects that attachment.
         """
+        # Retention first, so space freed by conversations that left the window counts
+        # toward the per-hub ceiling for this run's new downloads.
+        if mailbox.get("status") == "ok":
+            keep = {item["conversationId"] for item in mailbox.get("items", [])}
+            try:
+                await self._run(_retain, self.root, keep)
+            except OSError as err:
+                _LOGGER.warning("Could not remove old Mashov attachments (%s)", type(err).__name__)
+        try:
+            self._used_bytes = await self._run(_folder_size, self.root)
+        except OSError:
+            self._used_bytes = MAX_ENTRY_BYTES  # Unknown usage: do not grow the folder.
         for item in mailbox.get("items", []):
             if item.get("content_status") != "ok":
                 continue
@@ -128,18 +166,13 @@ class AttachmentStore:
                     attachment.update(
                         await self._async_save(download, item["conversationId"], message.get("messageId"), attachment)
                     )
-        if mailbox.get("status") == "ok":
-            keep = {item["conversationId"] for item in mailbox.get("items", [])}
-            try:
-                await self._run(_retain, self.root, keep)
-            except OSError as err:
-                _LOGGER.warning("Could not remove old Mashov attachments (%s)", type(err).__name__)
 
     async def _async_save(self, download, conversation_id: str, message_id, attachment: dict) -> dict:
         file_id, name = attachment["fileId"], attachment["fileName"]
         if not (_is_safe_component(message_id) and _is_safe_component(file_id)):
             return self._metadata(None, "error", None, name)
-        target = self.root / conversation_id / message_id / f"{file_id}-{safe_file_name(name)}"
+        stored_name, neutralized = stored_file_name(name)
+        target = self.root / conversation_id / message_id / f"{file_id}-{stored_name}"
         path = "mail/messages/{}/files/{}/download/{}".format(
             *(quote(part, safe=_URI_COMPONENT_SAFE) for part in (message_id, file_id, name))
         )
@@ -149,18 +182,35 @@ class AttachmentStore:
         except Exception as err:  # One attachment must never fail the refresh.
             _LOGGER.warning("Could not store a Mashov mailbox attachment (%s)", type(err).__name__)
             status, content_type, size = "error", None, None
-        return self._metadata(target if status == "ok" else None, status, content_type, name, size)
+        metadata = self._metadata(target if status == "ok" else None, status, content_type, name, size)
+        if neutralized:
+            # Stored inert: no media-source preview for script-capable types.
+            metadata.update(media_content_id=None, neutralized=True)
+        return metadata
 
     async def _async_fetch_once(self, download, path: str, target: Path):
         if await self._run(target.is_file):
             return "ok", None
+        if target in self._permanent:
+            return self._permanent[target], None
+        budget = MAX_ENTRY_BYTES - self._used_bytes
+        if budget <= 0:
+            return "quota_exceeded", None
+        limit = min(self.max_bytes, budget)
         partial = target.with_name(f".{target.name}.part")
         handle = await self._run(_open_partial, self.root, target, partial)
         status, content_type = "error", None
         try:
-            status, content_type = await download(path, self.max_bytes, lambda chunk: self._run(handle.write, chunk))
+            status, content_type = await download(path, limit, lambda chunk: self._run(handle.write, chunk))
         finally:
             await self._run(_finish, handle, partial, target, status == "ok")
+        if status == "too_large" and limit < self.max_bytes:
+            # Within the per-file limit but over the remaining hub budget.
+            return "quota_exceeded", None
+        if status in _PERMANENT_STATUSES:
+            self._permanent[target] = status
+        if status == "ok":
+            self._used_bytes += await self._run(os.path.getsize, target)
         return status, content_type
 
     def _metadata(self, target, status, content_type, name, size=None) -> dict:
