@@ -8,7 +8,7 @@ Community project; not affiliated with Mashov. [Release notes](RELEASE_NOTES.md)
 
 ## What it looks like
 
-Mashov Live on the desktop, then a student detail with the timetable, homework, behavior and noticeboard. The children, classes, subjects, dates and messages in the clip are fictional examples.
+Mashov Live, a student detail, a homework card, a weekly timetable, and the homework, bag-reminder and noticeboard blueprint forms. The children, classes, subjects, dates and messages are fictional. Blueprint fields are left empty.
 
 ![Mashov Live usage](docs/images/mashov-usage.gif)
 
