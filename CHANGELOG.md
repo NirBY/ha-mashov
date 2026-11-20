@@ -3,19 +3,37 @@
 ## [Unreleased]
 
 ### Added
-- Opt-in, read-only parent approvals (`parent_approvals`, off by default). Each child gets a pending-approvals sensor for trips and school activities, sorted by answer deadline with `next_deadline`. The hub gets one sensor for open consent questionnaires and online forms, plus open activities not assigned to any child. Assist/MCP reads list title, child, deadline and status, never IDs. Nothing is ever answered or submitted.
-- Opt-in mailbox attachment downloads (#16). Requires Mailbox and full message content, which is fetched only for conversations already read in Mashov. Every file type is saved once under `<config>/mashov_files/<entry_id>/…` with a size cap (25 MB by default, 1–100), per-file status and a `download_url` served only to signed-in Home Assistant users as a download (never inline). SVG files are stored as inert `.svg.txt`. Folders of conversations outside the fetched window are deleted; turning the option off or deleting the hub deletes the hub's folder.
-- Mashov data types that the school closes are switched off automatically. When every request for a type returns HTTP 5xx on three separate refreshes at least an hour apart, fetching stops, a translated Repairs notice explains it, and the type can be selected again under Configure. Any other result resets the count; a failed refresh never switches anything off.
+- TBD
 
 ### Changed
-- Mailbox full content no longer opens unread conversations. Unread threads keep their state at Mashov; their bodies appear after you open them in Mashov.
-- Mailbox attachments are stored in the Home Assistant configuration folder instead of the media folder, so they are not listed in the Media browser.
-- The LLM read tool returns bounded pages (at most 64 KB per call; long text fields are cut at 8,000 characters) and reports the next offset.
+- TBD
 
 ### Fixed
-- Mailbox and attachment paths refuse conversation, message and file IDs that are not plain path components.
-- A 5xx response from a core resource is scoped to that resource instead of failing the whole refresh.
-- Homework checklist completion markers are removed for children who left the roster and for assignments no longer fetched. A failed homework fetch keeps them untouched.
+- TBD
+
+## [1.3.0] - 2026-11-20
+
+Thanks to [@ziv-daniel](https://github.com/ziv-daniel) for proposing parent approvals (#23), mailbox attachments (#24) and the sanitized portal API reference (#25). #25 is included as submitted. #23 and #24 were not merged as submitted; the bugs are listed on those pull requests. The behavior below is what shipped.
+
+### Added
+- Opt-in, read-only parent approvals (`parent_approvals`, off by default). Each child gets a pending-approvals sensor for trips and school activities, sorted by answer deadline, with `next_deadline`. The hub gets one sensor for open consent questionnaires, open online forms, and open activities not assigned to any child. Assist/MCP returns title, child name, deadline and status, never IDs. Nothing is answered or submitted.
+- Opt-in mailbox attachment downloads. Requires Mailbox and full message content. Full content is fetched only for conversations already read in Mashov. Each file is saved once under `<config>/mashov_files/<entry_id>/<conversation>/<message>/<fileId>-<name>`, with a per-file cap (25 MB by default, 1–100) and a 500 MB cap per hub. Each file has a status and a `download_url` that only a signed-in Home Assistant user can use, and the response is always a download. SVG files are stored as `<name>.svg.txt` and served as plain text. Conversations outside the fetched window are deleted; turning the option off or deleting the hub deletes that hub's folder.
+- A data type is turned off when every request for it returns HTTP 5xx on three refreshes at least an hour apart, and only when at least one other source succeeded in those refreshes. A translated Repairs notice explains it. Selecting the type again under Configure fetches it again. A success, a refusal, a network error, a failed refresh, a refresh that did not cover every child, or a refresh where nothing succeeded resets or skips the count.
+- Sanitized Mashov parent-portal API reference at `docs/mashov-api-reference.md`.
+
+### Changed
+- Mailbox full content does not open unread conversations. They stay unread in Mashov, and their bodies appear after they are opened there. An unread conversation is not a content failure and does not mark the mailbox sensor stale.
+- `mashov.set_options` is limited to administrators. Automations with no user still run.
+- The LLM read tool returns at most 64 KB per call, cuts a long text field at 8,000 characters, and sets `untrusted_school_text`. A failed form list or a failed mailbox body is reported as `partial_failure`.
+- The timetable sensor exposes `school_days` from the full timetable, before the attribute list is trimmed.
+- Homework checklist completion is kept for assignments still in the fetched window. Markers for a child who left, and for assignments no longer fetched, are removed. A failed homework fetch does not remove markers.
+
+### Fixed
+- Approval titles, descriptions and form titles are excluded from Recorder history.
+- A core HTTP 5xx affects only that resource. The last good items stay through later 5xx refreshes, and the sensor reports `data_stale`.
+- Restored Mashov cookies are limited to the API host. An attachment redirect to another host is fetched without session headers, and a redirect from HTTPS to HTTP is refused.
+- The attachment download checks that the hub exists, is enabled, and still has attachment downloads turned on.
+- Conversation, message and file IDs that are not plain path components are refused.
 
 ## [1.2.1] - 2026-11-13
 
