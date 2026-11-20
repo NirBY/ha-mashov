@@ -38,7 +38,23 @@ def plain_body(value):
     return "\n".join(line for part in re.split(r"[\r\n]+", "".join(parser.parts)) if (line := part.strip()))
 
 
-def _messages(value, include_body=False):
+def _attachments(value):
+    """Keep well-formed {fileId, fileName} entries; a bad entry never drops its message.
+
+    Only parsed from detail GETs (full content), and only when attachments are enabled.
+    """
+    result = []
+    for entry in value if isinstance(value, list) else []:
+        file_id = entry.get("fileId") if isinstance(entry, dict) else None
+        name = entry.get("fileName") if isinstance(entry, dict) else None
+        if isinstance(file_id, bool) or not isinstance(file_id, (int, str)) or not str(file_id).strip():
+            continue
+        if isinstance(name, str) and name.strip():
+            result.append({"fileId": str(file_id), "fileName": name})
+    return result
+
+
+def _messages(value, include_body=False, include_files=False):
     if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
         return None
     result = []
@@ -52,6 +68,8 @@ def _messages(value, include_body=False):
             if not isinstance(message.get("body"), str):
                 return None
             item["body"] = plain_body(message["body"])
+        if include_files:
+            item["attachments"] = _attachments(message.get("files"))
         result.append(item)
     return result
 
@@ -61,7 +79,7 @@ def _count(counts, key):
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
 
 
-async def fetch_mailbox(get_json, *, full_content=False, limit=20):
+async def fetch_mailbox(get_json, *, full_content=False, limit=20, attachments=False):
     """Fetch at most limit inbox conversations once per account, never per student.
 
     get_json returns (status, payload) and handles authentication/backoff. Only
@@ -111,7 +129,7 @@ async def fetch_mailbox(get_json, *, full_content=False, limit=20):
             )
             if status == "ok":
                 # A malformed/mismatched response must not attach another thread's body.
-                messages = _messages(detail.get("messages"), include_body=True)
+                messages = _messages(detail.get("messages"), include_body=True, include_files=attachments)
                 if detail.get("conversationId") != item["conversationId"] or messages is None:
                     status = "invalid_response"
                 else:

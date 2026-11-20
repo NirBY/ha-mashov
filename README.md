@@ -44,7 +44,7 @@ YAML overrides the shared UI schedule. Separate student/data schedules remain in
 - **Student-specific General and per-data schedules:** daily, weekly or interval, edited inside Setup/Configure. One Submit saves all drafts.
 - **One refresh queue** across hubs, including scheduled, manual and startup requests. Selective refreshes preserve other students’ values and timestamps.
 - **Sensors and holiday calendars**, with structured records, formatted summaries, actual update times, source status and stale-data indicators.
-- **Opt-in account mailbox:** unread count and recent headers, with separately consented plain-text content. No attachment downloads.
+- **Opt-in account mailbox:** unread count and recent headers, with separately consented plain-text content and optional attachment downloads with media previews.
 - **Cache and session persistence**, retry/backoff for unavailable sources, automatic school-year rollover and cleanup of departed students after a verified roster refresh.
 - **English, Hebrew, Arabic, Russian and Ukrainian** UI labels; Hebrew/Arabic schedule editing supports right-to-left layout.
 - **Mashov Live dashboard**, individual Lovelace cards and three announcement/reminder blueprints; see the linked guides below.
@@ -59,6 +59,7 @@ Open **Settings → Devices & services → Mashov → Configure** beside the hub
 | Homework date window | 7 days back, 21 days forward; a request window, not a history-deletion policy |
 | Shared refresh | Daily at 14:00, in Home Assistant’s timezone |
 | Recent mailbox conversations | 20; range 1–50 |
+| Maximum mail attachment size | 25 MB; range 1–100 |
 | Items in sensor attributes | 100; range 10–500, further reduced to fit the attribute-size budget |
 | API base | `https://web.mashov.info/api/` |
 | Automatic school year | Enabled unless the account has a pinned year |
@@ -99,9 +100,18 @@ Removing a category clears its active/disk cache **before login**, even if refre
 
 ### Mailbox (optional)
 
-Select **Mailbox — headers and unread count** for one sensor per account/school hub. Headers do not mark conversations read. **Full message content is off by default; enabling it marks fetched conversations read in Mashov**, even if you never open them. It fetches plain-text bodies only, with no images or attachments. Removing Mailbox resets full-content consent; enabling it again starts with headers only.
+Select **Mailbox — headers and unread count** for one sensor per account/school hub. Headers do not mark conversations read. **Full message content is off by default; enabling it marks fetched conversations read in Mashov**, even if you never open them. It fetches plain-text bodies only; attachments are a separate opt-in (below). Removing Mailbox resets full-content consent; enabling it again starts with headers only.
 
 The limit applies to recent inbox conversations (20 by default, 1–50). Sent mail, drafts, archives and older inbox pages are not fetched. Long bodies may be shortened in attributes; check `stored_conversations`, `fetched_conversations`, `body_truncated` and `content_status`. Failed counts are not displayed as zero. See [Privacy & Security](#-privacy--security) before enabling access.
+
+#### Mail attachments (optional)
+
+**Download mail attachments** is off by default. It requires Mailbox **and** full message content, because attachment IDs only come from the conversation request that marks conversations read. Turning off Mailbox or full content turns attachments off as well.
+
+- Every file type is saved, once per attachment, under `/media/mashov/<entry_id>/<conversation>/<message>/<fileId>-<name>` (Home Assistant's local media folder). File names are sanitized; Hebrew names are kept.
+- Each message lists `attachments` with `fileId`, `fileName`, `mime_type`, `size`, `status` and `media_content_id`; the sensor adds `attachment_count`. Images and videos preview in the Media browser and in Lovelace cards that accept a `media-source://` ID.
+- Files above **Maximum attachment size** (25 MB by default, 1–100) are skipped with status `too_large`; no partial file is kept. Other statuses are `ok`, `http_<code>` and `error`. A failed file never fails the refresh and is retried on the next one.
+- Retention: after each successful inbox fetch, folders of conversations outside the fetched window are deleted. Turning the option off or deleting the hub deletes the hub's whole folder.
 
 ### Parent approvals (optional)
 
@@ -180,6 +190,8 @@ logger:
 Credentials are stored by Home Assistant; saved sessions and school data also live in `.storage/mashov.<entry_id>.cache`. Never share that file. Review logs and diagnostics before sharing, and remove credentials, student details, grades, messages, cookies and tokens.
 
 **Every Home Assistant user, including a non-admin child account, can read mailbox sensor attributes.** Dashboard visibility hides cards only; it does not restrict entity access. Enable Mailbox only if that access is acceptable.
+
+**Downloaded mail attachments are ordinary files under `/media`.** Any Home Assistant user with media access can open them in the Media browser, and they are included in backups that contain the media folder. Enable attachments only if that is acceptable.
 
 Mailbox `items` is excluded from new Recorder history automatically. Previously recorded content remains. The integration keeps the latest snapshot without age-based expiry; failed requests can leave it visible as stale. Turning off full content removes cached bodies; removing Mailbox removes headers and resets consent. Deleting a hub removes its integration cache and saved session, not existing Recorder history or backups.
 

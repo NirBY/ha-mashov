@@ -153,11 +153,25 @@ set_options:
         boolean: {}
     mailbox_limit:
       name: "Recent inbox conversations"
-      description: "At most this many recent conversations are fetched (default 20). Attachments are not downloaded."
+      description: "At most this many recent conversations are fetched (default 20)."
       selector:
         number:
           min: 1
           max: 50
+          mode: box
+    mailbox_attachments:
+      name: "Download mail attachments"
+      description: "Off by default. Saves every attachment of the fetched conversations under /media/mashov so images and videos can be previewed. Needs mailbox and full message content. Files are readable by Home Assistant users with media access."
+      selector:
+        boolean: {}
+    mailbox_attachment_max_mb:
+      name: "Maximum attachment size (MB)"
+      description: "Larger attachments are skipped with status too_large (default 25)."
+      selector:
+        number:
+          min: 1
+          max: 100
+          unit_of_measurement: MB
           mode: box
 
 create_live_dashboard:

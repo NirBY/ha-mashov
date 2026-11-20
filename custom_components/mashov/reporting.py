@@ -72,6 +72,7 @@ _SOURCE_FILES = {
     "holidays_utils.py",
     "mailbox.py",
     "approvals.py",
+    "mail_attachments.py",
     "data_selection.py",
 }
 
