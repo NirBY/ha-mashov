@@ -11,6 +11,17 @@
 ### Fixed
 - TBD
 
+## [1.3.1] - 2026-11-20
+
+### Added
+- The README and dashboard guide show a short Mashov Live usage GIF with fictional names, classes, subjects and messages. The earlier screenshots that contained real school content are no longer referenced.
+
+### Changed
+- `scripts/release.py` refuses to release unless the current branch is `main`, and it reads untracked file names line by line.
+
+### Fixed
+- Mailbox and parent-approval data survive consecutive transient failures (HTTP 5xx or a failed fetch). The first failed refresh no longer clears them. The retained snapshot is marked `retained` and its sensors show `data_stale` until a refresh succeeds. A forbidden response still replaces the data.
+
 ## [1.3.0] - 2026-11-20
 
 Thanks to [@ziv-daniel](https://github.com/ziv-daniel) for proposing parent approvals (#23), mailbox attachments (#24) and the sanitized portal API reference (#25). #25 is included as submitted. #23 and #24 were not merged as submitted; the bugs are listed on those pull requests. The behavior below is what shipped.
