@@ -1,7 +1,7 @@
 blueprint:
   name: Mashov – Daily Homework & Behavior Announcement (Trace-friendly)
   description: >
-    Version v1.0.6 (patched). Announces today's behavior & homework at 15:00, skips nights & holidays,
+    Version v1.4.0. Announces today's behavior & homework at 15:00, skips nights & holidays,
     raises volume, speaks (Hebrew), then restores volume.
     Patch: replaces deprecated tts.google_translate_say with tts.speak and a selectable TTS engine entity.
     Patch: more tolerant "finished" detection (idle/paused/off/standby) so volume restore works reliably.
