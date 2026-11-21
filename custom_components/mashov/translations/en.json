@@ -259,7 +259,8 @@
         "justification_requests": "Absence justification requests",
         "special_hours": "Individual lessons",
         "lessons_count": "Lessons held and weekly hours per group",
-        "study_groups": "Study groups and teachers"
+        "study_groups": "Study groups and teachers",
+        "attendance_counts": "Absence and lateness counters (school year)"
       }
     },
     "schedule_days": {
@@ -305,7 +306,8 @@
         "mailbox": "Mailbox — headers and unread count",
         "parent_approvals": "Parent approvals — trips and forms (read only)",
         "bells": "School bell schedule",
-        "picture": "Student profile pictures (image entities)"
+        "picture": "Student profile pictures (image entities)",
+        "attendance_counts": "Absence and lateness counters (school year)"
       }
     },
     "schedule_scope": {
@@ -449,6 +451,9 @@
       },
       "bells": {
         "name": "School bell schedule"
+      },
+      "attendance_counts": {
+        "name": "Absence and lateness counters"
       }
     },
     "calendar": {

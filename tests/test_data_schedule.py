@@ -52,12 +52,18 @@ async def test_each_dataset_can_be_fetched_without_other_selected_routes(key):
     client._session = MagicMock(closed=False)
     client._session.get.return_value = _response(200, [])
     client._fetch_student_resource = AsyncMock(return_value={"items": [], "status": "ok"})
+    client._fetch_attendance_counts = AsyncMock(return_value={"items": [], "status": "ok"})
+    client._fetch_account_route = AsyncMock(return_value=("ok", []))
     client._fetch_account_json = AsyncMock(side_effect=lambda path, name, expected: ("ok", expected()))
     result = await client.async_fetch_all(selected_data=[key])
     assert client.enabled_data == tuple(DATA_KEYS)
     # Pictures are one GET per student, like the core per-student routes.
     assert client._session.get.call_count == (1 if key in (*LEGACY_CORE_DATA, "picture") else 0)
-    assert client._fetch_student_resource.await_count == (1 if key not in (*LEGACY_CORE_DATA, *SHARED_DATA) else 0)
+    assert client._fetch_student_resource.await_count == (
+        1 if key not in (*LEGACY_CORE_DATA, *SHARED_DATA, "attendance_counts") else 0
+    )
+    assert client._fetch_attendance_counts.await_count == (1 if key == "attendance_counts" else 0)
+    assert client._fetch_account_route.await_count == (1 if key == "attendance_counts" else 0)
     if client._fetch_student_resource.await_count:
         assert client._fetch_student_resource.call_args.args[1] == key
     # Mailbox: counts + inbox. Approvals: the (empty) activity list + both form lists.
@@ -276,7 +282,7 @@ async def test_flow_navigates_multiple_datasets_and_commits_only_on_save(hass, m
             form = await manager.async_init(mock_config_entry.entry_id)
             data = {"enabled_data": ["homework", "grades"], "password": "new-secret"}
         summary = form["description_placeholders"]["schedule_summary"]
-        assert len([line for line in summary.splitlines() if line.startswith("|")]) == 25
+        assert len([line for line in summary.splitlines() if line.startswith("|")]) == len(DATA_KEYS) + 2
         assert "<details>" in summary and "<details open" not in summary
         flow_id = form["flow_id"]
         sections = {str(key): value for key, value in form["data_schema"].schema.items()}

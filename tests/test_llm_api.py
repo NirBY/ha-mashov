@@ -83,6 +83,26 @@ async def test_optional_resource_timestamp_and_failed_child_scope(hass):
     assert result["data_stale"] is False
 
 
+async def test_attendance_tool_keeps_school_year_and_complete_totals_with_pagination(hass):
+    from .test_attendance import normalized
+
+    _, coordinator, context = setup_api(hass)
+    resource = normalized()
+    resource["status"] = "http_503"
+    resource["retained"] = True
+    coordinator.data["by_slug"]["child"]["additional_data"] = {"attendance_counts": resource}
+    tool = MashovReadTool("account")
+    request = llm.ToolInput(
+        tool_name=tool.name, tool_args={"dataset": "attendance_counts", "student_id": "child", "limit": 1}
+    )
+    result = unwrap(await tool.async_call(hass, request, context))
+    assert result["metadata"]["absences"] == 6
+    assert result["metadata"]["period_start"] == "2026-09-01"
+    assert result["metadata"]["classification_complete"] is False
+    assert result["data_stale"] is True
+    assert len(result["items"]) == result["next_offset"] == 1
+
+
 @pytest.mark.parametrize("dataset", LLM_DATA_KEYS)
 async def test_read_all_selected_datasets(hass, dataset):
     _, coordinator, context = setup_api(hass)

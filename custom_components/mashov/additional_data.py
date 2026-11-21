@@ -40,4 +40,5 @@ STUDENT_RESOURCES = {
     "special_hours": StudentResource("Individual Lessons", "specialHoursLessons"),
     "lessons_count": StudentResource("Lesson Counters", "lessonsCount"),
     "study_groups": StudentResource("Study Groups", "groups"),
+    "attendance_counts": StudentResource("Absence and Lateness Counters", "behave/count", True),
 }

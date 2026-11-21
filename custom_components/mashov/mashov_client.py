@@ -28,6 +28,7 @@ import yarl  # type: ignore[import]
 
 from .additional_data import STUDENT_RESOURCES
 from .approvals import ANSWERS_KEY, fetch_parent_approvals
+from .attendance import ATTENDANCE_COUNTS, normalize_attendance
 from .const import CONF_YEAR
 from .data_schedule import SHARED_DATA
 from .data_selection import (
@@ -888,6 +889,24 @@ class MashovClient:
             _LOGGER.warning("Unable to fetch optional Mashov resource %s", key)
             return {"items": [], "status": "fetch_failed"}
 
+    async def _fetch_attendance_counts(self, sid, definitions_status, definitions, groups=None):
+        """Read school-year counters and group labels; never cache the student envelope."""
+        if definitions_status != "ok":
+            return {"items": [], "status": definitions_status}
+        year = self.year
+        start, end = f"{year - 1}-09-01", f"{year}-08-31"
+        raw = await self._fetch_student_resource(sid, ATTENDANCE_COUNTS, start, end)
+        if raw["status"] != "ok":
+            return raw
+        if groups is None:
+            groups = await self._fetch_student_resource(sid, "study_groups", start, end)
+        if groups["status"] != "ok":
+            return {"items": [], "status": groups["status"]}
+        try:
+            return normalize_attendance(raw["items"], definitions, groups["items"], sid, year)
+        except (ValueError, TypeError, KeyError):
+            return {"items": [], "status": "invalid_response"}
+
     async def async_fetch_all(self, selected_data=None, student_data=None) -> dict[str, Any]:
         """Fetch and normalize data for every student plus school holidays.
 
@@ -943,6 +962,14 @@ class MashovClient:
         if students:
             with contextlib.suppress(Exception):
                 pass
+
+        # School codes differ: fetch their canonical definitions only when a
+        # student's attendance counters are actually due, once per refresh.
+        attendance_types, attendance_status = [], "not_fetched"
+        if ATTENDANCE_COUNTS in selected and any(
+            student_data is None or ATTENDANCE_COUNTS in student_data.get(stu["id"], ()) for stu in students
+        ):
+            attendance_status, attendance_types = await self._fetch_account_route("achvas", "attendance_types", list)
 
         # --- Per-student fetch: the six core resources in parallel, then optional ones.
         async def fetch_for_student(stu):
@@ -1060,7 +1087,12 @@ class MashovClient:
             for key in self.additional_data:
                 if key not in student_selected:
                     continue
-                additional[key] = await self._fetch_student_resource(sid, key, from_dt, to_dt)
+                if key == ATTENDANCE_COUNTS:
+                    additional[key] = await self._fetch_attendance_counts(
+                        sid, attendance_status, attendance_types, additional.get("study_groups")
+                    )
+                else:
+                    additional[key] = await self._fetch_student_resource(sid, key, from_dt, to_dt)
                 self._record_status(key, additional[key]["status"], sid)
             for key, status in source_status.items():
                 if status not in ("disabled", "not_fetched"):

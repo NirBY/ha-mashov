@@ -178,8 +178,8 @@ def merge_partial_data(previous, incoming, requested, student_data=None):
                 # Keep the last good items through a server/network failure. The status stays
                 # the real error so source_last_update is not advanced.
                 current["additional_data"][key] = {
-                    **current["additional_data"][key],
-                    "items": deepcopy(resource.get("items", [])),
+                    **deepcopy(resource),
+                    "status": current["additional_data"][key]["status"],
                     "retained": True,
                 }
         current["source_last_update"] = dict(old.get("source_last_update", {}))
