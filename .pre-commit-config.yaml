@@ -18,6 +18,8 @@ repos:
       - id: check-yaml
       - id: check-json
       - id: check-added-large-files
+        # Reviewed English/Hebrew README artwork and animations (under 5 MiB each).
+        exclude: ^docs/images/(mashov-neon-overview(-he)?\.png|mashov-feature-tour(-he)?\.gif)$
       - id: check-case-conflict
       - id: check-merge-conflict
       - id: mixed-line-ending

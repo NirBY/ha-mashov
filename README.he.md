@@ -1,3 +1,5 @@
+<div dir="rtl" align="right">
+
 [**English**](README.md) · [**עברית**](README.he.md)
 
 # משו״ב — אינטגרציה ל־Home Assistant באמצעות HACS
@@ -6,15 +8,26 @@
 
 הפרויקט אינו קשור לחברת משו״ב. [הערות גרסה](RELEASE_NOTES.md) · [יומן שינויים](CHANGELOG.md) · [הנחיות תרומה](CONTRIBUTING.md)
 
+![משו״ב מחבר שיעורי בית, מערכת שעות, ציונים, תזכורת קולית לתיק, הודעות, מבחנים ושינויי מערכת, בלופרינטים ושיחה על הלימודים באמצעות MCP — איור ניאון בעברית](docs/images/mashov-neon-overview-he.png)
+
 ## כך זה נראה
 
-משו״ב לייב, פירוט תלמיד, כרטיס שיעורי בית, מערכת שבועית, וטפסי הבלופרינטים של שיעורי בית, תזכורת תיק ולוח מודעות. השמות, הכיתות, המקצועות, התאריכים וההודעות הם דוגמה בדויה. שדות הבלופרינט נשארו ריקים.
+**סיור באינטגרציה ב־90 שניות, כולו בעברית:** דשבורד משפחתי, מערכת שעות, רשימות שיעורי בית, כל 23 מקורות המידע, תזמוני רענון, אפשרויות חשבון והגדרות מתקדמות, דואר ו־AI לבחירה, וכל ארבעת הבלופרינטים.
 
-![שימוש במשו״ב לייב](docs/images/mashov-usage.gif)
+![סיור מונפש במשו״ב בעברית ובכיווניות מימין לשמאל, עם נתונים בדויים, מקורות מידע, הגדרות וארבעת הבלופרינטים](docs/images/mashov-feature-tour-he.gif)
 
-ייבוא הבלופרינט של תצוגת Mashov Live, ואז [מדריך הדשבורד](docs/dashboard.md):
+תמונת הניאון והסיור המונפש הם **המחשות**, ולא צילומי מסך של ממשק חדש. כל השמות, המוסדות, הציונים, ההודעות והישויות שבסיור בדויים; לא נעשה שימוש בחשבון Home Assistant חי. [צילומי הדשבורד](docs/dashboard.md) · [סיור HA המקורי](docs/images/mashov-usage.gif) · [תמליל הסיור והוראות יצירה מחדש](docs/readme-visuals.md)
 
-[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint URL.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FNirBY%2Fha-mashov%2Fmain%2Fblueprints%2Fscript%2Fmashov%2Fmashov_live_dashboard.yaml)
+### כל הבלופרינטים שבסיור
+
+| בלופרינט | מיקום בסרטון | מה הוא עושה / אפשרויות עיקריות | התחלה |
+| ---: | ---: | ---: | ---: |
+| [Mashov Live](blueprints/script/mashov/mashov_live_dashboard.yaml) | 00:53 · 01/04 | **סקריפט:** מזהה תלמידים בכל ההאבים ובונה דשבורד משפחתי. בחירת דשבורד, כותרת ומשפחה, התאמות לתלמידים, צופים, חיישנים ומצב יום הלימודים הבא. דורש **Bubble Card 3.4+** ודשבורד UI ריק. | [ייבוא](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FNirBY%2Fha-mashov%2Fmain%2Fblueprints%2Fscript%2Fmashov%2Fmashov_live_dashboard.yaml) · [מדריך](docs/dashboard.md) |
+| [שיעורי בית והתנהגות](blueprints/automation/mashov/mashov_daily_homework_announce.yaml) | 01:01 · 02/04 | **אוטומציה:** הקראת הנתונים של היום, כברירת מחדל ב־**15:00**. בחירת חיישני שיעורי בית/התנהגות/חופשות, רמקול, מנוע ושפת TTS, שעה, עוצמה וזמני המתנה. מדלגת בחופשות, בלילה ובהיעדר נתוני היום; משחזרת עוצמה. | [ייבוא](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FNirBY%2Fha-mashov%2Fmain%2Fblueprints%2Fautomation%2Fmashov%2Fmashov_daily_homework_announce.yaml) · [מדריך](docs/blueprints.md#daily-homework-and-behavior) |
+| [תזכורת תיק](blueprints/automation/mashov/bag_reminder_tomorrow.yaml) | 01:08 · 03/04 | **אוטומציה:** הקראת מקצועות למחר, כברירת מחדל ב־**18:00**. מערכת שעות, חופשות ותוכנית שבועית לבחירה, רמקול, הגדרות TTS, שעה, שעות שקט, עוצמות וזמני המתנה. מצב יום הלימודים הבא לבחירה לכל ילד. | [ייבוא](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FNirBY%2Fha-mashov%2Fmain%2Fblueprints%2Fautomation%2Fmashov%2Fbag_reminder_tomorrow.yaml) · [מדריך](docs/blueprints.md#bag-reminder) |
+| [לוח מודעות](blueprints/automation/mashov/mashov_noticeboard_announce.yaml) | 01:16 · 04/04 | **אוטומציה:** התראה על מזהי הודעות חדשים בזמן רענון. בחירת חיישנים, התראות HA/טלפון, רמקול ו־TTS לבחירה, שפה, עוצמות, אורך הודעה וזמן המתנה. ללא דיבור ב־**22:00–07:00**; התראות עדיין נשלחות. | [ייבוא](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FNirBY%2Fha-mashov%2Fmain%2Fblueprints%2Fautomation%2Fmashov%2Fmashov_noticeboard_announce.yaml) · [מדריך](docs/blueprints.md#noticeboard-notices) |
+
+הזמנים מציינים תחילת פרק בקירוב. יש להפעיל את מקורות המידע הדרושים לפני השימוש. הייבוא מוסיף תבנית; יוצרים ומגדירים ממנה סקריפט או אוטומציה. ב־Mashov Live מפעילים את הסקריפט המוגדר כדי לבנות את התצוגה.
 
 ## התקנה
 
@@ -36,6 +49,8 @@
 
 אפשר להגדיר את התזמון המשותף ב־`configuration.yaml` ולהפעיל מחדש:
 
+<div dir="ltr" align="left">
+
 ```yaml
 mashov:
   schedule_type: daily
@@ -43,6 +58,8 @@ mashov:
   schedule_days: [0, 2, 4] # שני, רביעי, שישי — לתזמון שבועי
   schedule_interval: 60   # דקות — לתזמון במרווח קבוע
 ```
+
+</div>
 
 YAML גובר על התזמון המשותף בטופס; תזמונים נפרדים לתלמיד ולסוג מידע נשארים עצמאיים. בסיס ה־API, בחירת המידע, חלון התאריכים ומגבלת הרשומות מוגדרים באפשרויות. השדה הישן `schedule_day` עדיין נתמך.
 
@@ -179,11 +196,15 @@ YAML גובר על התזמון המשותף בטופס; תזמונים נפרד
 
 להפעלת לוג מפורט:
 
+<div dir="ltr" align="left">
+
 ```yaml
 logger:
   logs:
     custom_components.mashov: debug
 ```
+
+</div>
 
 לפני שיתוף לוגים, צילומים או דיאגנוסטיקה, הסירו פרטי כניסה, מזהים, שמות תלמידים, ציונים, תוכן הודעות, עוגיות וטוקנים. אל תשתפו את קובץ `.storage/mashov.<entry_id>.cache`: הוא מכיל נתונים והזדהות. דיאגנוסטיקה כוללת מצבים וספירות טכניות ללא תוכן דואר.
 
@@ -202,3 +223,5 @@ logger:
 ## רישיון
 
 [MIT © 2025](LICENSE) · [הודעת הפרויקט](NOTICE.md)
+
+</div>
