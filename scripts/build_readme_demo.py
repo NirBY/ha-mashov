@@ -48,6 +48,7 @@ DATA_GROUPS = [
             ("daily_behavior", "Daily behavior"),
             ("outside_behavior", "Outside lesson behavior"),
             ("follow_up", "Follow-up notes"),
+            ("attendance_counts", "Absences / lateness"),
         ],
     ),
     (
@@ -89,7 +90,7 @@ CHAPTERS = [
         "data1",
         "DATA TO FETCH  /  1 OF 2",
         "Choose what matters.",
-        "23 selectable sources. New hubs start with nothing selected.",
+        "24 selectable sources. New hubs start with nothing selected.",
     ),
     (
         "data2",

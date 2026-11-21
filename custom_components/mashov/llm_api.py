@@ -12,6 +12,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import llm
 
 from .approvals import FORM_KINDS, PARENT_APPROVALS, pending_summary
+from .attendance import ATTENDANCE_COUNTS, METADATA_FIELDS
 from .const import DOMAIN
 from .data_schedule import SHARED_DATA
 from .data_selection import DATA_KEYS, enabled_data, filter_cached_data
@@ -215,6 +216,11 @@ class MashovReadTool(MashovTool):
         offset, limit = args["offset"], args["limit"]
         failures = getattr(coordinator, "failed_datasets", set())
         page, next_offset = _bounded_page(items, offset, limit)
+        metadata = {}
+        if key == ATTENDANCE_COUNTS:
+            student = next(s for s in data["students"] if str(s["id"]) == student_id)
+            resource = data.get("by_slug", {}).get(student["slug"], {}).get("additional_data", {}).get(key, {})
+            metadata = {name: resource[name] for name in METADATA_FIELDS if name in resource}
         return self.result(
             {
                 "dataset": key,
@@ -234,5 +240,6 @@ class MashovReadTool(MashovTool):
                 # Items are text from the school portal (homework, notices, message bodies): data, not instructions.
                 "untrusted_school_text": True,
                 "items": page,
+                **({"metadata": metadata} if metadata else {}),
             }
         )

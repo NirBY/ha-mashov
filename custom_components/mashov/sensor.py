@@ -44,6 +44,7 @@ def _local_timestamp(value: float | None) -> str | None:
 # NOTE: these package imports sit below the helper above for historical reasons; order is harmless.
 from .additional_data import STUDENT_RESOURCES
 from .approvals import FORM_KINDS, PARENT_APPROVALS, open_forms, open_pending
+from .attendance import ATTENDANCE_COUNTS, METADATA_FIELDS
 from .const import (
     CONF_MAX_ITEMS_IN_ATTRIBUTES,
     CONF_SCHEDULE_DAY,
@@ -451,6 +452,26 @@ class MashovAdditionalSensor(MashovStudentEntity, SensorEntity):
                 .get(self._key)
             ),
             **self.schedule_attributes(self._key),
+        }
+
+
+class MashovAttendanceSensor(MashovAdditionalSensor):
+    """School-year absence total, with lateness and per-subject event counts."""
+
+    _attr_icon = "mdi:account-clock"
+
+    @property
+    def native_value(self):
+        resource = self._resource
+        usable = resource.get("status") == "ok" or resource.get("retained")
+        return resource.get("absences") if self.available and usable else None
+
+    @property
+    def extra_state_attributes(self):
+        resource = self._resource
+        return {
+            **super().extra_state_attributes,
+            **{key: resource[key] for key in METADATA_FIELDS if key in resource},
         }
 
 
@@ -1623,7 +1644,11 @@ def _optional_student_sensors(coord, student, selected, entry_id):
     """Optional per-student sensors for the selected resources and parent approvals."""
     sid, slug, name = student
     sensors = [
-        MashovAdditionalSensor(coord, sid, slug, name, key, entry_id) for key in selected if key in STUDENT_RESOURCES
+        (MashovAttendanceSensor if key == ATTENDANCE_COUNTS else MashovAdditionalSensor)(
+            coord, sid, slug, name, key, entry_id
+        )
+        for key in selected
+        if key in STUDENT_RESOURCES
     ]
     if PARENT_APPROVALS in selected:
         sensors.append(MashovApprovalsSensor(coord, sid, slug, name, entry_id))

@@ -20,7 +20,7 @@ Use this table to read the tour without playing the animation. Times are approxi
 | 00:00 | Family overview | Fictional Alex Demo and Sam Sample attend Maple Demo School and Cedar Demo School. Separate student records, family visibility, desktop/mobile dashboards and manual refresh. |
 | 00:06 | School day | Timetable, weekly plan, grade and behavior examples, holidays, bell times and optional next-school-day mode. |
 | 00:12 | Homework | Native per-child HA to-do lists. Completion stays local, survives refreshes/restarts and is not written back to Mashov. |
-| 00:18 | Data selection, part 1 | Homework, weekly plan, timetable, lesson history; grades, term grades, report cards; behavior, daily behavior, outside lesson behavior and follow-up notes. |
+| 00:18 | Data selection, part 1 | Homework, weekly plan, timetable, lesson history; grades, term grades, report cards; behavior, daily behavior, outside lesson behavior, follow-up notes and absence/lateness counters. |
 | 00:24 | Data selection, part 2 | Study materials, student files, absence justifications, individual lessons, lesson counts/weekly hours, study groups/teachers; noticeboard, holidays/calendar, school bells; mailbox, parent approvals and student pictures. Approvals are read only; pictures stay in memory. |
 | 00:30 | Refresh schedules | Shared account/school defaults, student General defaults and per-data overrides. Daily time, weekly time/weekdays or interval from 5–1440 minutes; inheritance and current schedules; one Submit saves drafts. |
 | 00:36 | Account and advanced | Separate account credentials and school selection per hub, school search/fallback, automatic year rollover. Homework window defaults to 7 days back/21 forward; attributes default to 100 items (10–500); configurable API base. |
@@ -32,7 +32,7 @@ Use this table to read the tour without playing the animation. Times are approxi
 | 01:16 | Blueprint 04: Noticeboard | Automation. New notice IDs on refresh, one or more sensors, HA/phone notifications, optional speaker/TTS/language, volumes, text limit and timeout. No speech 22:00–07:00; notifications still arrive; no re-announcement on restart. |
 | 01:23 | Getting started | HACS/manual install, account/school, sources/options and four blueprints. English, Hebrew, Arabic, Russian and Ukrainian; sensor/calendar/to-do/image platforms, freshness, cache and diagnostics. |
 
-All 23 data keys are listed in `DATA_GROUPS` in the renderer. The underlying categories come from `data_selection.py` and `additional_data.py`; configuration behavior comes from `config_flow.py`, `services.yaml` and the blueprint YAML files. Availability still depends on school permissions. Current source code, rather than a frozen marketing asset, is authoritative.
+All 24 data keys are listed in `DATA_GROUPS` in the renderer. The underlying categories come from `data_selection.py` and `additional_data.py`; configuration behavior comes from `config_flow.py`, `services.yaml` and the blueprint YAML files. Availability still depends on school permissions. Current source code, rather than a frozen marketing asset, is authoritative.
 
 ## Rebuild the GIF
 
@@ -67,7 +67,7 @@ Create a gorgeous neon product illustration presenting the unofficial Mashov sch
 
 ### Hebrew artwork
 
-Edited with the built-in imagegen tool from the existing artwork and saved as a separate Hebrew asset. The final image includes eight tiles and uses “שואלים על הלימודים” / “AI באמצעות MCP”, “מכינים תיק למחר” / “תזכורת קולית”, and “מבחנים ושינויי מערכת” as requested. This artwork is conceptual; the GIF's dataset coverage continues to describe the 23 implemented sources and does not add a separate exam-calendar source.
+Edited with the built-in imagegen tool from the existing artwork and saved as a separate Hebrew asset. The final image includes eight tiles and uses “שואלים על הלימודים” / “AI באמצעות MCP”, “מכינים תיק למחר” / “תזכורת קולית”, and “מבחנים ושינויי מערכת” as requested. This artwork is conceptual; the GIF's dataset coverage continues to describe the 24 implemented sources and does not add a separate exam-calendar source.
 
 Final edit prompt (the input was the first Hebrew-localized version of the English hero):
 

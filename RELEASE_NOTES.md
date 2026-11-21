@@ -1,22 +1,22 @@
-# v1.4.0 — School bells, pictures, lesson counts and groups
+# v1.5.0 — Absence and lateness counters
 
-Four new read-only sources are available under **Configure → Data to fetch**. They are off by default for new and existing hubs:
+Issue #20 now has a dedicated **Absence and lateness counters (school year)** source under **Configure → Data to fetch**. It is read only and off by default.
 
-- **School bells:** one hub sensor with the ordered lesson/start/end schedule (#18).
-- **Student pictures:** an image entity per student; raster images are bounded and kept only in memory, never in the disk cache, Recorder or AI text output (#19).
-- **Lesson counts:** lessons held and weekly hours per group (#20). The verified `lessonsCount` endpoint does not provide absence or lateness totals.
-- **Study groups:** subjects, groups and teachers per student (#21).
+- One sensor per student: state is total absence events, including justified and online absences. These are lesson events, not days absent.
+- Attributes include lateness, justified/unjustified totals, and subject/teaching-group rows with original event names and counts.
+- Counters cover September 1 through August 31 of the selected school year. Their dates are explicit and independent of the homework window.
+- Classification uses each school's event definitions. Events without a standard Mashov category remain visible as unclassified; they are not silently included in absence/lateness totals.
+- Temporary failures retain the previous counts and their original dates, marked stale. Permission or malformed-response failures do not become false zeroes. Raw student profiles are excluded from this source's cache and attributes.
+- Assist/MCP exposes the same totals and dates alongside paginated rows, subject to the existing opt-in and administrator checks.
 
-This release also fixes hub registration from the schedules page, duplicated school numbers in new hub titles, failed-setup cleanup, malformed holiday dates, truncated picture downloads and stale retained approval/bell values. The schedule editor loads without blocking Home Assistant's event loop.
-
-Expired sessions start a fresh cookie jar, concurrent rejected logins share one failure, and credentials are checked before saving. Daily/weekly refreshes that raise a transient error retry after delays of 5, 15 and 60 minutes; rejected credentials are not retried. Startup catches missed scheduled runs using each dataset's last completed refresh. A portal outage no longer automatically disables a source refreshed on its own.
-
-Follow-up note attachment downloads (#17) are not included: the attachment schema and route still need a verified sample.
+Both English and Hebrew READMEs and feature-tour GIFs now cover all **24 sources**. All five UI languages include the new option.
 
 ## Upgrade
 
-Update through HACS or install `mashov.zip`, then restart Home Assistant. Enable any of the four new sources explicitly. Existing selections, schedules and entity IDs are preserved. Pictures are fetched again after a restart because they are memory-only.
+Update through HACS or install `mashov.zip`, then restart Home Assistant. Enable **Absence and lateness counters (school year)** explicitly. Existing selections, schedules and entity IDs are preserved. The option also reads school event definitions and group labels; the separate Behavior and Study Groups sources do not need to be enabled.
 
 ## Validation
 
-The Windows/Python 3.13 suite passed with **586 passed, 1 skipped**, **87% coverage**. Ruff lint and formatting checks passed. Linux/Python 3.13 and 3.14, hassfest and HACS checks run on the release pull request.
+The implementation was verified with read-only live requests for three students across two schools. Date-filtered aggregates matched the underlying behavior-event counts. Regression checks cover school-specific codes, justifications, student isolation, schedules, stale data, bounded attributes and Assist/MCP metadata. The full release CI checks Python 3.13/3.14, Ruff, hassfest and HACS.
+
+Issue #17 (follow-up note attachments) remains open because a real attachment schema and route still need verification.

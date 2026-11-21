@@ -10,7 +10,7 @@ Community project; not affiliated with Mashov. [Release notes](RELEASE_NOTES.md)
 
 ## What it looks like
 
-**Explore the integration in 90 seconds:** family dashboards, timetables, homework checklists, all 23 data sources, refresh schedules, account and advanced options, optional mailbox and AI access, and all four blueprints.
+**Explore the integration in 90 seconds:** family dashboards, timetables, homework checklists, all 24 data sources, refresh schedules, account and advanced options, optional mailbox and AI access, and all four blueprints.
 
 ![Animated Mashov feature tour: fictional family data, selectable sources, settings and four blueprint walkthroughs](docs/images/mashov-feature-tour.gif)
 
@@ -61,7 +61,7 @@ YAML overrides the shared UI schedule. Separate student/data schedules remain in
 
 ## 🧩 Features
 
-- All **23 data types** are selectable; only enabled categories are fetched. Multiple hubs and students are supported without mixing their records.
+- All **24 data types** are selectable; only enabled categories are fetched. Multiple hubs and students are supported without mixing their records.
 - **Student-specific General and per-data schedules:** daily, weekly or interval, edited inside Setup/Configure. One Submit saves all drafts.
 - **One refresh queue** across hubs, including scheduled, manual and startup requests. Selective refreshes preserve other students’ values and timestamps.
 - **Sensors and holiday calendars**, with structured records, formatted summaries, actual update times, source status and stale-data indicators.
@@ -105,7 +105,7 @@ Available in **v1.1.0**. New hubs start with nothing selected; upgrades keep exi
 | --- | --- |
 | Lessons | Homework, weekly plan, timetable, lesson history |
 | Grades | Grades, term grades, report cards |
-| Behavior | Behavior, daily behavior, outside lesson behavior, follow-up notes |
+| Behavior | Behavior, daily behavior, outside lesson behavior, follow-up notes, absence and lateness counters |
 | Student records | Study materials, student files, absence justification requests, individual lessons, lessons held and weekly hours per group, study groups and teachers |
 | School | Noticeboard, holidays and calendar, school bell schedule (one hub sensor) |
 | Mailbox | Unread count and recent headers; message content is optional |
@@ -119,6 +119,14 @@ The selection applies to all students in the hub. Mailbox and parent approvals b
 Add categories from the list or remove their chips with **×**, then **Submit**. Selection changes reload the hub and attempt an immediate refresh. For a basic dashboard, select Homework, Behavior, Weekly plan, Timetable, Lesson history and Grades; add Holidays for the calendar.
 
 Removing a category clears its active/disk cache **before login**, even if refresh fails, and disables its entities while retaining IDs and history. Disabling an entity manually in HA does not stop its category’s requests. An empty selection retains authentication and student discovery. [Action examples](docs/services.md#mashovset_options)
+
+### Absence and lateness counters (optional)
+
+Select **Absence and lateness counters (school year)** for one sensor per student. Its state is the total number of absence events, including justified and online absences. Attributes include `lateness`, justified/unjustified totals, and `items`: counts and original event names for each subject/teaching group. These are lesson events, not days absent. `lessons_count` is the portal's total lessons held.
+
+The range is September 1 through August 31 of the selected school year, shown as `period_start`, `period_end` and `school_year`; the homework date window does not affect it. This option reads the portal's behavior counters, school event definitions and study-group labels, even if the separate Behavior and Study Groups options are off. It never submits a justification.
+
+Schools use different event codes. Absences and lateness follow Mashov's standard categories. Custom events without a standard category are preserved as `unclassified_events`, with `classification_complete: false`; they are not guessed from their names or included in the absence/lateness totals. Compare those event rows with your school's definitions when using totals in an automation. Failed requests show a source status instead of a false zero; temporary failures retain the last successful counts and their original dates with `items_retained: true` and `data_stale: true`. Attribute limits may omit subject rows; the totals still include every fetched event.
 
 ### Mailbox (optional)
 

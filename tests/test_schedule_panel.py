@@ -166,7 +166,7 @@ async def test_registration_and_editor_share_complete_translations(hass, mock_co
     assert payload["ui"] == expected
     assert payload["ui"]["username"] == source["config"]["step"]["user"]["data"]["username"]
     assert payload["ui"]["password"] == source["config"]["step"]["user"]["data"]["password"]
-    assert len(payload["datasets"]) == 23
+    assert len(payload["datasets"]) == 24
     assert "test_password" not in json.dumps(payload)
 
 
