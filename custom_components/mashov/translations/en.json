@@ -255,7 +255,9 @@
         "study_materials": "Study materials",
         "student_files": "Student files",
         "justification_requests": "Absence justification requests",
-        "special_hours": "Individual lessons"
+        "special_hours": "Individual lessons",
+        "lessons_count": "Absence and lateness counts per subject",
+        "study_groups": "Study groups and teachers"
       }
     },
     "schedule_days": {
@@ -296,8 +298,12 @@
         "student_files": "Student files",
         "justification_requests": "Absence justification requests",
         "special_hours": "Individual lessons",
+        "lessons_count": "Absence and lateness counts per subject",
+        "study_groups": "Study groups and teachers",
         "mailbox": "Mailbox — headers and unread count",
-        "parent_approvals": "Parent approvals — trips and forms (read only)"
+        "parent_approvals": "Parent approvals — trips and forms (read only)",
+        "bells": "School bell schedule",
+        "picture": "Student profile pictures (image entities)"
       }
     },
     "schedule_scope": {
@@ -432,6 +438,15 @@
       },
       "open_forms": {
         "name": "Open forms and approvals"
+      },
+      "lessons_count": {
+        "name": "Absence and lateness counts per subject"
+      },
+      "study_groups": {
+        "name": "Study groups and teachers"
+      },
+      "bells": {
+        "name": "School bell schedule"
       }
     },
     "calendar": {
@@ -442,6 +457,11 @@
     "todo": {
       "homework_checklist": {
         "name": "Homework checklist"
+      }
+    },
+    "image": {
+      "picture": {
+        "name": "Profile picture"
       }
     }
   },

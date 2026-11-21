@@ -255,7 +255,9 @@
         "study_materials": "חומרי לימוד",
         "student_files": "קובצי תלמיד",
         "justification_requests": "בקשות להצדקת היעדרות",
-        "special_hours": "שעות פרטניות"
+        "special_hours": "שעות פרטניות",
+        "lessons_count": "ספירת חיסורים ואיחורים לפי מקצוע",
+        "study_groups": "קבוצות לימוד ומורים"
       }
     },
     "schedule_days": {
@@ -296,8 +298,12 @@
         "student_files": "קובצי תלמיד",
         "justification_requests": "בקשות להצדקת היעדרות",
         "special_hours": "שעות פרטניות",
+        "lessons_count": "ספירת חיסורים ואיחורים לפי מקצוע",
+        "study_groups": "קבוצות לימוד ומורים",
         "mailbox": "תיבת דואר — כותרות ומספר הודעות שלא נקראו",
-        "parent_approvals": "אישורי הורים — טיולים וטפסים (צפייה בלבד)"
+        "parent_approvals": "אישורי הורים — טיולים וטפסים (צפייה בלבד)",
+        "bells": "לוח צלצולים של בית הספר",
+        "picture": "תמונות פרופיל של התלמידים (ישויות תמונה)"
       }
     },
     "schedule_scope": {
@@ -432,6 +438,15 @@
       },
       "open_forms": {
         "name": "טפסים ואישורים פתוחים"
+      },
+      "lessons_count": {
+        "name": "ספירת חיסורים ואיחורים לפי מקצוע"
+      },
+      "study_groups": {
+        "name": "קבוצות לימוד ומורים"
+      },
+      "bells": {
+        "name": "לוח צלצולים של בית הספר"
       }
     },
     "calendar": {
@@ -442,6 +457,11 @@
     "todo": {
       "homework_checklist": {
         "name": "שיעורי בית לביצוע"
+      }
+    },
+    "image": {
+      "picture": {
+        "name": "תמונת פרופיל"
       }
     }
   },

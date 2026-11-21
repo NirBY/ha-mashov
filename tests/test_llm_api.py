@@ -11,7 +11,7 @@ import pytest
 from custom_components.mashov.approvals import PARENT_APPROVALS
 from custom_components.mashov.data_schedule import SHARED_DATA
 from custom_components.mashov.data_selection import DATA_KEYS
-from custom_components.mashov.llm_api import MashovCatalogTool, MashovDataAPI, MashovReadTool
+from custom_components.mashov.llm_api import LLM_DATA_KEYS, MashovCatalogTool, MashovDataAPI, MashovReadTool
 
 from .const import TEST_PENDING_RECORD
 
@@ -36,6 +36,7 @@ def setup_api(hass):
             "holidays": [{"name": "Holiday"}],
             "holidays_status": "ok",
             "mailbox": {"items": [{"subject": "Hello", "messages": [{"body": "secret"}]}], "status": "ok"},
+            "bells": {"items": [{"lessonNumber": 1}], "status": "ok"},
         },
     )
     hass.data["mashov"] = {"account": {"coordinator": coordinator}}
@@ -82,7 +83,7 @@ async def test_optional_resource_timestamp_and_failed_child_scope(hass):
     assert result["data_stale"] is False
 
 
-@pytest.mark.parametrize("dataset", DATA_KEYS)
+@pytest.mark.parametrize("dataset", LLM_DATA_KEYS)
 async def test_read_all_selected_datasets(hass, dataset):
     _, coordinator, context = setup_api(hass)
     coordinator.data[PARENT_APPROVALS] = {

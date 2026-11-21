@@ -8,7 +8,7 @@ const TEXT = {
 };
 const escape = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const SCHEDULE_DRAFTS=new Map();
-const SHARED_DATA=new Set(['holidays','mailbox','parent_approvals']);
+const SHARED_DATA=new Set(['holidays','mailbox','parent_approvals','bells','picture']);
 const clone = value => JSON.parse(JSON.stringify(value));
 
 class MashovScheduleEditor extends HTMLElement {

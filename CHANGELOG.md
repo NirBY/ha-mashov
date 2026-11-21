@@ -3,7 +3,7 @@
 ## [Unreleased]
 
 ### Added
-- TBD
+- Opt-in, read-only data (Data to fetch): absence and lateness counts per subject (`lessonsCount`, #20), study groups and teachers (`groups`, #21), the school bell schedule as one hub sensor (#18), and student profile pictures as image entities kept in memory (#19). Pictures are never written to the cache or the recorder, and they are not exposed to the AI text tool.
 
 ### Changed
 - TBD

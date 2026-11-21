@@ -188,3 +188,18 @@ def test_forbidden_resource_at_one_school_does_not_disable_another_school():
     second = make_client(payload=[{"id": 1}])
     assert fetch(first)["status"] == "forbidden"
     assert fetch(second) == {"items": [{"id": 1}], "status": "ok"}
+
+
+@pytest.mark.parametrize(
+    "key,path",
+    [("lessons_count", "lessonsCount"), ("study_groups", "groups")],
+)
+def test_lessons_count_and_study_groups_use_read_only_student_paths(key, path):
+    """#20 and #21: both resources are per-student GET endpoints, opt-in and off by default."""
+    client = make_client(payload=[{"subjectName": "Math", "absences": 1}])
+    assert MashovClient("123", 2027, "test", "test").additional_data == ()
+    result = fetch(client, key=key)
+    assert result == {"status": "ok", "items": [{"subjectName": "Math", "absences": 1}]}
+    url = client._session.get.call_args.args[0]
+    assert url.endswith(f"students/student/{path}")
+    assert {call[0].split("(")[0] for call in client._session.mock_calls} == {"get"}

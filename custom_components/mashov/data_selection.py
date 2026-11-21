@@ -18,7 +18,7 @@ BYTES_PER_MB = 1024 * 1024
 # Frozen historical default, including installations from v1.0.7. Never extend
 # this tuple when adding a resource: upgrades must not enable new data sources.
 LEGACY_CORE_DATA = ("homework", "behavior", "weekly_plan", "timetable", "lessons_history", "grades", "holidays")
-DATA_KEYS = (*LEGACY_CORE_DATA, *STUDENT_RESOURCES, "mailbox", "parent_approvals")
+DATA_KEYS = (*LEGACY_CORE_DATA, *STUDENT_RESOURCES, "mailbox", "parent_approvals", "bells", "picture")
 
 
 def enabled_data(options):
@@ -135,7 +135,7 @@ def filter_cached_data(data, options):
         result["holidays_status"] = "disabled"
         result.pop("holidays_cached", None)
         result.pop("holidays_last_update", None)
-    for key in {"mailbox", "parent_approvals"} - selected:
+    for key in {"mailbox", "parent_approvals", "bells", "picture"} - selected:
         result.pop(key, None)
     if "mailbox" in selected:
         _filter_mailbox(result.get("mailbox", {}), options)

@@ -59,6 +59,8 @@ MAX_DOWNLOAD_REDIRECTS = 3
 
 # Escalating cooldowns for core student endpoints that answer HTTP 403 (feature disabled by the school).
 CORE_RESOURCE_BACKOFF_STEPS = (3600, 21600, 86400)  # 1h -> 6h -> 24h
+# Profile pictures are small JPEG/PNG files; anything larger is refused rather than stored.
+PICTURE_MAX_BYTES = 2 * 1024 * 1024
 # Account routes for one item (a conversation, an activity's answers). They back off
 # per path, and a 404 (item removed) is not parked, so one item never blocks the others.
 PER_ITEM_ACCOUNT_KEYS = frozenset({"mail_content", ANSWERS_KEY})
@@ -72,6 +74,8 @@ CLOSED_FEATURE_MIN_SPACING = 3600
 
 def _dataset_for_account_key(key: str) -> str:
     """Map an account route's log key to the data type it belongs to."""
+    if key == "bells":
+        return "bells"
     return "mailbox" if key.startswith("mail") else "parent_approvals"
 
 
@@ -175,6 +179,8 @@ class MashovClient:
         self._resource_retry_after: dict[tuple[str, str], tuple[float, str]] = {}
         # (student_id, resource_key) pairs whose current 5xx streak was already logged.
         self._resource_errors_logged: set[tuple[str, str]] = set()
+        # Opt-in profile pictures, kept in memory only: student_id -> (bytes, content type, fetched at).
+        self._pictures: dict[str, tuple[bytes, str, float]] = {}
         # Core resources: (student_id, url_key) -> (retry_after_monotonic, consecutive_403_count)
         self._endpoint_cooldown: dict[tuple[str, str], tuple[float, int]] = {}
         # Data type -> statuses of every attempt in the current refresh (reset per refresh).
@@ -1123,6 +1129,13 @@ class MashovClient:
             result["parent_approvals"] = await fetch_parent_approvals(
                 self._fetch_account_json, [student["id"] for student in students]
             )
+        if "picture" in selected:
+            result["picture"] = await self._fetch_pictures(students)
+        if "bells" in selected:
+            # School-wide bell schedule (lesson number and times); one request per refresh.
+            status, payload = await self._fetch_account_json("bells", "bells", list)
+            items = [item for item in payload or [] if isinstance(item, dict)] if status == "ok" else []
+            result["bells"] = {"items": items, "status": status}
 
     async def _fetch_account_json(self, path, key, expected_type):
         """Fetch a known account route, recording its outcome for the closed-feature check."""
@@ -1174,6 +1187,57 @@ class MashovClient:
         except (aiohttp.ClientError, TimeoutError, ValueError):
             _LOGGER.warning("Unable to fetch Mashov account resource %s", key)
             return "fetch_failed", None
+
+    @property
+    def pictures(self) -> dict[str, tuple[bytes, str, float]]:
+        """In-memory profile pictures of the account's students, by student id."""
+        return self._pictures
+
+    async def _fetch_student_picture(self, sid: str) -> str:
+        """Download one student's profile picture (GET only). Returns a status, never raises for API errors."""
+        url = f"{self._api_base}user/{sid}/picture"
+        try:
+            for attempt in range(2):
+                async with self._session.get(url, headers=self._headers) as response:
+                    if response.status == 401:
+                        if attempt == 0:
+                            await self._ensure_valid_session()
+                            continue
+                        return "unauthorized"
+                    if response.status in (403, 404):
+                        self._pictures.pop(sid, None)
+                        return "forbidden" if response.status == 403 else "unsupported"
+                    if response.status >= 400:
+                        return f"http_{response.status}"
+                    content_type = (response.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+                    if not content_type.startswith("image/"):
+                        return "invalid_response"
+                    if response.content_length is not None and response.content_length > PICTURE_MAX_BYTES:
+                        return "too_large"
+                    body = await response.content.read(PICTURE_MAX_BYTES + 1)
+                    if len(body) > PICTURE_MAX_BYTES:
+                        return "too_large"
+                    if not body:
+                        return "invalid_response"
+                    self._pictures[sid] = (body, content_type, time.time())
+                    return "ok"
+        except (aiohttp.ClientError, TimeoutError, ValueError):
+            _LOGGER.warning("Unable to fetch a Mashov profile picture")
+            return "fetch_failed"
+        return "unauthorized"
+
+    async def _fetch_pictures(self, students):
+        """Fetch every student's picture once per refresh; the status map goes to the coordinator."""
+        statuses = {}
+        for student in students:
+            status = await self._fetch_student_picture(student["id"])
+            statuses[student["id"]] = status
+            self._record_status("picture", status, student["id"])
+        current = {student["id"] for student in students}
+        for sid in set(self._pictures) - current:
+            self._pictures.pop(sid, None)
+        overall = "ok" if statuses and all(status == "ok" for status in statuses.values()) else "partial_failure"
+        return {"status": overall, "by_student": statuses}
 
     async def _async_fetch_mailbox(self):
         """Fetch the account inbox once; store attachments only when opted in."""
