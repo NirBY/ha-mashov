@@ -154,7 +154,8 @@ variables:
     {% set ns = namespace(lines=[]) %}
     {% for it in items %}
       {% if it.lesson_date is defined and it.lesson_date %}
-        {% if as_datetime(it.lesson_date).date() == today %}
+        {% set lesson_day = as_datetime(it.lesson_date, none) %}
+        {% if lesson_day is not none and lesson_day.date() == today %}
           {% set subj = it.subject_name or it.subject or 'מקצוע' %}
           {% set hw = (it.homework or it.remark or '') | replace('\n',' ') %}
           {% set ns.lines = ns.lines + [subj ~ ': ' ~ hw] %}
@@ -170,7 +171,8 @@ variables:
     {% set ns = namespace(lines=[]) %}
     {% for it in items %}
       {% if it.lesson_date is defined and it.lesson_date %}
-        {% if as_datetime(it.lesson_date).date() == today %}
+        {% set lesson_day = as_datetime(it.lesson_date, none) %}
+        {% if lesson_day is not none and lesson_day.date() == today %}
           {% set subj = it.subject or 'מקצוע' %}
           {% set tag  = it.achva_name or it.event or 'אירוע' %}
           {% set ns.lines = ns.lines + [subj ~ ': ' ~ tag] %}
@@ -188,8 +190,10 @@ variables:
     {% set today = now().date() %}
     {% set holiday = namespace(found=false) %}
     {% for it in items %}
-      {% set s = (as_datetime(it.start).date() if (it.start is defined and it.start) else none) %}
-      {% set e = (as_datetime(it.end).date()   if (it.end   is defined and it.end)   else s) %}
+      {% set sd = as_datetime(it.start, none) if (it.start is defined and it.start) else none %}
+      {% set ed = as_datetime(it.end, none) if (it.end is defined and it.end) else none %}
+      {% set s = sd.date() if sd is not none else none %}
+      {% set e = ed.date() if ed is not none else s %}
       {% if s and (today >= s) and (today <= e) %}
         {% set holiday.found = true %}
       {% endif %}

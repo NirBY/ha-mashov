@@ -73,8 +73,52 @@ from .data_selection import (
     mailbox_option_errors,
     merge_selection_options,
 )
-from .mashov_client import MashovAuthError, MashovClient, MashovError
+from .mashov_client import MashovAuthError, MashovClient, MashovError, configured_school_year
 from .schedule_flow import DataScheduleFlow, schedule_fields
+
+
+def _plain_school_name(name, semel, catalog_options=None):
+    """School name for the entry title, without the "(semel)" suffix of autocomplete labels.
+
+    A bare semel is not a name: use the catalog label when known, otherwise none,
+    so the title becomes "<semel>" rather than "<semel> (<semel>)".
+    """
+    suffix = f"({semel})"
+    name = str(name or "").strip()
+    if name.endswith(suffix):
+        name = name[: -len(suffix)].strip()
+    if name in ("", str(semel)):
+        label = next(
+            (option["label"] for option in catalog_options or [] if str(option.get("value")) == str(semel)), ""
+        )
+        name = label[: -len(suffix)].strip() if label.endswith(suffix) else ""
+    return name
+
+
+async def _async_login_error(hass, data, options) -> str | None:
+    """Log in once with the hub's school, year and API address and these credentials.
+
+    Returns a form error key ("auth" or "cannot_connect"), or None when the login
+    works. The client is only used for this check and is closed right away.
+    """
+    client = MashovClient(
+        school_id=data[CONF_SCHOOL_ID],
+        year=configured_school_year(data, options),
+        username=data[CONF_USERNAME],
+        password=data[CONF_PASSWORD],
+        api_base=options.get(CONF_API_BASE, DEFAULT_API_BASE),
+    )
+    try:
+        await client.async_init(hass)
+    except MashovAuthError as err:
+        _LOGGER.warning("Mashov rejected the new credentials: %s", err)
+        return "auth"
+    except Exception as err:
+        _LOGGER.warning("Could not check the new Mashov credentials: %s", err)
+        return "cannot_connect"
+    finally:
+        await client.async_close()
+    return None
 
 
 def _data_fields(selected, options):
@@ -341,6 +385,7 @@ class ConfigFlow(DataScheduleFlow, config_entries.ConfigFlow, domain=DOMAIN):
                 else:
                     school_name = user_input.get(CONF_SCHOOL_NAME, str(user_input[CONF_SCHOOL_ID]))
                 school_semel = user_input[CONF_SCHOOL_ID]
+                school_name = _plain_school_name(school_name, school_semel, self._catalog_options)
                 _LOGGER.debug("Creating entry with title: %s (%s)", school_name, school_semel)
                 # Save school name in data for later use (e.g., title updates)
                 user_input[CONF_SCHOOL_NAME] = school_name
@@ -366,7 +411,7 @@ class ConfigFlow(DataScheduleFlow, config_entries.ConfigFlow, domain=DOMAIN):
                 customize = user_input.pop(CONF_EDIT_DATA_SCHEDULES, False)
                 self._schedule_options = merge_selection_options({}, selection)
                 self._schedule_data = user_input
-                self._schedule_title = f"{school_name} ({school_semel})"
+                self._schedule_title = f"{school_name} ({school_semel})" if school_name else str(school_semel)
                 if customize:
                     return await self.async_step_data_schedules()
                 return await self._async_finish_schedules()
@@ -532,12 +577,24 @@ class OptionsFlowHandler(DataScheduleFlow, config_entries.OptionsFlow):
                 if new_password:
                     updated_data[CONF_PASSWORD] = new_password
 
-                customize = normalized.pop(CONF_EDIT_DATA_SCHEDULES, False)
-                self._schedule_options = normalized
-                self._schedule_data = updated_data
-                if customize:
-                    return await self.async_step_data_schedules()
-                return await self._async_finish_schedules()
+                # Like adding a hub: new credentials are tried before they are saved, so a
+                # mistyped password is reported here instead of at the next scheduled refresh.
+                if (updated_data.get(CONF_USERNAME), updated_data.get(CONF_PASSWORD)) != (
+                    self.config_entry.data.get(CONF_USERNAME),
+                    self.config_entry.data.get(CONF_PASSWORD),
+                ):
+                    login_error = await _async_login_error(self.hass, updated_data, normalized)
+                    if login_error:
+                        # On the password field, a rejection also opens the account section.
+                        errors[CONF_PASSWORD if login_error == "auth" else "base"] = login_error
+
+                if not errors:
+                    customize = normalized.pop(CONF_EDIT_DATA_SCHEDULES, False)
+                    self._schedule_options = normalized
+                    self._schedule_data = updated_data
+                    if customize:
+                        return await self.async_step_data_schedules()
+                    return await self._async_finish_schedules()
 
         current_options = dict(self.config_entry.options)
         if user_input is not None:
@@ -545,7 +602,8 @@ class OptionsFlowHandler(DataScheduleFlow, config_entries.OptionsFlow):
         _LOGGER.debug("Building options schema from current options (values omitted)")
 
         options = {
-            CONF_USERNAME: self.config_entry.data.get(CONF_USERNAME, ""),
+            # After a rejected login the form keeps the username that was typed.
+            CONF_USERNAME: (user_input or {}).get(CONF_USERNAME) or self.config_entry.data.get(CONF_USERNAME, ""),
             CONF_HOMEWORK_DAYS_BACK: current_options.get(CONF_HOMEWORK_DAYS_BACK, DEFAULT_HOMEWORK_DAYS_BACK),
             CONF_HOMEWORK_DAYS_FORWARD: current_options.get(CONF_HOMEWORK_DAYS_FORWARD, DEFAULT_HOMEWORK_DAYS_FORWARD),
             CONF_API_BASE: current_options.get(CONF_API_BASE, DEFAULT_API_BASE),

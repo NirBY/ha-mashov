@@ -52,6 +52,7 @@ class _FakeSession:
 
     def __init__(self, response: _FakeResponse) -> None:
         self.closed = False
+        self.cookie_jar = MagicMock()  # a full login clears it first
         self._response = response
 
     def post(self, *args, **kwargs) -> _FakeRequestContext:

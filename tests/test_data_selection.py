@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 import logging
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.exceptions import ServiceValidationError
@@ -261,7 +262,9 @@ async def test_disable_purges_disk_cache_even_when_login_fails(hass, mock_config
         "full_content": True,
         "items": [{"messages": [{"subject": "header", "body": "old private body"}]}] * 2,
     }
-    cached = {"data": snapshot, "auth": {"csrf_token": "synthetic"}, "last_refresh_ts": 123}
+    # Refreshed after the last scheduled run, so setup has no missed run to catch up.
+    refreshed_at = time.time()
+    cached = {"data": snapshot, "auth": {"csrf_token": "synthetic"}, "last_refresh_ts": refreshed_at}
     patcher, client = _patch_client(MashovError("offline"))
     try:
         with _patch_cache(cached) as store_class:
@@ -275,7 +278,7 @@ async def test_disable_purges_disk_cache_even_when_login_fails(hass, mock_config
             await hass.async_block_till_done()
             saved = store_class.return_value.async_save.call_args.args[0]
             assert saved["auth"] == cached["auth"]
-            assert saved["last_refresh_ts"] == 123
+            assert saved["last_refresh_ts"] == refreshed_at
             assert "old private" not in str(saved)
             if selected:
                 assert len(saved["data"]["mailbox"]["items"]) == 1

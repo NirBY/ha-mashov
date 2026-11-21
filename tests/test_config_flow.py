@@ -169,15 +169,19 @@ async def test_options_flow(hass: HomeAssistant, mock_config_entry):
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "init"
 
-    result2 = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        user_input={
-            "username": "updated_user",
-            "password": "updated_password",
-            "schedule_type": "daily",
-            "schedule_time": "14:00",
-        },
-    )
+    # New credentials are tried before they are saved.
+    with patch("custom_components.mashov.config_flow.MashovClient") as mock_client:
+        mock_client.return_value.async_init = AsyncMock(return_value=None)
+        mock_client.return_value.async_close = AsyncMock(return_value=None)
+        result2 = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            user_input={
+                "username": "updated_user",
+                "password": "updated_password",
+                "schedule_type": "daily",
+                "schedule_time": "14:00",
+            },
+        )
 
     assert result2["type"] == FlowResultType.CREATE_ENTRY
     assert result2["data"]["schedule_time"] == "14:00"
@@ -187,3 +191,42 @@ async def test_options_flow(hass: HomeAssistant, mock_config_entry):
     assert updated_entry is not None
     assert updated_entry.data["username"] == "updated_user"
     assert updated_entry.data["password"] == "updated_password"
+
+
+@pytest.mark.parametrize(
+    ("school_input", "expected_title"),
+    [
+        (TEST_SCHOOL_ID, TEST_SCHOOL_ID),
+        (f"Herzl High ({TEST_SCHOOL_ID})", f"Herzl High ({TEST_SCHOOL_ID})"),
+        (f"  Herzl High ({TEST_SCHOOL_ID})  ", f"Herzl High ({TEST_SCHOOL_ID})"),
+    ],
+)
+async def test_school_id_appears_once_in_the_title(hass: HomeAssistant, school_input, expected_title):
+    """Autocomplete labels and bare semels must not produce "<name> (<id>) (<id>)"."""
+    with (
+        patch("custom_components.mashov.config_flow.MashovClient") as mock_client,
+        patch("custom_components.mashov.async_setup", return_value=True),
+        patch("custom_components.mashov.async_setup_entry", return_value=True),
+    ):
+        mock_client.return_value.async_init = AsyncMock(return_value=None)
+        mock_client.return_value.async_close = AsyncMock(return_value=None)
+        result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"username": TEST_USERNAME, "password": TEST_PASSWORD, "school_name": school_input},
+        )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["title"] == expected_title
+    entry = hass.config_entries.async_get_entry(result["result"].entry_id)
+    name = entry.data["school_name"]
+    assert (f"{name} ({TEST_SCHOOL_ID})" if name else TEST_SCHOOL_ID) == expected_title
+
+
+def test_plain_school_name_uses_catalog_for_a_bare_semel():
+    from custom_components.mashov.config_flow import _plain_school_name
+
+    catalog = [{"value": 410123, "label": "Hadarim (410123)"}]
+    assert _plain_school_name("410123", 410123, catalog) == "Hadarim"
+    assert _plain_school_name("410123", 410123, []) == ""
+    assert _plain_school_name("Hadarim (410123)", 410123) == "Hadarim"
+    assert _plain_school_name("Name (2024)", 410123) == "Name (2024)"

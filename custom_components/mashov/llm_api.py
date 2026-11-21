@@ -190,7 +190,7 @@ class MashovReadTool(MashovTool):
 
     name = "mashov__read"
     description = (
-        "Read a selected Mashov dataset. student_id is required except for holidays/mailbox/parent_approvals. "
+        "Read a selected Mashov dataset. student_id is required except for holidays/mailbox/parent_approvals/bells. "
         "Returns source status, freshness and pagination. No portal requests or write operations."
     )
     parameters = schema.Schema(

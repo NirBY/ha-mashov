@@ -363,17 +363,18 @@ def resolve_students(hass: HomeAssistant, raw_students: Iterable[dict[str, Any]]
 def _holiday_scan(holidays: str) -> str:
     """Jinja that scans the holidays sensor's items and sets `today` and `ns`.
 
-    ns.cur: the holiday covering today (end date inclusive; missing end = one day).
+    ns.cur: the holiday covering today (end date inclusive; missing end = one day); ns.cur_end: its end date.
     ns.nxt: the future holiday with the earliest start.
     """
     return (
         "{%- set today = now().date() -%}"
-        "{%- set ns = namespace(cur=none, nxt=none) -%}"
+        "{%- set ns = namespace(cur=none, cur_end=none, nxt=none) -%}"
         "{%- for x in state_attr('" + holidays + "', 'items') or [] -%}"
-        "{%- if x.start -%}"
-        "{%- set s = as_datetime(x.start).date() -%}"
-        "{%- set e = as_datetime(x.end or x.start).date() -%}"
-        "{%- if s <= today and today <= e -%}{%- set ns.cur = x -%}"
+        "{%- set sd = as_datetime(x.start, none) if x.start else none -%}"
+        "{%- if sd is not none -%}"
+        "{%- set s = sd.date() -%}"
+        "{%- set e = (as_datetime(x.end, none) or sd).date() if x.end else s -%}"
+        "{%- if s <= today and today <= e -%}{%- set ns.cur = x -%}{%- set ns.cur_end = e -%}"
         "{%- elif s > today and (ns.nxt is none or s < as_datetime(ns.nxt.start).date()) -%}{%- set ns.nxt = x -%}"
         "{%- endif -%}{%- endif -%}{%- endfor -%}"
     )
@@ -429,7 +430,7 @@ def _hero(holidays: str | None) -> dict[str, Any]:
         card["icon"] = scan + "{{ 'mdi:palm-tree' if ns.cur else 'mdi:school' }}"
         card["state_content"] = [
             scan + "{%- if ns.cur -%}"
-            "🌴 {{ ns.cur.name }} · עוד {{ (as_datetime(ns.cur.end or ns.cur.start).date() - today).days + 1 }} ימים לחזרה ללימודים"
+            "🌴 {{ ns.cur.name }} · עוד {{ (ns.cur_end - today).days + 1 }} ימים לחזרה ללימודים"
             "{%- elif ns.nxt -%}"
             "📅 עוד {{ (as_datetime(ns.nxt.start).date() - today).days }} ימים ל{{ ns.nxt.name }}"
             "{%- else -%}שנת לימודים רגילה{%- endif -%}"

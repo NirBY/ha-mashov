@@ -196,10 +196,10 @@ def test_forbidden_resource_at_one_school_does_not_disable_another_school():
 )
 def test_lessons_count_and_study_groups_use_read_only_student_paths(key, path):
     """#20 and #21: both resources are per-student GET endpoints, opt-in and off by default."""
-    client = make_client(payload=[{"subjectName": "Math", "absences": 1}])
+    client = make_client(payload=[{"groupId": 7, "lessonsCount": 12, "weeklyHours": 3}])
     assert MashovClient("123", 2027, "test", "test").additional_data == ()
     result = fetch(client, key=key)
-    assert result == {"status": "ok", "items": [{"subjectName": "Math", "absences": 1}]}
+    assert result == {"status": "ok", "items": [{"groupId": 7, "lessonsCount": 12, "weeklyHours": 3}]}
     url = client._session.get.call_args.args[0]
     assert url.endswith(f"students/student/{path}")
     assert {call[0].split("(")[0] for call in client._session.mock_calls} == {"get"}

@@ -105,8 +105,26 @@ async def websocket_get(hass, connection, msg):
 async def create_hub(hass, payload):
     """Run the normal registration/authentication flow and commit schedules with the hub."""
     general = SCHEDULE_SCHEMA(payload["general"])
-    general["schedule_days"] = [str(day) for day in general["schedule_days"]]
     overrides = DATA_SCHEDULES_SCHEMA(payload["overrides"])
+    student_schedules = STUDENT_SCHEDULES_SCHEMA(payload.get("student_schedules") or {})
+    # The form schema differs when the inline editor is registered: its refresh
+    # section accepts only the editor value, not the flat schedule fields.
+    if hass.data.get(DOMAIN, {}).get("inline_schedule_editor"):
+        schedules = {
+            "refresh": {
+                "schedule_editor": {
+                    "general": general,
+                    "overrides": overrides,
+                    CONF_STUDENT_SCHEDULES: student_schedules,
+                }
+            }
+        }
+    else:
+        schedules = {
+            **general,
+            "schedule_days": [str(day) for day in general["schedule_days"]],
+            CONF_DATA_SCHEDULES: overrides,
+        }
     manager = hass.config_entries.flow
     form = await manager.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
     flow_id = form["flow_id"]
@@ -118,8 +136,7 @@ async def create_hub(hass, payload):
                 "password": payload["password"],
                 "school_name": payload["school_name"],
                 "enabled_data": payload["enabled_data"],
-                **general,
-                CONF_DATA_SCHEDULES: overrides,
+                **schedules,
             },
         )
         if result["type"] == "create_entry":
@@ -204,7 +221,7 @@ def websocket_save(hass, connection, msg):
 
 async def async_setup_panel(hass):
     script_path = Path(__file__).with_name("schedule-editor.js")
-    script_revision = sha256(script_path.read_bytes()).hexdigest()[:12]
+    script_revision = sha256(await hass.async_add_executor_job(script_path.read_bytes)).hexdigest()[:12]
     websocket_api.async_register_command(hass, websocket_get)
     websocket_api.async_register_command(hass, websocket_save)
     hass.http.register_view(HubRegistrationView(hass))

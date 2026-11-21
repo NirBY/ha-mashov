@@ -282,7 +282,10 @@ async def test_password_edit_on_legacy_duplicate_does_not_claim_other_unique_id(
     other.add_to_hass(hass)
     handler = OptionsFlowHandler(mock_config_entry)
     handler.hass = hass
-    await handler.async_step_init({"password": "changed"})
+    with patch("custom_components.mashov.config_flow.MashovClient") as client_class:  # the new password logs in
+        client_class.return_value.async_init = AsyncMock()
+        client_class.return_value.async_close = AsyncMock()
+        await handler.async_step_init({"password": "changed"})
     assert mock_config_entry.data["password"] == "changed"
     assert mock_config_entry.unique_id == "123456"
 

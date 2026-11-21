@@ -36,7 +36,8 @@ Tools:
 - `mashov__catalog`: children and enabled dataset names for that account.
 - `mashov__read`: full cached selected dataset, optionally paginated with `offset`
   and `limit` (1–100, default 25). Use the catalog's `student_id` for student data.
-  Holidays, mailbox and parent approvals belong to the account rather than an individual child.
+  Holidays, mailbox, parent approvals and the school bell schedule belong to the account rather than an
+  individual child. Student profile pictures are images kept in memory and are not available through this tool.
 
 All supported data categories are accessible when selected for fetching: homework,
 behavior, weekly plans, timetables, lesson history, grades, holidays, optional student

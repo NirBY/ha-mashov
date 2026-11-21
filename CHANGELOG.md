@@ -3,13 +3,24 @@
 ## [Unreleased]
 
 ### Added
-- Opt-in, read-only data (Data to fetch): absence and lateness counts per subject (`lessonsCount`, #20), study groups and teachers (`groups`, #21), the school bell schedule as one hub sensor (#18), and student profile pictures as image entities kept in memory (#19). Pictures are never written to the cache or the recorder, and they are not exposed to the AI text tool.
+- Opt-in, read-only data (Data to fetch): lessons held and weekly hours per group (`lessonsCount`, #20), study groups and teachers (`groups`, #21), the school bell schedule as one hub sensor (#18), and student profile pictures as image entities kept in memory (#19). Pictures are never written to the cache or the recorder, and they are not exposed to the AI text tool.
 
 ### Changed
 - TBD
 
 ### Fixed
-- TBD
+- Registering a new hub from the schedules page (`/mashov-schedules?new=1`) failed form validation when the inline schedule editor was active.
+- New hubs created from an autocomplete label or a bare school number no longer get the school number twice in their title.
+- The schedule editor script is read outside the event loop at startup.
+- A hub whose first setup fails without a cache is no longer visible to `refresh_now`, `set_options` or the MCP tools.
+- The daily homework announcement blueprint and the Mashov Live holiday header skip malformed dates instead of failing to render.
+- Profile pictures are read to the end; a picture that arrived in several network reads was stored cut off and reported as `ok`.
+- After the Mashov password changes, a refresh makes one failed login instead of one per request (about six per child), which could lock the account. Requests still running are cancelled once the refresh fails.
+- A daily or weekly refresh that fails for a network or server reason is retried after 5, 15 and 60 minutes instead of waiting for the next day or week. Rejected logins are not retried. Because the retries count as consecutive failures, the "could not refresh" notice now appears about 20 minutes after the scheduled time instead of three days later.
+- After a restart, a daily or weekly refresh that was missed while Home Assistant was off, or that failed, runs right away. Each schedule is checked against when its own data last refreshed, so another schedule's refresh does not hide a missed run. A refresh that fails during a reload (newly selected data or new credentials) is retried like a scheduled one. Before, the restart cleared the stale flag and the old data was shown as current until the next scheduled time.
+- Logging in again after a restored session expires starts from an empty cookie jar. The expired restored cookie could otherwise be sent instead of the new one, so every refresh failed with "Authentication failed after one retry" until Home Assistant restarted.
+- A Mashov outage no longer switches off a data type that has its own refresh schedule. A server error only counts toward "turned off by the school" while Mashov answers another data type, in the same refresh or within the hour before; before, three hourly 503s on a type refreshed alone removed it from the selection.
+- **Configure** tries a new username or password before saving it and shows "Authentication failed" or "Cannot reach Mashov" instead of saving credentials that do not work. After a credential change the hub logs in right away, also in daily and weekly mode, instead of at its next scheduled refresh (up to a week later).
 
 ## [1.3.1] - 2026-11-20
 

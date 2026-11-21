@@ -240,7 +240,9 @@
       "already_configured": "This Mashov account is already configured.",
       "mailbox_required": "Select Mailbox before enabling full message content.",
       "full_content_required": "Select Mailbox and enable full message content before enabling attachments.",
-      "invalid_data_schedule": "Enter a valid time (HH:MM[:SS]), interval (5–1440 minutes), and at least one weekday for a weekly schedule."
+      "invalid_data_schedule": "Enter a valid time (HH:MM[:SS]), interval (5–1440 minutes), and at least one weekday for a weekly schedule.",
+      "auth": "Authentication failed. Check credentials/school.",
+      "cannot_connect": "Cannot reach Mashov."
     }
   },
   "selector": {
@@ -256,7 +258,7 @@
         "student_files": "Student files",
         "justification_requests": "Absence justification requests",
         "special_hours": "Individual lessons",
-        "lessons_count": "Absence and lateness counts per subject",
+        "lessons_count": "Lessons held and weekly hours per group",
         "study_groups": "Study groups and teachers"
       }
     },
@@ -298,7 +300,7 @@
         "student_files": "Student files",
         "justification_requests": "Absence justification requests",
         "special_hours": "Individual lessons",
-        "lessons_count": "Absence and lateness counts per subject",
+        "lessons_count": "Lessons held and weekly hours per group",
         "study_groups": "Study groups and teachers",
         "mailbox": "Mailbox — headers and unread count",
         "parent_approvals": "Parent approvals — trips and forms (read only)",
@@ -440,7 +442,7 @@
         "name": "Open forms and approvals"
       },
       "lessons_count": {
-        "name": "Absence and lateness counts per subject"
+        "name": "Lessons held and weekly hours per group"
       },
       "study_groups": {
         "name": "Study groups and teachers"

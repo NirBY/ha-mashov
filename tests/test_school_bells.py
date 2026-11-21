@@ -113,3 +113,19 @@ def test_failed_refresh_keeps_last_bells_as_retained():
     # The last good list stays visible (and counted) while the status shows the failure.
     assert make_sensor(merged["bells"]).native_value == 2
     assert make_sensor(merged["bells"]).extra_state_attributes["source_status"] == "http_500"
+
+
+@pytest.mark.asyncio
+async def test_bells_are_sorted_by_lesson_number_with_unnumbered_last():
+    client = make_client()
+    unnumbered = {"startTime": "13:00"}
+    client._fetch_account_json = AsyncMock(return_value=("ok", [BELLS[1], unnumbered, {"lessonNumber": 0}, BELLS[0]]))
+    result = {}
+    await client._fetch_account_resources(result, {"bells"}, [])
+    assert result["bells"]["items"] == [{"lessonNumber": 0}, BELLS[0], BELLS[1], unnumbered]
+
+
+def test_retained_bells_are_flagged_as_retained_items():
+    sensor = make_sensor({"items": BELLS, "status": "http_500", "retained": True})
+    assert sensor.extra_state_attributes["items_retained"] is True
+    assert "items_retained" not in make_sensor({"items": BELLS, "status": "ok"}).extra_state_attributes

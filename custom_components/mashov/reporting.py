@@ -48,6 +48,8 @@ _STATUSES = {
     "fetch_failed",
     "disabled",
     "not_fetched",
+    "partial_failure",
+    "too_large",
 }
 # Exception classes that indicate a bug in the integration (and may be reported).
 # technical_log() relies on the error being one of these to name its type.
@@ -73,6 +75,7 @@ _SOURCE_FILES = {
     "data_selection.py",
     "entity.py",
     "holidays_utils.py",
+    "image.py",
     "live_dashboard.py",
     "llm_api.py",
     "mailbox.py",
@@ -184,10 +187,22 @@ def _account_statuses(data):
         routes["mailbox_status"] = {key: mailbox.get(key) for key in ("status", "counts_status")}
     if isinstance(approvals := data.get("parent_approvals"), dict):
         routes["parent_approvals_status"] = {"status": approvals.get("status"), **approvals.get("forms_status", {})}
-    return {
+    if isinstance(bells := data.get("bells"), dict):
+        routes["bells_status"] = {"status": bells.get("status")}
+    if isinstance(picture := data.get("picture"), dict):
+        routes["picture_status"] = {"status": picture.get("status")}
+    result = {
         name: {key: status if status in _STATUSES else "other_error" for key, status in statuses.items()}
         for name, statuses in routes.items()
     }
+    if isinstance(picture, dict) and isinstance(picture.get("by_student"), dict):
+        # Outcome counts only; student ids never leave the integration.
+        counts = {}
+        for status in picture["by_student"].values():
+            status = status if status in _STATUSES else "other_error"
+            counts[status] = counts.get(status, 0) + 1
+        result["picture_student_status_counts"] = counts
+    return result
 
 
 def issue_report_url(title, technical_logs=None):

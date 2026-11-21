@@ -1481,8 +1481,9 @@ class MashovApprovalsSensor(MashovAdditionalSensor):
 
     @property
     def native_value(self):
-        ok = _approvals(self.coordinator).get("status") == "ok"
-        return len(self._pending) if self.available and ok else None
+        resource = _approvals(self.coordinator)
+        usable = resource.get("status") == "ok" or resource.get("retained")
+        return len(self._pending) if self.available and usable else None
 
     @property
     def extra_state_attributes(self):
@@ -1495,6 +1496,7 @@ class MashovApprovalsSensor(MashovAdditionalSensor):
             "data_stale": self.data_stale or resource.get("status") != "ok" or resource.get("answers_failures", 0) > 0,
             "next_deadline": pending[0]["answer_deadline"] if pending else None,
             "total_pending": len(pending),
+            **({"items_retained": True} if resource.get("retained") else {}),
             "truncated": False,
             "pending": [],
             "last_update": _local_timestamp(
@@ -1531,7 +1533,8 @@ class MashovOpenFormsSensor(MashovEntity, SensorEntity):
 
     @property
     def native_value(self):
-        counts = [len(items) for status, items in self._parts().values() if status == "ok"]
+        retained = _approvals(self.coordinator).get("retained")
+        counts = [len(items) for status, items in self._parts().values() if status == "ok" or retained]
         return sum(counts) if counts else None
 
     @property
@@ -1549,6 +1552,8 @@ class MashovOpenFormsSensor(MashovEntity, SensorEntity):
         attributes = {f"{part}_status": status or "not_fetched" for part, (status, _items) in parts.items()}
         attributes.update({f"{part}_count": len(items) for part, (_status, items) in parts.items()})
         attributes["data_stale"] = self.data_stale or any(status != "ok" for status, _items in parts.values())
+        if _approvals(self.coordinator).get("retained"):
+            attributes["items_retained"] = True
         attributes["truncated"] = False
         attributes["last_update"] = _local_timestamp(
             _approvals(self.coordinator).get("last_update", getattr(self.coordinator, "last_successful_update", None))
@@ -1602,6 +1607,7 @@ class MashovBellsSensor(MashovEntity, SensorEntity):
             "source_status": status,
             "data_stale": self.data_stale or status != "ok",
             "total_lessons": len(items),
+            **({"items_retained": True} if resource.get("retained") else {}),
             "truncated": False,
             "items": [],
             "last_update": _local_timestamp(

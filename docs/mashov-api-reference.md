@@ -114,7 +114,7 @@ Side effects: `none` / `marks read` / `writes`. Rows marked ⚠ are calls the ap
 | GET | `students/<STUDENT_GUID>/countBehave…`, `dailyBehaveCount` | Counters | none | bundle-only |
 | GET | `achvas` | Behavior-code dictionary | none | yes |
 | GET | `students/<STUDENT_GUID>/groups` | Child's groups/classes + teachers | none | yes |
-| GET | `students/<STUDENT_GUID>/lessonsCount[?start=]` | Lessons held per group | none | yes |
+| GET | `students/<STUDENT_GUID>/lessonsCount[?start=]` | Lessons held and weekly hours per group (not absences or lateness) | none | yes |
 | GET | `students/<STUDENT_GUID>/grades[?start=]` | Regular grades | none | yes (empty list; screen blocked by school) |
 | GET | `students/<STUDENT_GUID>/gradingEvents` | **Graded events/exams with dates (`eDate`)** | none | yes |
 | GET | `students/<STUDENT_GUID>/grades/groupsAvarge` | Group averages | none | bundle-only |
@@ -141,7 +141,8 @@ Side effects: `none` / `marks read` / `writes`. Rows marked ⚠ are calls the ap
 | GET | `students/<STUDENT_GUID>/alfon` | Class phone list | none | yes (403, `hasParentsAlfon` off) |
 | GET | `students/<STUDENT_GUID>/details`, `/siblings`, `/treatingteam`, `/goals` | Staff-side details | none | yes (403 for parent) |
 | GET | `students/<STUDENT_GUID>/lessons/history`, `/lessons/plans` | Lesson history / weekly plan | none | bundle-only |
-| URL | `students/<STUDENT_GUID>/picture` | Child photo | none | bundle-only |
+| GET | `user/<STUDENT_GUID>/picture` | Child photo (read; verified live with the child GUID) | none | yes |
+| POST | `students/<STUDENT_GUID>/picture` | Child photo upload (never called by this integration) | writes | bundle-only |
 | GET | `bbb?start=&end=` | Online classes (כיתה מקוונת) | none | yes |
 | GET | `bbb/recordings` | Recordings | none | yes (empty list) |
 | GET | `healthCheck/culture` | Fired by the BBB page | none | yes |
