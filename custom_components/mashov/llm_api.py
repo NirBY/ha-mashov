@@ -16,6 +16,9 @@ from .const import DOMAIN
 from .data_schedule import SHARED_DATA
 from .data_selection import DATA_KEYS, enabled_data, filter_cached_data
 
+# Profile pictures are binary image data kept in memory; the text tool does not expose them.
+LLM_DATA_KEYS = tuple(key for key in DATA_KEYS if key != "picture")
+
 CONF_MCP_ENABLED = "mcp_enabled"
 
 
@@ -172,7 +175,7 @@ class MashovCatalogTool(MashovTool):
                     {k: student.get(k) for k in ("id", "name", "year", "school_id")}
                     for student in data.get("students", [])
                 ],
-                "datasets": list(enabled_data(coordinator.entry.options)),
+                "datasets": [key for key in enabled_data(coordinator.entry.options) if key in LLM_DATA_KEYS],
                 "data_stale": bool(
                     coordinator.data_stale
                     or not coordinator.last_update_success
@@ -187,12 +190,12 @@ class MashovReadTool(MashovTool):
 
     name = "mashov__read"
     description = (
-        "Read a selected Mashov dataset. student_id is required except for holidays/mailbox/parent_approvals. "
+        "Read a selected Mashov dataset. student_id is required except for holidays/mailbox/parent_approvals/bells. "
         "Returns source status, freshness and pagination. No portal requests or write operations."
     )
     parameters = schema.Schema(
         {
-            schema.Required("dataset"): schema.In(DATA_KEYS),
+            schema.Required("dataset"): schema.In(LLM_DATA_KEYS),
             schema.Optional("student_id"): str,
             schema.Optional("offset", default=0): schema.All(int, schema.Range(min=0)),
             schema.Optional("limit", default=25): schema.All(int, schema.Range(min=1, max=100)),

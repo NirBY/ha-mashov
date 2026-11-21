@@ -95,8 +95,14 @@ async def test_registration_http_passes_valid_draft_and_rejects_invalid_schedule
         assert json.loads(response.text) == {"created": False, "errors": ["invalid_data_schedule"]}
 
 
+@pytest.mark.parametrize("inline", [False, True])
 @pytest.mark.parametrize("failure", [None, "auth", "duplicate"])
-async def test_interactive_registration_commits_general_and_overrides_together(hass, mock_config_entry, failure):
+async def test_interactive_registration_commits_general_and_overrides_together(
+    hass, mock_config_entry, failure, inline
+):
+    """Production registers the inline editor, so registration must pass its form schema too."""
+    if inline:
+        hass.data.setdefault("mashov", {})["inline_schedule_editor"] = True
     if failure == "duplicate":
         mock_config_entry.add_to_hass(hass)
     payload = {
@@ -160,7 +166,7 @@ async def test_registration_and_editor_share_complete_translations(hass, mock_co
     assert payload["ui"] == expected
     assert payload["ui"]["username"] == source["config"]["step"]["user"]["data"]["username"]
     assert payload["ui"]["password"] == source["config"]["step"]["user"]["data"]["password"]
-    assert len(payload["datasets"]) == 19
+    assert len(payload["datasets"]) == 23
     assert "test_password" not in json.dumps(payload)
 
 

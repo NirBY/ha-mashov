@@ -49,9 +49,15 @@ def _client(**kwargs):
     return client
 
 
-def _refresh(client, statuses, selected=SELECTED):
-    """Record one refresh's attempt outcomes and evaluate the closure rule, as async_fetch_all does."""
+def _refresh(client, statuses, selected=SELECTED, mashov_answers=True):
+    """Record one refresh's attempt outcomes and evaluate the closure rule, as async_fetch_all does.
+
+    ``mashov_answers`` adds a successful homework answer to the refresh: a 5xx streak is
+    only counted while Mashov answers some other data type.
+    """
     client._refresh_statuses = {}
+    if mashov_answers:
+        statuses = {"homework": {"ok"}, **statuses}
     for dataset, values in statuses.items():
         for value in values:
             client._record_status(dataset, value)
@@ -116,6 +122,35 @@ def test_unselected_data_is_never_evaluated(clock):
         clock.advance(CLOSED_FEATURE_MIN_SPACING)
 
 
+def test_a_portal_outage_seen_by_one_data_type_alone_never_retires_it(clock):
+    """A schedule that refreshes one data type alone: hourly 503s while nothing else answers."""
+    client = _client()
+    for _ in range(CLOSED_FEATURE_THRESHOLD + 1):
+        assert _refresh(client, {"justification_requests": {"http_503"}}, mashov_answers=False) == []
+        clock.advance(CLOSED_FEATURE_MIN_SPACING)
+
+
+def test_an_answer_elsewhere_within_the_hour_lets_a_one_type_refresh_count(clock):
+    client = _client()
+    results = []
+    for _ in range(CLOSED_FEATURE_THRESHOLD):
+        _refresh(client, {"homework": {"ok"}}, mashov_answers=False)  # e.g. the shared schedule ran
+        clock.advance(600)
+        results.append(_refresh(client, {"justification_requests": {"http_503"}}, mashov_answers=False))
+        clock.advance(CLOSED_FEATURE_MIN_SPACING)
+    assert results == [[], [], ["justification_requests"]]
+
+
+def test_an_answer_older_than_an_hour_or_from_the_same_type_is_no_evidence(clock):
+    client = _client()
+    _refresh(client, {"homework": {"ok"}, "justification_requests": {"ok"}}, mashov_answers=False)
+    clock.advance(CLOSED_FEATURE_MIN_SPACING + 1)
+    for _ in range(CLOSED_FEATURE_THRESHOLD):
+        assert _refresh(client, {"justification_requests": {"http_503"}}, mashov_answers=False) == []
+        clock.advance(CLOSED_FEATURE_MIN_SPACING)
+    assert "justification_requests" not in client._server_error_streak
+
+
 def test_account_routes_map_to_their_data_type():
     assert _dataset_for_account_key("mail_counts") == "mailbox"
     assert _dataset_for_account_key("mailbox") == "mailbox"
@@ -162,11 +197,21 @@ async def test_two_children_with_stable_503_are_retired_only_on_the_third_refres
     client = _student_client(["a", "b"], {"a": 503, "b": 503}, clock)
     closed = []
     for _ in range(CLOSED_FEATURE_THRESHOLD):
+        client._record_status("homework", "ok")  # another schedule's refresh succeeded within the hour
         result = await client.async_fetch_all(selected_data={"justification_requests"})
         closed.append(result["closed_features"])
         assert result["by_slug"]["a"]["additional_data"]["justification_requests"]["status"] == "http_503"
         clock.advance(CLOSED_FEATURE_MIN_SPACING)
     assert closed == [[], [], ["justification_requests"]]
+
+
+async def test_portal_outage_on_a_one_type_schedule_keeps_the_data_type(clock):
+    """The reported case: homework on its own hourly schedule while every Mashov route answers 503."""
+    client = _student_client(["a", "b"], {"a": 503, "b": 503}, clock)
+    for _ in range(CLOSED_FEATURE_THRESHOLD + 1):
+        result = await client.async_fetch_all(selected_data={"justification_requests"})
+        assert result["closed_features"] == []
+        clock.advance(CLOSED_FEATURE_MIN_SPACING)
 
 
 async def test_one_child_still_served_keeps_the_data_type(clock):

@@ -155,10 +155,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                 SENSOR_KEY_GRADES,
                 *STUDENT_RESOURCES,
                 PARENT_APPROVALS,
+                "picture",
             )
             for registered in er.async_entries_for_config_entry(registry, entry.entry_id):
                 if (
-                    registered.domain not in ("sensor", "todo")
+                    registered.domain not in ("sensor", "todo", "image")
                     or registered.platform != DOMAIN
                     or not registered.unique_id.startswith(prefix)
                 ):
@@ -1480,8 +1481,9 @@ class MashovApprovalsSensor(MashovAdditionalSensor):
 
     @property
     def native_value(self):
-        ok = _approvals(self.coordinator).get("status") == "ok"
-        return len(self._pending) if self.available and ok else None
+        resource = _approvals(self.coordinator)
+        usable = resource.get("status") == "ok" or resource.get("retained")
+        return len(self._pending) if self.available and usable else None
 
     @property
     def extra_state_attributes(self):
@@ -1494,6 +1496,7 @@ class MashovApprovalsSensor(MashovAdditionalSensor):
             "data_stale": self.data_stale or resource.get("status") != "ok" or resource.get("answers_failures", 0) > 0,
             "next_deadline": pending[0]["answer_deadline"] if pending else None,
             "total_pending": len(pending),
+            **({"items_retained": True} if resource.get("retained") else {}),
             "truncated": False,
             "pending": [],
             "last_update": _local_timestamp(
@@ -1530,7 +1533,8 @@ class MashovOpenFormsSensor(MashovEntity, SensorEntity):
 
     @property
     def native_value(self):
-        counts = [len(items) for status, items in self._parts().values() if status == "ok"]
+        retained = _approvals(self.coordinator).get("retained")
+        counts = [len(items) for status, items in self._parts().values() if status == "ok" or retained]
         return sum(counts) if counts else None
 
     @property
@@ -1548,6 +1552,8 @@ class MashovOpenFormsSensor(MashovEntity, SensorEntity):
         attributes = {f"{part}_status": status or "not_fetched" for part, (status, _items) in parts.items()}
         attributes.update({f"{part}_count": len(items) for part, (_status, items) in parts.items()})
         attributes["data_stale"] = self.data_stale or any(status != "ok" for status, _items in parts.values())
+        if _approvals(self.coordinator).get("retained"):
+            attributes["items_retained"] = True
         attributes["truncated"] = False
         attributes["last_update"] = _local_timestamp(
             _approvals(self.coordinator).get("last_update", getattr(self.coordinator, "last_successful_update", None))
@@ -1555,6 +1561,61 @@ class MashovOpenFormsSensor(MashovEntity, SensorEntity):
         attributes.update(self.schedule_attributes(PARENT_APPROVALS), **{part: [] for part in parts})
         for part, (_status, items) in parts.items():
             _fill_bounded(attributes, part, items)
+        return attributes
+
+
+class MashovBellsSensor(MashovEntity, SensorEntity):
+    """School bell schedule (lesson numbers and times), one sensor per hub.
+
+    State is the number of bells when the fetch succeeded; the ordered list is
+    kept in attributes within the recorder budget.
+    """
+
+    _attr_icon = "mdi:bell-ring-outline"
+    _attr_translation_key = "bells"
+
+    def __init__(self, coordinator, entry_id: str):
+        super().__init__(coordinator)
+        self._entry_id = entry_id
+        self._attr_unique_id = f"mashov_{entry_id}_bells"
+
+    @property
+    def _resource(self):
+        return (self.coordinator.data or {}).get("bells", {})
+
+    @property
+    def native_value(self):
+        resource = self._resource
+        usable = resource.get("status") == "ok" or resource.get("retained")
+        return len(resource.get("items", [])) if self.available and usable else None
+
+    @property
+    def device_info(self):
+        return {
+            "identifiers": {(DOMAIN, f"bells_{self._entry_id}")},
+            "name": f"Mashov – {self.coordinator.entry.title} – School bells",
+            "manufacturer": DEVICE_MANUFACTURER,
+            "model": "Mashov School Bells",
+        }
+
+    @property
+    def extra_state_attributes(self):
+        resource = self._resource
+        items = resource.get("items", [])
+        status = resource.get("status", "not_fetched")
+        attributes = {
+            "source_status": status,
+            "data_stale": self.data_stale or status != "ok",
+            "total_lessons": len(items),
+            **({"items_retained": True} if resource.get("retained") else {}),
+            "truncated": False,
+            "items": [],
+            "last_update": _local_timestamp(
+                resource.get("last_update", getattr(self.coordinator, "last_successful_update", None))
+            ),
+            **self.schedule_attributes("bells"),
+        }
+        _fill_bounded(attributes, "items", items)
         return attributes
 
 
@@ -1571,5 +1632,5 @@ def _optional_student_sensors(coord, student, selected, entry_id):
 
 def _account_sensors(coord, selected, entry_id):
     """One sensor per selected account resource; none is repeated per student."""
-    account = {"mailbox": MashovMailboxSensor, PARENT_APPROVALS: MashovOpenFormsSensor}
+    account = {"mailbox": MashovMailboxSensor, PARENT_APPROVALS: MashovOpenFormsSensor, "bells": MashovBellsSensor}
     return [sensor(coord, entry_id) for key, sensor in account.items() if key in selected]

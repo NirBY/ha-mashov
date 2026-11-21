@@ -20,7 +20,7 @@ from .data_selection import DATA_KEYS, LEGACY_CORE_DATA, enabled_data
 
 CONF_DATA_SCHEDULES = "data_schedules"
 CONF_STUDENT_SCHEDULES = "student_schedules"
-SHARED_DATA = frozenset({"holidays", "mailbox", "parent_approvals"})
+SHARED_DATA = frozenset({"holidays", "mailbox", "parent_approvals", "bells", "picture"})
 STUDENT_DATA = tuple(key for key in DATA_KEYS if key not in SHARED_DATA)
 CONF_EDIT_DATA_SCHEDULES = "edit_data_schedules"
 TIME_PATTERN = r"^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$"

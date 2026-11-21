@@ -38,4 +38,6 @@ STUDENT_RESOURCES = {
     "student_files": StudentResource("Student Files", "files"),
     "justification_requests": StudentResource("Absence Justification Requests", "justificationrequests", True),
     "special_hours": StudentResource("Individual Lessons", "specialHoursLessons"),
+    "lessons_count": StudentResource("Lesson Counters", "lessonsCount"),
+    "study_groups": StudentResource("Study Groups", "groups"),
 }

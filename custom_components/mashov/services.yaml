@@ -114,6 +114,8 @@ set_options:
             - student_files
             - justification_requests
             - special_hours
+            - lessons_count
+            - study_groups
     enabled_data:
       name: "Data to fetch"
       description: "Replaces the complete selection for this hub. Existing hubs retain their choices until changed."
@@ -139,8 +141,12 @@ set_options:
             - student_files
             - justification_requests
             - special_hours
+            - lessons_count
+            - study_groups
             - mailbox
             - parent_approvals
+            - bells
+            - picture
     data_schedules:
       name: "Schedules by data type"
       description: "Replaces the override map for this hub. Keys are data types; each schedule uses schedule_type, schedule_time, schedule_days and schedule_interval. Omit a type to follow the shared schedule; use {} to reset all overrides. Disabled data is never fetched."

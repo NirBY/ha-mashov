@@ -9,20 +9,31 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from datetime import datetime, timedelta
+from datetime import datetime, time as dt_time, timedelta
 import logging
 import time
 
 from homeassistant.components import persistent_notification  # type: ignore
 from homeassistant.config_entries import ConfigEntry  # type: ignore
-from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse, callback  # type: ignore
+from homeassistant.core import (  # type: ignore
+    HassJob,
+    HomeAssistant,
+    ServiceCall,
+    ServiceResponse,
+    SupportsResponse,
+    callback,
+)
 from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady, ServiceValidationError  # type: ignore
 from homeassistant.helpers import (
     config_validation as cv,  # type: ignore
     device_registry as dr,
     issue_registry as ir,  # type: ignore
 )
-from homeassistant.helpers.event import async_track_time_change, async_track_time_interval  # type: ignore
+from homeassistant.helpers.event import (  # type: ignore
+    async_call_later,
+    async_track_time_change,
+    async_track_time_interval,
+)
 from homeassistant.helpers.service import async_register_admin_service  # type: ignore
 from homeassistant.helpers.storage import Store  # type: ignore
 from homeassistant.helpers.translation import async_get_translations  # type: ignore
@@ -105,6 +116,10 @@ _LOGGER = logging.getLogger(__name__)
 # Bug-report links are only offered for internal (programming) errors, never for
 # normal account, network or Mashov API failures (see reporting.is_internal_error).
 _ISSUE_NOTIFICATION_KEY = "issue"
+# hass.data[DOMAIN] key: entry IDs whose next setup must log in at once (their credentials changed).
+_CREDENTIALS_CHANGED = "credentials_changed"
+# Coordinator data key: data type (or "<student id>/<data type>") -> when it last completed a refresh.
+COMPLETED_AT = "completed_at"
 
 
 def _issue_notification_id(entry: ConfigEntry) -> str:
@@ -465,6 +480,12 @@ async def _async_attachment_store(hass: HomeAssistant, entry: ConfigEntry):
     return None
 
 
+async def _async_abandon_setup(hass: HomeAssistant, entry: ConfigEntry, client) -> None:
+    """Undo a failed setup: HA will not call unload, so services and MCP must not see this hub."""
+    hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+    await client.async_close()
+
+
 def _fetch_settings_changed(cached_data: dict, options) -> bool:
     """True when the cache was fetched with a different selection or mailbox scope."""
     return (
@@ -584,6 +605,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     # records so re-enabling them forces a fetch after a failed attempt/restart.
     if isinstance(cached, dict) and cached.get("data"):
         filtered = filter_cached_data(cached["data"], entry.options)
+        # Pictures are memory-only; a status map stored by an earlier build would claim
+        # pictures this process does not have.
+        filtered.pop("picture", None)
         if filtered != cached["data"]:
             cached = {**cached, "data": filtered}
             try:
@@ -686,7 +710,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     # Determine if to perform startup refresh at all:
     # - no cached students (first boot / empty cache): always refresh, any schedule type
-    # - daily/weekly with cache: skip; the next timer or refresh_now updates the data
+    # - daily/weekly with cache: skip; the next timer or refresh_now updates the data,
+    #   and the scheduler starts a run whose time passed after the cache was saved
     # - interval with cache: refresh, unless the cache is younger than the cooldown,
     #   so frequent HA restarts do not hammer the Mashov servers
     cooldown_seconds = 6 * 60 * 60  # used only for interval
@@ -725,6 +750,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     cached_data = (cached or {}).get("data") or {}
     if cached_data and _fetch_settings_changed(cached_data, entry.options):
         do_startup_refresh = True
+    # New credentials are tried right away rather than at the next scheduled refresh.
+    changed_credentials = hass.data[DOMAIN].get(_CREDENTIALS_CHANGED, set())
+    if entry.entry_id in changed_credentials:
+        changed_credentials.discard(entry.entry_id)
+        _LOGGER.info("Credentials changed for %s; logging in now", entry.title)
+        do_startup_refresh = True
 
     # Failure handling below: always mark data stale and notify; keep the cache when
     # there is one, otherwise close the client and fail setup (see docstring).
@@ -735,6 +766,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             await coordinator.async_config_entry_first_refresh()
         except MashovPasswordChangeRequiredError as e:
             coordinator.data_stale = True
+            coordinator.auth_failed = True
             coordinator.failed_datasets = set(enabled_data(entry.options))
             _async_show_password_change_notification(hass, entry, e)
             if coordinator.data:
@@ -744,10 +776,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                 )
             else:
                 _LOGGER.error("Failed to perform startup refresh: %s", e)
-                await client.async_close()
+                await _async_abandon_setup(hass, entry, client)
                 raise ConfigEntryError(str(e)) from e
         except MashovAuthError as e:
             coordinator.data_stale = True
+            coordinator.auth_failed = True
             coordinator.failed_datasets = set(enabled_data(entry.options))
             _async_show_auth_notification(hass, entry, e, getattr(client, "login_page_url", None))
             if coordinator.data:
@@ -755,7 +788,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             else:
                 # Do not retry bad credentials in a loop; the user must update them.
                 _LOGGER.error("Failed to perform startup refresh: %s", e)
-                await client.async_close()
+                await _async_abandon_setup(hass, entry, client)
                 raise ConfigEntryError(str(e)) from e
         except Exception as e:
             coordinator.data_stale = True
@@ -768,18 +801,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                 _async_show_error_notification(hass, entry, "Mashov startup refresh failed", e)
                 coordinator._internal_error_notified = is_internal_error(e)
             if coordinator.data:
-                # Scheduled/polled refreshes will retry; keep serving the cache meanwhile.
+                # The scheduler retries a missed daily/weekly run (catch-up below); interval
+                # polling retries on its own. Keep serving the cache meanwhile.
                 _LOGGER.warning("Startup refresh failed for %s; keeping cached data: %s", entry.title, e)
             else:
                 _LOGGER.error("Failed to perform startup refresh: %s", e)
-                await client.async_close()
+                await _async_abandon_setup(hass, entry, client)
                 if isinstance(e, ConfigEntryNotReady):
                     raise
                 # Transient (network/server) failure: let Home Assistant retry the setup.
                 raise ConfigEntryNotReady(str(e)) from e
 
-    # Configure scheduler per options/YAML (also ensures timers; interval mode sets polling)
-    await _async_setup_scheduler(hass, entry)
+    # Configure scheduler per options/YAML (also ensures timers; interval mode sets polling).
+    # A daily/weekly run whose time passed while HA was down, or that failed, runs now.
+    caught_up = await _async_setup_scheduler(hass, entry, catch_up=True)
+
+    # Pictures are never cached. After a cached start fetch only them, so a restart
+    # does not bypass the schedule for every other dataset.
+    if (
+        not do_startup_refresh
+        and "picture" in enabled_data(entry.options)
+        and "picture" not in caught_up
+        and not client.pictures
+    ):
+        entry.async_create_background_task(
+            hass, coordinator.async_refresh_datasets({"picture"}), "mashov_startup_pictures"
+        )
 
     # Reconfigure when options change
     mcp_enabled_at_setup = bool(entry.options.get("mcp_enabled", False))
@@ -820,6 +867,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                 if isinstance(cached_entry, dict):
                     cached_entry["auth"] = {}
                     await store.async_save(cached_entry)
+                # Log in with them as soon as the hub reloads, even in daily/weekly mode,
+                # so a fixed password clears the auth notice and stale data right away.
+                hass.data.setdefault(DOMAIN, {}).setdefault(_CREDENTIALS_CHANGED, set()).add(updated_entry.entry_id)
             _LOGGER.info("Configuration/options updated for entry %s requiring reload", updated_entry.title)
             await hass.config_entries.async_reload(updated_entry.entry_id)
             return
@@ -940,14 +990,144 @@ def async_get_options_flow(config_entry: ConfigEntry):
     return OptionsFlowHandler(config_entry)
 
 
-async def _async_setup_scheduler(hass: HomeAssistant, entry: ConfigEntry, expected_coordinator=None):
+# Retries after a daily/weekly refresh fails for a transient reason (network, server).
+SCHEDULED_RETRY_DELAYS = (5 * 60, 15 * 60, 60 * 60)
+
+
+def _last_slot(schedule: dict, now: datetime) -> datetime | None:
+    """The most recent daily/weekly run time at or before ``now``; None for interval schedules."""
+    kind = schedule[CONF_SCHEDULE_TYPE]
+    if kind not in ("daily", "weekly"):
+        return None
+    hour, minute, second = (int(part) for part in str(schedule[CONF_SCHEDULE_TIME]).split(":"))
+    for days_back in range(8):
+        day = now.date() - timedelta(days=days_back)
+        if kind == "weekly" and day.weekday() not in schedule[CONF_SCHEDULE_DAYS]:
+            continue
+        slot = datetime.combine(day, dt_time(hour, minute, second), tzinfo=now.tzinfo)
+        if slot <= now:
+            return slot
+    return None
+
+
+class _ScheduledJob:
+    """One daily/weekly schedule: runs at its time and retries a transient failure.
+
+    A failed run used to leave the data stale until the next run, a day or a week
+    later. It is now retried after 5, 15 and 60 minutes while its data is still
+    marked failed. Auth problems are not retried: they need the user, and repeated
+    failed logins can lock the Mashov account.
+    """
+
+    def __init__(self, hass: HomeAssistant, coordinator, schedule: dict, refresh, failure_keys) -> None:
+        self._hass = hass
+        self._coordinator = coordinator
+        self.schedule = schedule
+        self._refresh = refresh  # async () -> None
+        self._failure_keys = failure_keys  # () -> keys this job marks in coordinator.failed_datasets
+        self._retry_unsub = None
+        self._cancelled = False
+
+    def unsubscribe_with(self, timer_unsub):
+        """One unsubscribe for the slot timer and any pending retry."""
+
+        def _unsubscribe():
+            timer_unsub()
+            self.cancel()
+
+        return _unsubscribe
+
+    def cancel(self) -> None:
+        self._cancelled = True
+        if self._retry_unsub is not None:
+            self._retry_unsub()
+            self._retry_unsub = None
+
+    def _failed(self) -> bool:
+        coordinator = self._coordinator
+        if getattr(coordinator, "auth_failed", False):
+            return False
+        return bool(self._failure_keys() & getattr(coordinator, "failed_datasets", set()))
+
+    async def on_time(self, now=None) -> None:
+        """Timer callback; weekly schedules only run on their weekdays."""
+        days = self.schedule[CONF_SCHEDULE_DAYS]
+        if self.schedule[CONF_SCHEDULE_TYPE] == "weekly" and dt_util.now().weekday() not in days:
+            _LOGGER.debug("Weekly mode: skipping refresh (today not in %s)", days)
+            return
+        _LOGGER.debug("Scheduled refresh fired at %s", now)
+        await self.run(0)
+
+    async def run(self, attempt: int) -> None:
+        if self._retry_unsub is not None:  # a new run replaces a pending retry
+            self._retry_unsub()
+            self._retry_unsub = None
+        await self._refresh()
+        if not self._cancelled and self._failed():
+            self.retry_later(attempt)
+
+    def retry_later(self, attempt: int) -> None:
+        title = getattr(self._coordinator.entry, "title", "")
+        if attempt >= len(SCHEDULED_RETRY_DELAYS):
+            _LOGGER.warning(
+                "Mashov refresh for %s still fails after %d retries; next try at its next scheduled time",
+                title,
+                attempt,
+            )
+            return
+        delay = SCHEDULED_RETRY_DELAYS[attempt]
+        _LOGGER.info("Scheduled Mashov refresh for %s failed; retrying in %d minutes", title, delay // 60)
+
+        @callback
+        def _retry(_now) -> None:
+            self._retry_unsub = None
+            if self._cancelled or getattr(self._coordinator, "_stopped", False) or not self._failed():
+                return  # unloaded, rescheduled, or refreshed successfully in the meantime
+            self._coordinator.entry.async_create_background_task(
+                self._hass, self.run(attempt + 1), "mashov_scheduled_retry"
+            )
+
+        self._retry_unsub = async_call_later(self._hass, delay, HassJob(_retry, cancel_on_shutdown=True))
+
+    def catch_up(self) -> bool:
+        """At setup, retry a refresh that just failed, or run a slot this job's data missed.
+
+        A slot is missed when it passed after this job's data last completed a refresh
+        (HA was off, or the run failed). Returns True when a run is due.
+        """
+        coordinator = self._coordinator
+        if getattr(coordinator, "auth_failed", False):
+            return False
+        if self._failed():
+            # A refresh during setup (new data, new credentials) just failed: retry it in a few
+            # minutes, even when today's slot had already run before the reload.
+            self.retry_later(0)
+            return True
+        slot = _last_slot(self.schedule, dt_util.now())
+        last = coordinator.last_completed(self._failure_keys())
+        if slot is None or last is None or last >= slot.timestamp():
+            return False
+        _LOGGER.info(
+            "Mashov refresh for %s scheduled at %s did not run; refreshing now",
+            getattr(coordinator.entry, "title", ""),
+            slot.isoformat(timespec="minutes"),
+        )
+        coordinator.entry.async_create_background_task(self._hass, self.run(0), "mashov_missed_refresh")
+        return True
+
+
+async def _async_setup_scheduler(
+    hass: HomeAssistant, entry: ConfigEntry, expected_coordinator=None, catch_up: bool = False
+) -> set:
     """Apply merged (YAML-overriding-UI) options and configure polling/timers.
 
     - interval: coordinator polling only (update_interval), no time triggers
     - daily: polling off, one time trigger per day at schedule_time
     - weekly: polling off, a daily trigger that only refreshes on schedule_days
     Invalid values fall back to defaults instead of failing. Safe to call repeatedly:
-    previous triggers are cancelled first.
+    previous triggers are cancelled first. A failed daily/weekly run is retried (see
+    _ScheduledJob). With ``catch_up`` (setup only), a run whose time passed after the
+    last successful refresh starts now. Returns the data types that catch-up covers.
     """
     from .const import (
         CONF_SCHEDULE_DAY,
@@ -965,7 +1145,7 @@ async def _async_setup_scheduler(hass: HomeAssistant, entry: ConfigEntry, expect
         or (expected_coordinator is not None and data.get("coordinator") is not expected_coordinator)
         or getattr(data.get("coordinator"), "_stopped", False)
     ):
-        return
+        return set()
 
     # Cancel previous timers
     prev = data.get("unsub_daily")
@@ -1037,6 +1217,7 @@ async def _async_setup_scheduler(hass: HomeAssistant, entry: ConfigEntry, expect
     # Rewire coordinator polling vs. timers
     coordinator: MashovCoordinator = data["coordinator"]
     unsubs = []
+    caught_up: set = set()
 
     if merged.get(CONF_DATA_SCHEDULES) or merged.get(CONF_STUDENT_SCHEDULES):
         # A single serialized coordinator merges selective results. No all-data
@@ -1049,31 +1230,40 @@ async def _async_setup_scheduler(hass: HomeAssistant, entry: ConfigEntry, expect
             else [(schedule, keys, None) for schedule, keys in schedule_groups(merged)]
         )
         for schedule, keys, student_data in groups:
+            keys = tuple(keys)
 
-            async def refresh_group(now=None, keys=tuple(keys), schedule=schedule, student_data=student_data):
-                if (
-                    schedule[CONF_SCHEDULE_TYPE] == "weekly"
-                    and dt_util.now().weekday() not in schedule[CONF_SCHEDULE_DAYS]
-                ):
-                    return
+            async def refresh_keys(keys=keys, student_data=student_data):
                 if student_data is None:
                     await coordinator.async_refresh_datasets(keys)
                 else:
                     await coordinator.async_refresh_datasets(keys, student_data=student_data)
 
             if schedule[CONF_SCHEDULE_TYPE] == "interval":
+
+                async def refresh_group(now=None, refresh_keys=refresh_keys):
+                    await refresh_keys()
+
                 unsubs.append(
                     async_track_time_interval(hass, refresh_group, timedelta(minutes=schedule[CONF_SCHEDULE_INTERVAL]))
                 )
-            else:
-                hour, minute, second = map(int, schedule[CONF_SCHEDULE_TIME].split(":"))
-                unsubs.append(async_track_time_change(hass, refresh_group, hour=hour, minute=minute, second=second))
+                continue
+            job = _ScheduledJob(
+                hass,
+                coordinator,
+                schedule,
+                refresh_keys,
+                lambda keys=keys, student_data=student_data: coordinator._failure_keys(keys, student_data),
+            )
+            hour, minute, second = map(int, schedule[CONF_SCHEDULE_TIME].split(":"))
+            unsubs.append(
+                job.unsubscribe_with(
+                    async_track_time_change(hass, job.on_time, hour=hour, minute=minute, second=second)
+                )
+            )
+            if catch_up and job.catch_up():
+                caught_up.update(keys)
         data["unsub_daily"] = unsubs
-        return
-
-    async def _refresh_data(now=None):
-        _LOGGER.debug("Scheduled refresh fired at %s", now)
-        await coordinator.async_request_refresh()
+        return caught_up
 
     if schedule_type == "interval":
         # Use *only* coordinator.update_interval (no extra timer)
@@ -1093,26 +1283,26 @@ async def _async_setup_scheduler(hass: HomeAssistant, entry: ConfigEntry, expect
 
         if schedule_type == "daily":
             _LOGGER.info("Daily mode: refresh at %02d:%02d", hh, mm)
-            unsubs.append(async_track_time_change(hass, _refresh_data, hour=hh, minute=mm, second=ss))
-
-        elif schedule_type == "weekly":
+        else:
             _LOGGER.info("Weekly mode: days=%s at %02d:%02d", days, hh, mm)
-
-            async def _maybe_refresh_weekly(now=None):
-                try:
-                    # HA local time; weekday() uses 0=Monday, matching schedule_days.
-                    today_idx = dt_util.now().weekday()
-                except Exception:
-                    today_idx = -1
-                if today_idx in days:
-                    await _refresh_data(now)
-                else:
-                    _LOGGER.debug("Weekly mode: skipping refresh (today=%s not in %s)", today_idx, days)
-
-            # Schedule once daily at the specified time; gate by weekday inside the callback
-            unsubs.append(async_track_time_change(hass, _maybe_refresh_weekly, hour=hh, minute=mm, second=ss))
+        # Weekly: a daily trigger gated by weekday (HA local time, 0=Monday like schedule_days).
+        job = _ScheduledJob(
+            hass,
+            coordinator,
+            {
+                CONF_SCHEDULE_TYPE: schedule_type,
+                CONF_SCHEDULE_TIME: f"{hh:02d}:{mm:02d}:{ss:02d}",
+                CONF_SCHEDULE_DAYS: days,
+            },
+            coordinator.async_refresh,
+            lambda: set(enabled_data(entry.options)),
+        )
+        unsubs.append(job.unsubscribe_with(async_track_time_change(hass, job.on_time, hour=hh, minute=mm, second=ss)))
+        if catch_up and job.catch_up():
+            caught_up = set(enabled_data(entry.options))
 
     hass.data[DOMAIN][entry.entry_id]["unsub_daily"] = unsubs
+    return caught_up
 
 
 class MashovCoordinator(DataUpdateCoordinator):
@@ -1140,6 +1330,9 @@ class MashovCoordinator(DataUpdateCoordinator):
         self._consecutive_failures = 0
         # Internal errors notify once per failure streak; reset on the next success.
         self._internal_error_notified = False
+        # The last refresh was refused for credentials or a password change. Such a
+        # failure is never retried automatically: it needs the user.
+        self.auth_failed = False
         # One FIFO refresh queue across all Mashov accounts, including manual,
         # startup and per-dataset jobs. Never overlap two account refreshes.
         self._fetch_lock = hass.data.setdefault(DOMAIN, {}).setdefault("refresh_lock", asyncio.Lock())
@@ -1232,6 +1425,24 @@ class MashovCoordinator(DataUpdateCoordinator):
             (sid, key) for sid, keys in student_data.items() for key in keys if key in requested
         }
 
+    def last_completed(self, keys) -> float | None:
+        """The oldest time any of ``keys`` (as from _failure_keys) last completed a refresh.
+
+        A child's key also accepts a refresh of that data type for every child. Data never
+        recorded (older caches, new data) falls back to the hub's last successful refresh.
+        None when nothing is known.
+        """
+        completed = (self.data or {}).get(COMPLETED_AT) or {}
+        oldest = None
+        for key in keys:
+            names = (f"{key[0]}/{key[1]}", key[1]) if isinstance(key, tuple) else (key,)
+            known = [completed[name] for name in names if isinstance(completed.get(name), (int, float))]
+            when = max(known) if known else self.last_successful_update
+            if when is None:
+                return None
+            oldest = when if oldest is None else min(oldest, when)
+        return oldest
+
     async def _async_fetch_data(self, requested=None, student_data=None):
         """Fetch everything, merge cached holidays if needed, persist the cache, notify on failure."""
         if not hasattr(self, "failed_datasets"):
@@ -1270,8 +1481,16 @@ class MashovCoordinator(DataUpdateCoordinator):
             # opted-out data if that old request completes during the reload.
             data = filter_cached_data(data, self.entry.options)
             self.data_stale = False
+            self.auth_failed = False
             previous_update = self.last_successful_update
             self.last_successful_update = time.time()
+            # When each requested data type (per child, for child schedules) last completed a
+            # refresh, whatever each source answered. Catch-up compares a schedule's own data
+            # with its slot, so another schedule's refresh cannot hide a missed run.
+            completed = dict(previous.get(COMPLETED_AT) or {})
+            for key in self._failure_keys(requested, student_data):
+                completed[key if isinstance(key, str) else f"{key[0]}/{key[1]}"] = self.last_successful_update
+            data[COMPLETED_AT] = completed
             if not hasattr(self, "failed_datasets"):
                 self.failed_datasets = set()
             self.failed_datasets.difference_update(self._failure_keys(requested, student_data))
@@ -1321,8 +1540,16 @@ class MashovCoordinator(DataUpdateCoordinator):
                 store = Store(self.hass, 1, f"{DOMAIN}.{self.entry.entry_id}.cache")
                 await store.async_save(
                     {
-                        "last_refresh_ts": time.time(),
-                        "data": data,
+                        # A picture-only refresh (after a cached start) is not a refresh of the
+                        # hub: the interval-mode startup cooldown reads this timestamp.
+                        "last_refresh_ts": (
+                            previous_update
+                            if set(requested) == {"picture"} and previous_update
+                            else self.last_successful_update
+                        ),
+                        # Profile pictures stay in memory only; their status map would
+                        # otherwise claim pictures that a restart no longer has.
+                        "data": {key: value for key, value in data.items() if key != "picture"},
                         "auth": getattr(self.client, "auth_data", {}),
                     }
                 )
@@ -1339,6 +1566,7 @@ class MashovCoordinator(DataUpdateCoordinator):
         # data, return it instead of failing (entities stay available, marked stale).
         except MashovPasswordChangeRequiredError as exc:
             self.data_stale = True
+            self.auth_failed = True
             self.failed_datasets.update(
                 self._failure_keys(requested or enabled_data(getattr(self.entry, "options", {})), student_data)
             )
@@ -1353,6 +1581,7 @@ class MashovCoordinator(DataUpdateCoordinator):
             raise UpdateFailed(f"Password change required: {exc}") from exc
         except MashovAuthError as exc:
             self.data_stale = True
+            self.auth_failed = True
             self.failed_datasets.update(
                 self._failure_keys(requested or enabled_data(getattr(self.entry, "options", {})), student_data)
             )
@@ -1375,6 +1604,7 @@ class MashovCoordinator(DataUpdateCoordinator):
             # there is nothing cached, otherwise on exactly the 3rd consecutive failure
             # (not on every later one) to avoid notification spam.
             self.data_stale = True
+            self.auth_failed = False
             self._consecutive_failures += 1
             self.client.note_refresh_failed()
             if not self.data or self._consecutive_failures == 3:
@@ -1383,6 +1613,7 @@ class MashovCoordinator(DataUpdateCoordinator):
             raise UpdateFailed(f"Mashov error: {exc}") from exc
         except Exception as exc:
             self.data_stale = True
+            self.auth_failed = False
             self._consecutive_failures += 1
             self.client.note_refresh_failed()
             # Internal (programming) errors: notify once with report links.

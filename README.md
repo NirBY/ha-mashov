@@ -50,7 +50,7 @@ YAML overrides the shared UI schedule. Separate student/data schedules remain in
 
 ## 🧩 Features
 
-- All **19 data types** are selectable; only enabled categories are fetched. Multiple hubs and students are supported without mixing their records.
+- All **23 data types** are selectable; only enabled categories are fetched. Multiple hubs and students are supported without mixing their records.
 - **Student-specific General and per-data schedules:** daily, weekly or interval, edited inside Setup/Configure. One Submit saves all drafts.
 - **One refresh queue** across hubs, including scheduled, manual and startup requests. Selective refreshes preserve other students’ values and timestamps.
 - **Sensors and holiday calendars**, with structured records, formatted summaries, actual update times, source status and stale-data indicators.
@@ -80,7 +80,7 @@ Select **Student**, then **General — default schedule** or a data type. Unchec
 
 During registration, set initial defaults first; students become selectable once authentication loads the roster. Student schedules use stable IDs. New students inherit account defaults, and Holidays/Mailbox retain school/account scope. Select **Shared account / school data and defaults** for those resources.
 
-**Current schedules** shows all categories and their effective schedules. Disabled categories are never fetched. Identical schedules are batched, and every refresh waits for active work to finish. Unload waits only for that hub’s active request and skips its queued work. Manual refresh updates all selected data. Night-time fetching may cause Mashov login/activity emails; choose daytime schedules if this is undesirable.
+**Current schedules** shows all categories and their effective schedules. Disabled categories are never fetched. Identical schedules are batched, and every refresh waits for active work to finish. Unload waits only for that hub’s active request and skips its queued work. Manual refresh updates all selected data. A daily or weekly refresh that fails for a network or server reason is retried after 5, 15 and 60 minutes; a rejected login is not retried. After a restart, a daily or weekly refresh that was missed while Home Assistant was off, or that failed, runs right away. Night-time fetching may cause Mashov login/activity emails; choose daytime schedules if this is undesirable.
 
 [Current inline-form pictures](docs/configuration.md) · [Schedule actions and YAML examples](docs/services.md#mashovset_options)
 
@@ -95,10 +95,11 @@ Available in **v1.1.0**. New hubs start with nothing selected; upgrades keep exi
 | Lessons | Homework, weekly plan, timetable, lesson history |
 | Grades | Grades, term grades, report cards |
 | Behavior | Behavior, daily behavior, outside lesson behavior, follow-up notes |
-| Student records | Study materials, student files, absence justification requests, individual lessons |
-| School | Noticeboard, holidays and calendar |
+| Student records | Study materials, student files, absence justification requests, individual lessons, lessons held and weekly hours per group, study groups and teachers |
+| School | Noticeboard, holidays and calendar, school bell schedule (one hub sensor) |
 | Mailbox | Unread count and recent headers; message content is optional |
 | Parent approvals | Trips/activities waiting for your answer and open forms; read only |
+| Student pictures | Each child's Mashov profile picture as an image entity; kept in memory only (never written to the cache or history, not exposed to AI tools), so it is fetched again after a restart |
 
 The selection applies to all students in the hub. Mailbox and parent approvals belong to the account; holidays belong to the school. Availability depends on school permissions. File records are listed, not downloaded; this integration does not submit school forms or absence requests.
 
@@ -178,9 +179,9 @@ message channels and do not connect to MCP by themselves.
 
 ## Troubleshooting
 
-- **401 / authentication failures**: check credentials and school choice, and update credentials through **Configure**. Password-change responses display a link to the Mashov login page.
+- **401 / authentication failures**: check credentials and school choice, and update credentials through **Configure**. New credentials are tried before they are saved, and the hub logs in with them right away instead of at its next scheduled refresh. Password-change responses display a link to the Mashov login page.
 - **403 / school-disabled resources**: core resources such as weekly plan retry after 1 hour, then 6 hours, then 24 hours. Each student's resource has its own cooldown, which resets after success. Optional resources use a separate 24-hour cooldown. A school permission denial does not necessarily mean the password is wrong.
-- **HTTP 5xx on a data type (possibly closed by the school)**: when every request for one data type returns a server error on three separate refreshes, at least an hour apart, the integration stops fetching that type and creates a **Mashov data type turned off** notice under **Settings → System → Repairs**. One successful or non-5xx result resets the count. A failed refresh never switches anything off. To fetch the type again, select it under **Configure → Data to fetch**. The count is kept in memory, so after a restart it starts again; with a daily schedule, three refreshes take about three days.
+- **HTTP 5xx on a data type (possibly closed by the school)**: when every request for one data type returns a server error on three separate refreshes, at least an hour apart, the integration stops fetching that type and creates a **Mashov data type turned off** notice under **Settings → System → Repairs**. One successful or non-5xx result resets the count. A refresh only counts while Mashov answers another data type, in the same refresh or within the hour before, so an outage of the whole portal never switches anything off. A failed refresh never switches anything off. To fetch the type again, select it under **Configure → Data to fetch**. The count is kept in memory, so after a restart it starts again; with a daily schedule, three refreshes take about three days.
 - **Startup connection failures**: HA retries transient setup failures when no cached data is available. When cached data exists, the integration retains it until a refresh succeeds.
 - **Different host**: open **Options → API base** and paste the base prefix you see in your browser DevTools Network tab (up to `/api/`).
   Common defaults: `https://web.mashov.info/api/`, sometimes `https://mobileapi.mashov.info/api/`.

@@ -315,7 +315,7 @@ async def test_attributes_respect_the_storage_budget():
     assert MashovApprovalsSensor(coordinator, TEST_CHILD_A, "a", "A", "entry").native_value == len(many)
 
 
-def fake_portal(url, headers=None):
+def fake_portal(url, headers=None, **_kwargs):
     """Every route the client may request, answered with synthetic data."""
     path = url.split("/api/", 1)[1]
     payloads = {
@@ -415,3 +415,19 @@ def test_approval_titles_stay_out_of_recorder_history():
 
     assert "pending" in MashovApprovalsSensor._unrecorded_attributes
     assert {"unassigned_activities", "consent_forms", "general_forms"} <= MashovOpenFormsSensor._unrecorded_attributes
+
+
+async def test_retained_approvals_stay_visible_and_are_flagged():
+    """A transient failure keeps the last good approvals; sensors must not drop to unknown."""
+    coordinator = await approvals_coordinator()
+    resource = coordinator.data[PARENT_APPROVALS]
+    resource["status"] = "http_503"
+    resource["retained"] = True
+    child = MashovApprovalsSensor(coordinator, TEST_CHILD_A, "a", "A", "entry")
+    account = MashovOpenFormsSensor(coordinator, "entry")
+    assert child.native_value == 2
+    assert account.native_value == 2
+    assert child.extra_state_attributes["items_retained"] is True
+    assert child.extra_state_attributes["data_stale"] is True
+    assert account.extra_state_attributes["items_retained"] is True
+    assert account.extra_state_attributes["data_stale"] is True

@@ -120,6 +120,57 @@ async def test_daily_summary_holiday_boolean_survives_loop(hass, freezer):
     assert result is True
 
 
+async def test_daily_summary_skips_malformed_dates(hass, freezer):
+    """One bad date from Mashov must not break the whole announcement template."""
+    freezer.move_to("2026-10-23T09:00:00+00:00")
+    hass.states.async_set(
+        "sensor.holidays",
+        "2",
+        {"items": [{"start": "not a date", "end": None}, {"start": "2026-10-23", "end": "garbage"}]},
+    )
+    hass.states.async_set(
+        "sensor.homework",
+        "2",
+        {
+            "items": [
+                {"lesson_date": "bad", "subject_name": "Math", "homework": "x"},
+                {"lesson_date": "2026-10-23", "subject_name": "Art", "homework": "draw"},
+            ]
+        },
+    )
+    hass.states.async_set("sensor.behavior", "1", {"items": [{"lesson_date": "??", "subject": "Gym"}]})
+    daily = load_blueprint("blueprints/automation/mashov/mashov_daily_homework_announce.yaml")
+    variables = {"holiday_sensor": "sensor.holidays", "homework_sensor": "sensor.homework"}
+    assert Template(daily["variables"]["in_holiday_today"], hass).async_render(variables) is True
+    assert Template(daily["variables"]["todays_homework"], hass).async_render(variables) == "Art: draw"
+    behavior = Template(daily["variables"]["todays_behavior"], hass).async_render(
+        {"behavior_sensor": "sensor.behavior"}
+    )
+    assert behavior in ("", None)
+
+
+async def test_dashboard_holiday_header_skips_malformed_dates(hass, freezer):
+    from custom_components.mashov.live_dashboard import _hero
+
+    freezer.move_to("2026-10-23T09:00:00+00:00")
+    hass.states.async_set(
+        "sensor.holidays",
+        "3",
+        {
+            "items": [
+                {"start": "bad", "name": "Broken"},
+                {"start": "2026-10-23", "end": "garbage", "name": "Today"},
+                {"start": "2026-11-01", "end": "2026-11-02", "name": "Later"},
+            ]
+        },
+    )
+    hero = _hero("sensor.holidays")
+    rendered = Template(hero["state_content"][0], hass).async_render()
+    assert "Today" in rendered
+    assert "1 ימים" in rendered  # bad end date counts as a one-day holiday
+    assert Template(hero["icon"], hass).async_render() == "mdi:palm-tree"
+
+
 @pytest.mark.parametrize("enabled", [False, True])
 async def test_existing_bag_automation_loads_with_optional_input(hass, tmp_path, enabled):
     """HA must accept old saved inputs and the new opt-in through the real blueprint loader."""

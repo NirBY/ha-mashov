@@ -105,10 +105,13 @@ async def test_credentials_and_options_change_reloads_once(hass: HomeAssistant, 
     listener = AsyncMock()
     mock_config_entry.add_update_listener(listener)
     result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
-    await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        user_input={"username": "new_user", "password": "new", "schedule_type": "daily", "schedule_time": "15:00"},
-    )
+    with patch("custom_components.mashov.config_flow.MashovClient") as client_class:  # the new credentials log in
+        client_class.return_value.async_init = AsyncMock()
+        client_class.return_value.async_close = AsyncMock()
+        await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            user_input={"username": "new_user", "password": "new", "schedule_type": "daily", "schedule_time": "15:00"},
+        )
     await hass.async_block_till_done()
     assert listener.await_count == 1
     assert mock_config_entry.data["password"] == "new"

@@ -135,6 +135,8 @@ async def test_transient_startup_failure_is_retried(hass: HomeAssistant, mock_co
         patcher.stop()
     assert mock_config_entry.state is ConfigEntryState.SETUP_RETRY
     client.async_close.assert_awaited()
+    # A failed setup is never unloaded, so services and MCP must not find it.
+    assert mock_config_entry.entry_id not in hass.data.get("mashov", {})
 
 
 async def test_bad_credentials_without_cache_are_not_retried(hass: HomeAssistant, mock_config_entry):
@@ -147,6 +149,7 @@ async def test_bad_credentials_without_cache_are_not_retried(hass: HomeAssistant
     finally:
         patcher.stop()
     assert mock_config_entry.state is ConfigEntryState.SETUP_ERROR
+    assert mock_config_entry.entry_id not in hass.data.get("mashov", {})
 
 
 @pytest.mark.parametrize(
@@ -200,6 +203,9 @@ async def test_set_options_targets_requested_entry(hass: HomeAssistant):
         assert await hass.config_entries.async_setup(entries[0].entry_id)
         await hass.async_block_till_done()
         assert all(entry.state is ConfigEntryState.LOADED for entry in entries)
+        # Hubs load concurrently; a call without entry_id targets whichever loaded first.
+        loaded = [key for key in hass.data[DOMAIN] if key in {entry.entry_id for entry in entries}]
+        entries.sort(key=lambda entry: loaded.index(entry.entry_id))
 
         await hass.services.async_call(DOMAIN, "set_options", {"schedule_time": "08:15"}, blocking=True)
         await hass.async_block_till_done()
@@ -235,3 +241,37 @@ async def test_set_options_targets_requested_entry(hass: HomeAssistant):
         patcher.stop()
     for entry in entries:
         await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_cached_start_fetches_only_pictures_and_drops_stale_picture_cache(hass: HomeAssistant):
+    """Pictures are memory-only: a cached restart fetches them alone and never trusts a stored status."""
+    import time
+
+    selection = ["homework", "picture"]
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"username": "u", "password": "p", "school_id": "123456", "school_name": "Test School"},
+        options={"schedule_type": "daily", "schedule_time": "14:00", "enabled_data": selection},
+        title="Test School (123456)",
+    )
+    entry.add_to_hass(hass)
+    stale = {"status": "ok", "by_student": {"student-123": "ok"}}
+    patcher, client = _patch_client()
+    client.pictures = {}
+    try:
+        cache = {
+            "data": {**DATA, "enabled_data": selection, "picture": stale},
+            "last_refresh_ts": time.time(),
+            "auth": {},
+        }
+        with _patch_cache(cache) as store_class:
+            assert await hass.config_entries.async_setup(entry.entry_id)
+            await hass.async_block_till_done()
+            saved = [call.args[0]["data"] for call in store_class.return_value.async_save.await_args_list]
+    finally:
+        patcher.stop()
+    assert entry.state is ConfigEntryState.LOADED
+    assert saved and all("picture" not in data for data in saved)
+    client.async_init.assert_not_awaited()
+    assert [call.kwargs.get("selected_data") for call in client.async_fetch_all.await_args_list] == [{"picture"}]
+    await hass.config_entries.async_unload(entry.entry_id)

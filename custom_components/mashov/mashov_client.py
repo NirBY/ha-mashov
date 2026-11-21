@@ -59,6 +59,14 @@ MAX_DOWNLOAD_REDIRECTS = 3
 
 # Escalating cooldowns for core student endpoints that answer HTTP 403 (feature disabled by the school).
 CORE_RESOURCE_BACKOFF_STEPS = (3600, 21600, 86400)  # 1h -> 6h -> 24h
+# Profile pictures are small JPEG/PNG files; anything larger is refused rather than stored.
+PICTURE_MAX_BYTES = 2 * 1024 * 1024
+# Raster formats only: SVG and HTML can carry active content when a browser opens the image URL.
+ALLOWED_PICTURE_TYPES = frozenset({"image/jpeg", "image/png", "image/webp", "image/gif"})
+PICTURE_ACCEPT = "image/jpeg,image/png,image/webp,image/gif,image/*;q=0.8"
+PICTURE_TIMEOUT = aiohttp.ClientTimeout(total=60, sock_connect=15, sock_read=30)
+# After a rejected re-login, requests that hit 401 reuse that error for this long instead of logging in again.
+RELOGIN_FAILURE_COOLDOWN = 300
 # Account routes for one item (a conversation, an activity's answers). They back off
 # per path, and a 404 (item removed) is not parked, so one item never blocks the others.
 PER_ITEM_ACCOUNT_KEYS = frozenset({"mail_content", ANSWERS_KEY})
@@ -72,6 +80,8 @@ CLOSED_FEATURE_MIN_SPACING = 3600
 
 def _dataset_for_account_key(key: str) -> str:
     """Map an account route's log key to the data type it belongs to."""
+    if key == "bells":
+        return "bells"
     return "mailbox" if key.startswith("mail") else "parent_approvals"
 
 
@@ -126,6 +136,31 @@ def configured_school_year(data: dict, options: dict | None) -> int | None:
     return int(stored) if stored else _default_mashov_year()
 
 
+async def _gather_or_cancel(*aws):
+    """asyncio.gather that cancels the remaining awaitables once one of them fails.
+
+    Plain gather leaves the others running after the first exception, so their
+    requests (and re-logins) would continue after the refresh has already failed,
+    even after the client is closed.
+    """
+    tasks = [asyncio.ensure_future(aw) for aw in aws]
+    try:
+        return await asyncio.gather(*tasks)
+    except BaseException:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
+
+
+def _bell_order(item: dict) -> tuple[int, float]:
+    """Bells in lesson order; entries without a numeric lesson number go last."""
+    number = item.get("lessonNumber")
+    if isinstance(number, (int, float)) and not isinstance(number, bool):
+        return (0, number)
+    return (1, 0)
+
+
 class MashovClient:
     """Client for one Mashov parent/student account, covering all of its children.
 
@@ -175,6 +210,8 @@ class MashovClient:
         self._resource_retry_after: dict[tuple[str, str], tuple[float, str]] = {}
         # (student_id, resource_key) pairs whose current 5xx streak was already logged.
         self._resource_errors_logged: set[tuple[str, str]] = set()
+        # Opt-in profile pictures, kept in memory only: student_id -> (bytes, content type, fetched at).
+        self._pictures: dict[str, tuple[bytes, str, float]] = {}
         # Core resources: (student_id, url_key) -> (retry_after_monotonic, consecutive_403_count)
         self._endpoint_cooldown: dict[tuple[str, str], tuple[float, int]] = {}
         # Data type -> statuses of every attempt in the current refresh (reset per refresh).
@@ -182,6 +219,8 @@ class MashovClient:
         self._refresh_students: dict[str, set[str]] = {}
         # Data type -> (consecutive refreshes that were server-side failures, monotonic time counted).
         self._server_error_streak: dict[str, tuple[int, float]] = {}
+        # Data type -> monotonic time of its last successful answer, across refreshes and schedules.
+        self._last_ok: dict[str, float] = {}
 
         self._session: aiohttp.ClientSession | None = None
         self._headers: dict[str, str] = {}
@@ -206,6 +245,8 @@ class MashovClient:
         # Concurrency control
         self._login_lock = asyncio.Lock()
         self._last_login_timestamp = 0.0
+        # (monotonic time, error) of the last rejected re-login, shared with waiting requests.
+        self._login_failure: tuple[float, MashovAuthError] | None = None
 
     @property
     def year(self) -> int:
@@ -261,20 +302,46 @@ class MashovClient:
         Called after an HTTP 401. Parallel requests that all hit 401 share one
         re-login: the first takes the lock and logs in, the rest see a login
         younger than 10 seconds and return immediately to retry their request.
+        A rejected re-login is shared the same way: for RELOGIN_FAILURE_COOLDOWN
+        seconds every caller gets the same error without another attempt, so a
+        changed password costs one failed login, not one per request (repeated
+        failed logins can lock the Mashov account).
         """
+        self._raise_recent_login_failure()
         # Fast check without lock first
         if time.time() - self._last_login_timestamp < 10:
             return
 
         async with self._login_lock:
             # Double-check inside lock
+            self._raise_recent_login_failure()
             if time.time() - self._last_login_timestamp < 10:
                 return
 
             # One line per actual re-login; parallel requests that hit the same 401 log at debug.
             _LOGGER.info("Mashov session expired; logging in again")
-            await self.async_init(None)
+            try:
+                await self.async_init(None)
+            except MashovAuthError as err:
+                self._login_failure = (time.monotonic(), err)
+                # Without a CSRF token the next refresh starts with one lazy login
+                # instead of every request hitting 401 and asking for a re-login.
+                self._headers.pop("X-Csrf-Token", None)
+                raise
+            self._login_failure = None
             self._last_login_timestamp = time.time()
+
+    def _raise_recent_login_failure(self) -> None:
+        """Raise a fresh copy of a re-login rejection that is still within its cooldown."""
+        if self._login_failure is None:
+            return
+        failed_at, err = self._login_failure
+        if time.monotonic() - failed_at >= RELOGIN_FAILURE_COOLDOWN:
+            self._login_failure = None
+            return
+        if isinstance(err, MashovPasswordChangeRequiredError):
+            raise MashovPasswordChangeRequiredError(str(err), err.login_url)
+        raise MashovAuthError(str(err))
 
     async def async_open_session(self) -> None:
         """Create the aiohttp session if missing or closed (e.g. after a reload)."""
@@ -515,7 +582,13 @@ class MashovClient:
                 self._headers = {}
                 self._session.cookie_jar.clear()
 
-        # --- Full login. The payload and headers mimic the official web client
+        # --- Full login, always from an empty cookie jar. Restored cookies are host-only
+        # with path /api. If the login sets the session cookie with Path=/ (or a Domain),
+        # aiohttp would keep sending the expired restored cookie on every /api/ request
+        # after a re-login, so every refresh would fail with 401 until HA restarts.
+        self._session.cookie_jar.clear()
+
+        # The payload and headers mimic the official web client
         # (app name/version and device fields), as the portal expects.
         payload = {
             "semel": int(self.school_id),
@@ -717,6 +790,9 @@ class MashovClient:
 
         self._students = students
         self._session_year = self.year
+        # Any working login (restored or new, re-login or lazy) ends a shared re-login failure;
+        # otherwise a 401 soon after would re-raise the old rejection without trying again.
+        self._login_failure = None
         _LOGGER.info("=== STUDENTS PROCESSING COMPLETE ===")
         _LOGGER.info("Student metadata loaded")
 
@@ -863,7 +939,7 @@ class MashovClient:
         # No pre-flight session check (this block is intentionally a no-op).
         # A stale session is handled reactively: if parallel requests all get 401,
         # the first one re-logs in under _login_lock, the others wait on the lock,
-        # see the fresh login and retry once.
+        # see the fresh login and retry once (or get the same error if it was rejected).
         if students:
             with contextlib.suppress(Exception):
                 pass
@@ -971,7 +1047,7 @@ class MashovClient:
                         raise MashovError(f"Request failed fetching {url_key}") from e
                     raise
 
-            homework, behavior, weekly_plan, timetable, lessons_history, grades = await asyncio.gather(
+            homework, behavior, weekly_plan, timetable, lessons_history, grades = await _gather_or_cancel(
                 fetch("homework"),
                 fetch("behavior"),
                 fetch("weekly_plan"),
@@ -1001,8 +1077,8 @@ class MashovClient:
             }
 
         _LOGGER.debug("Fetching data for all students in parallel")
-        # Use asyncio.gather for parallel execution
-        results = await asyncio.gather(*(fetch_for_student(s) for s in students))
+        # In parallel; the first error (e.g. a rejected re-login) cancels the other students' requests.
+        results = await _gather_or_cancel(*(fetch_for_student(s) for s in students))
 
         # --- Holidays (school-wide, not per student). A holiday failure must not
         # discard successfully fetched student data; only auth errors propagate.
@@ -1071,6 +1147,8 @@ class MashovClient:
         self._refresh_statuses.setdefault(dataset, set()).add(status)
         if student_id is not None:
             self._refresh_students.setdefault(dataset, set()).add(student_id)
+        if status == "ok":
+            self._last_ok[dataset] = time.monotonic()
 
     def note_refresh_failed(self) -> None:
         """A refresh that failed for another reason (network, server) does not confirm anything."""
@@ -1081,6 +1159,10 @@ class MashovClient:
 
         A single attempt that succeeds, is refused (403/404), or fails for a network reason
         resets that data type's streak, so transient faults never accumulate into a closure.
+        A refresh only counts while Mashov is answering: another data type must have
+        succeeded within the last hour, in this refresh or an earlier one. A schedule that
+        refreshes one data type alone has nothing else to compare with, so a portal outage
+        would otherwise look like a closure after three hourly refreshes.
         """
         tested = {k: v for k, v in self._refresh_statuses.items() if v}
         if len(tested) >= 2 and not any("ok" in statuses for statuses in tested.values()):
@@ -1107,6 +1189,11 @@ class MashovClient:
                 and len(self._refresh_students.get(dataset, set())) < student_count
             ):
                 continue
+            if not any(
+                other != dataset and now - answered_at < CLOSED_FEATURE_MIN_SPACING
+                for other, answered_at in self._last_ok.items()
+            ):
+                continue  # possibly a portal outage: keep the streak, but do not count it
             count, last_counted = self._server_error_streak.get(dataset, (0, None))
             if last_counted is None or now - last_counted >= CLOSED_FEATURE_MIN_SPACING:
                 count, last_counted = count + 1, now
@@ -1123,6 +1210,14 @@ class MashovClient:
             result["parent_approvals"] = await fetch_parent_approvals(
                 self._fetch_account_json, [student["id"] for student in students]
             )
+        if "picture" in selected:
+            result["picture"] = await self._fetch_pictures(students)
+        if "bells" in selected:
+            # School-wide bell schedule (lesson number and times); one request per refresh.
+            status, payload = await self._fetch_account_json("bells", "bells", list)
+            items = [item for item in payload or [] if isinstance(item, dict)] if status == "ok" else []
+            items.sort(key=_bell_order)
+            result["bells"] = {"items": items, "status": status}
 
     async def _fetch_account_json(self, path, key, expected_type):
         """Fetch a known account route, recording its outcome for the closed-feature check."""
@@ -1174,6 +1269,121 @@ class MashovClient:
         except (aiohttp.ClientError, TimeoutError, ValueError):
             _LOGGER.warning("Unable to fetch Mashov account resource %s", key)
             return "fetch_failed", None
+
+    @property
+    def pictures(self) -> dict[str, tuple[bytes, str, float]]:
+        """In-memory profile pictures of the account's students, by student id."""
+        return self._pictures
+
+    async def _fetch_student_picture(self, sid: str) -> str:
+        """Download one student's profile picture (GET only). Returns a status.
+
+        Only a forced password change raises; every other failure is a status. Session
+        headers (including the CSRF token) are sent to Mashov's own host only, a redirect
+        to another host is followed without them, and an https to http downgrade is refused.
+        """
+        cache_key = (sid, "picture")
+        retry_after, previous = self._resource_retry_after.get(cache_key, (0, "not_fetched"))
+        if time.monotonic() < retry_after:
+            return previous
+        url = f"{self._api_base}user/{quote(str(sid), safe='')}/picture"
+        api_parts = urlsplit(self._api_base)
+        headers = {**self._headers, "Accept": PICTURE_ACCEPT}
+        relogged = False
+        redirects = 0
+        try:
+            while True:
+                async with self._session.get(
+                    url, headers=headers, allow_redirects=False, timeout=PICTURE_TIMEOUT
+                ) as response:
+                    location = response.headers.get("Location")
+                    if response.status in (301, 302, 303, 307, 308) and location:
+                        redirects += 1
+                        if redirects > MAX_DOWNLOAD_REDIRECTS:
+                            return "invalid_response"
+                        url = str(response.url.join(yarl.URL(location)))
+                        target = urlsplit(url)
+                        if target.scheme not in ("http", "https") or (
+                            api_parts.scheme == "https" and target.scheme == "http"
+                        ):
+                            return "invalid_response"
+                        if target.netloc != api_parts.netloc:
+                            headers = {"Accept": PICTURE_ACCEPT}
+                        continue
+                    if response.status == 401:
+                        # Re-login only helps Mashov's own host; another host never gets session headers.
+                        if relogged or urlsplit(url).netloc != api_parts.netloc:
+                            return "unauthorized"
+                        relogged = True
+                        await self._ensure_valid_session()
+                        headers = {**self._headers, "Accept": PICTURE_ACCEPT}
+                        continue
+                    if response.status == 403:
+                        body = await response.text()
+                        if (
+                            response.headers.get("reason") or ""
+                        ).lower() == "changepass" or "change password" in body.lower():
+                            raise MashovPasswordChangeRequiredError(
+                                "Please change password before authenticating.", self.login_page_url
+                            )
+                    if response.status in (403, 404):
+                        self._pictures.pop(sid, None)
+                        status = "forbidden" if response.status == 403 else "unsupported"
+                        self._resource_retry_after[cache_key] = (time.monotonic() + 86400, status)
+                        return status
+                    if response.status >= 400:
+                        return f"http_{response.status}"
+                    content_type = (response.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+                    if content_type == "image/jpg":
+                        content_type = "image/jpeg"
+                    if content_type not in ALLOWED_PICTURE_TYPES:
+                        return "invalid_response"
+                    if response.content_length is not None and response.content_length > PICTURE_MAX_BYTES:
+                        return "too_large"
+                    # Read to the end: content.read(n) returns only what is buffered so far,
+                    # which would store the first network chunk of a larger picture as "ok".
+                    received = bytearray()
+                    async for chunk in response.content.iter_any():
+                        received.extend(chunk)
+                        if len(received) > PICTURE_MAX_BYTES:
+                            return "too_large"
+                    body = bytes(received)
+                    if not body:
+                        return "invalid_response"
+                    self._resource_retry_after.pop(cache_key, None)
+                    self._pictures[sid] = (body, content_type, time.time())
+                    return "ok"
+        except MashovPasswordChangeRequiredError:
+            raise
+        except RuntimeError:
+            if not getattr(self._session, "closed", False):
+                raise
+            _LOGGER.warning("Mashov session closed while fetching a profile picture")
+            return "fetch_failed"
+        except (aiohttp.ClientError, TimeoutError, ValueError):
+            _LOGGER.warning("Unable to fetch a Mashov profile picture")
+            return "fetch_failed"
+
+    async def _fetch_pictures(self, students):
+        """Fetch every student's picture once per refresh; the status map goes to the coordinator."""
+        statuses = {}
+        for student in students:
+            status = await self._fetch_student_picture(student["id"])
+            statuses[student["id"]] = status
+            self._record_status("picture", status, student["id"])
+        current = {student["id"] for student in students}
+        for sid in set(self._pictures) - current:
+            self._pictures.pop(sid, None)
+        distinct = set(statuses.values())
+        if not distinct:
+            overall = "ok"
+        elif len(distinct) == 1:
+            # Uniform outcome (all ok, or all forbidden/unsupported/transient): the shared
+            # status says exactly that, so transient retention can keep the last good state.
+            overall = next(iter(distinct))
+        else:
+            overall = "partial_failure"
+        return {"status": overall, "by_student": statuses}
 
     async def _async_fetch_mailbox(self):
         """Fetch the account inbox once; store attachments only when opted in."""
