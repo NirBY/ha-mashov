@@ -6,15 +6,26 @@ Unofficial integration for **משו״ב (Mashov)**. Choose which school data to 
 
 Community project; not affiliated with Mashov. [Release notes](RELEASE_NOTES.md) · [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md)
 
+![Mashov connects homework, timetables, grades, spoken bag reminders, notices, exams and timetable updates, blueprints and AI via MCP to Home Assistant — neon concept illustration](docs/images/mashov-neon-overview.png)
+
 ## What it looks like
 
-Mashov Live, a student detail, a homework card, a weekly timetable, and the homework, bag-reminder and noticeboard blueprint forms. The children, classes, subjects, dates and messages are fictional. Blueprint fields are left empty.
+**Explore the integration in 90 seconds:** family dashboards, timetables, homework checklists, all 23 data sources, refresh schedules, account and advanced options, optional mailbox and AI access, and all four blueprints.
 
-![Mashov Live usage](docs/images/mashov-usage.gif)
+![Animated Mashov feature tour: fictional family data, selectable sources, settings and four blueprint walkthroughs](docs/images/mashov-feature-tour.gif)
 
-Import the Mashov Live view blueprint, then follow the [dashboard guide](docs/dashboard.md):
+The neon artwork and animated tour are **illustrations**, not screenshots of a new interface. Every person, school, grade, message and entity example in the tour is fictional; no live Home Assistant account was used. [Actual dashboard screenshots](docs/dashboard.md) · [Original HA walkthrough](docs/images/mashov-usage.gif) · [Tour transcript and rebuild instructions](docs/readme-visuals.md)
 
-[![Open your Home Assistant instance and show the blueprint import dialog with a specific blueprint URL.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FNirBY%2Fha-mashov%2Fmain%2Fblueprints%2Fscript%2Fmashov%2Fmashov_live_dashboard.yaml)
+### All blueprints shown in the tour
+
+| Blueprint | In the GIF | What it does / main options | Get started |
+| --- | --- | --- | --- |
+| [Mashov Live dashboard](blueprints/script/mashov/mashov_live_dashboard.yaml) | 00:53 · 01/04 | **Script:** discovers students across hubs and builds a family dashboard. Choose dashboard, title, family, optional student styling/viewers/sensor overrides and next-school-day mode. Requires **Bubble Card 3.4+** and an empty UI dashboard. | [Import](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FNirBY%2Fha-mashov%2Fmain%2Fblueprints%2Fscript%2Fmashov%2Fmashov_live_dashboard.yaml) · [Guide](docs/dashboard.md) |
+| [Daily homework & behavior](blueprints/automation/mashov/mashov_daily_homework_announce.yaml) | 01:01 · 02/04 | **Automation:** speaks today's homework and behavior, default **15:00**. Select homework/behavior/holiday sensors, speaker, TTS engine, language, time, volume and playback timeouts. Skips holidays, nighttime and days without today's data; restores volume. | [Import](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FNirBY%2Fha-mashov%2Fmain%2Fblueprints%2Fautomation%2Fmashov%2Fmashov_daily_homework_announce.yaml) · [Guide](docs/blueprints.md#daily-homework-and-behavior) |
+| [Bag reminder](blueprints/automation/mashov/bag_reminder_tomorrow.yaml) | 01:08 · 03/04 | **Automation:** reads tomorrow's subjects, default **18:00**. Select timetable/holiday sensors, optional weekly plan, speaker, TTS settings, time, quiet hours, volumes and timeouts. Optional next-school-day mode per child. | [Import](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FNirBY%2Fha-mashov%2Fmain%2Fblueprints%2Fautomation%2Fmashov%2Fbag_reminder_tomorrow.yaml) · [Guide](docs/blueprints.md#bag-reminder) |
+| [Noticeboard notices](blueprints/automation/mashov/mashov_noticeboard_announce.yaml) | 01:16 · 04/04 | **Automation:** announces new notice IDs on refresh. Select noticeboard sensors, HA/phone notifications, optional speaker/TTS, language, volumes, text limit and timeout. No speech **22:00–07:00**; notifications still arrive. | [Import](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FNirBY%2Fha-mashov%2Fmain%2Fblueprints%2Fautomation%2Fmashov%2Fmashov_noticeboard_announce.yaml) · [Guide](docs/blueprints.md#noticeboard-notices) |
+
+GIF times are approximate chapter starts. Enable the corresponding data sources before using a blueprint. Importing adds a template; create and configure a script or automation from it. For Mashov Live, run the configured script to build the view.
 
 ## 📦 Installation
 
