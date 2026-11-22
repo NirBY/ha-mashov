@@ -11,6 +11,7 @@
 - Updated reusable dashboard blueprint, English/Hebrew documentation and recordings of the actual cards using fictional data only.
 
 ### Fixed
+- The weekly table omits days without lessons, including holidays, while retaining any Friday with scheduled lessons. The README GIFs start with the product overview as their default preview (updated in the existing 1.6.0 release).
 - Child and counter buttons open readable topic dialogs instead of raw sensor history.
 - Attendance totals, justified/unjustified breakdowns, subject/teacher details, lesson counts and profile pictures are included when selected.
 

@@ -4,7 +4,7 @@ import {readFile} from "node:fs/promises";
 globalThis.HTMLElement = class {};
 globalThis.customElements = {get(){},define(){}};
 const source = await readFile(new URL("../../custom_components/mashov/weekly-card.js",import.meta.url),"utf8");
-const {schoolWeek,dateInZone} = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+const {schoolWeek,schoolDays,dateInZone} = await import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
 const bells = [0,1,2,3].map(n=>({lessonNumber:n,startTime:`0${n+7}:30:00`,endTime:`${String(n+8).padStart(2,"0")}:15:00`}));
 const schedule = [{day:1,lessons:[{lesson:3,subject:"Art"},{lesson:1,subject:"Math"},{lesson:2,subject:"Science"}]}];
 test("uses each child's first/last lesson, not first/last school bell",()=>{
@@ -37,4 +37,11 @@ test("an interior week-specific lesson does not hide definite boundary times",()
   const variable=[{day:1,lessons:[{lesson:1},{lesson:2,weeks:"0"},{lesson:3}]}];
   const day=schoolWeek(variable,bells,[],"2026-11-22")[0];
   assert.equal(day.start,"08:30");assert.equal(day.end,"11:15");assert.equal(day.variable,true);
+});
+test("only days with lessons are displayed, including Friday when scheduled",()=>{
+  const schedule=[{day:1,lessons:[{lesson:1}]},{day:6,lessons:[{lesson:2}]}];
+  assert.deepEqual(schoolDays(schoolWeek(schedule,bells,[],"2026-11-22")).map(x=>x.day),[1,6]);
+  const holiday=[{name:"Holiday",start:"2026-11-22",end:"2026-11-28"}];
+  assert.deepEqual(schoolDays(schoolWeek(schedule,bells,holiday,"2026-11-22")),[]);
+  assert.deepEqual(schoolDays(schoolWeek([],bells,[],"2026-11-22")),[]);
 });

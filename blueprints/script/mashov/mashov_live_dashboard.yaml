@@ -12,8 +12,9 @@ blueprint:
     Homework is a collapsible checklist for the last three reported homework days by default, with
     an option to show older days. Completed rows stay visible with a strike-through and can be unchecked.
     The child card and its counters open readable school details. The weekly table combines each
-    child's subjects with school bells to show daily start/end times. It updates with the Mashov
-    timetable; cancellations published only in messages or Shahaf are not interpreted automatically.
+    child's subjects with school bells to show daily start/end times, omitting days without lessons.
+    It updates with the Mashov timetable; cancellations published only in messages or Shahaf are
+    not interpreted automatically.
   domain: script
   source_url: https://raw.githubusercontent.com/NirBY/ha-mashov/main/blueprints/script/mashov/mashov_live_dashboard.yaml
   input:

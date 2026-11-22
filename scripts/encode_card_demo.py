@@ -9,7 +9,7 @@ import argparse
 import json
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("captures", type=Path)
@@ -22,15 +22,28 @@ for lang in ("en", "he"):
         with Image.open(args.captures / f"{lang}-{number:02}.jpg") as image:
             box = (int(rect["x"]), 0, int(rect["x"] + rect["width"]), image.height)
             frames.append(image.crop(box).convert("RGB"))
+    # Full-page captures can grow when the older homework section is expanded.
+    # Keep every state complete and aligned on one canvas instead of clipping it.
+    size = (frames[0].width, max(frame.height for frame in frames))
+    aligned = []
+    for frame in frames:
+        canvas = Image.new("RGB", size, "#090f1c")
+        canvas.paste(frame, (0, 0))
+        aligned.append(canvas)
+    frames = aligned
     suffix = "-he" if lang == "he" else ""
     frames[1].save(out / f"mashov-children-live{suffix}.jpg", quality=94)
-    frames[0].save(
+    # A GIF's first frame is also its static preview in clients that do not animate.
+    # Keep the product overview intact, letterboxed rather than cropped or stretched.
+    with Image.open(out / f"mashov-neon-overview{suffix}.png") as image:
+        poster = ImageOps.pad(image.convert("RGB"), frames[0].size, color="#090f1c", method=Image.Resampling.LANCZOS)
+    poster.save(
         out / f"mashov-children-live{suffix}.gif",
         save_all=True,
-        append_images=frames[1:],
-        duration=[3000, 3500, 4000, 4000, 2500],
+        append_images=frames,
+        duration=[6000, 3000, 3500, 4000, 4000, 2500],
         loop=0,
         optimize=True,
         disposal=2,
     )
-    print(lang, frames[0].size, "5 reviewed UI states / 17 seconds")
+    print(lang, frames[0].size, "product cover + 5 reviewed UI states / 23 seconds")
