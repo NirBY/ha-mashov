@@ -12,9 +12,9 @@ Community project; not affiliated with Mashov. [Release notes](RELEASE_NOTES.md)
 
 ![Actual Mashov cards: weekly start/end times, a homework checklist and older homework days](docs/images/mashov-children-live.gif)
 
-This GIF records the **actual interactive cards** using fictional names, homework and school data. It shows checking a task without removing it, opening older homework days, and recalculating hours after a published timetable change. It is a component demo, not a connection to a live school account.
+The GIF opens on the **product overview**, which is also its default still preview, then shows the **actual interactive cards** using fictional names, homework and school data. It shows checking a task without removing it, opening older homework days, and recalculating hours after a published timetable change. It is a component demo, not a connection to a live school account.
 
-- **Weekly school table:** each child's subjects and daily start/end times, using the school's bell schedule. Missing times are labeled.
+- **Weekly school table:** each child's subjects and daily start/end times, using the school's bell schedule. Days without lessons are hidden; Friday remains when that child has lessons. Missing times are labeled.
 - **Homework:** the last **3 dates with homework**, a collapsible list, persistent checkboxes with strike-through, and **Show older days**. The blueprint lets you choose 1–14 recent homework dates.
 - **Readable detail buttons:** messages, grades, behavior and homework open their content; attendance and lesson counters have labeled breakdowns.
 - **Reusable blueprint:** [Import the new-view blueprint](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FNirBY%2Fha-mashov%2Fmain%2Fblueprints%2Fscript%2Fmashov%2Fmashov_live_dashboard.yaml), then create and run its script. Requires Mashov **1.6.0+**, Bubble Card **3.4+**, and an empty UI dashboard. [Setup and upgrade guide](docs/dashboard.md).

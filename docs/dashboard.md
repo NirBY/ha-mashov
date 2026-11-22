@@ -8,7 +8,7 @@ One‑click import (My Home Assistant):
 
 ## What it shows
 
-- A weekly table of each child's subjects, first start time and last finish time, joined to that school's bell schedule. Holidays use the displayed week's actual dates. Missing bell times are marked; lesson numbers and subjects remain visible.
+- A weekly table of each child's subjects, first start time and last finish time, joined to that school's bell schedule. Days without lessons and school holidays are omitted; Friday is shown when that child has lessons. A week with no school days has a clear empty-state message. Holidays use the displayed week's actual dates. Missing bell times are marked; lesson numbers and subjects remain visible.
 - A collapsible checklist for the last **three dates with homework**, including every assignment on those dates. **Show older days** reveals older assignments still in the fetched window. Checking a task strikes it through in place; unchecking reopens it.
 - A greeting card with the current holiday countdown (or days until the next holiday) and a refresh button.
 - One card per student with a steady neon accent, readable text, a live "tomorrow" line and homework/behavior/grade/notice counts. The selected Mashov profile picture is preferred, with the linked person's picture as a fallback.

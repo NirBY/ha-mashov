@@ -6,9 +6,9 @@
 
 The new [English](images/mashov-children-live.gif) and [Hebrew](images/mashov-children-live-he.gif) recordings show the actual bundled homework and weekly cards in a browser. All names, assignments, attendance examples and timetable data come from `scripts/dashboard-demo/index.html` and are fictional. No account, credentials, live school data or child photographs are used. The surrounding demo shell is not the Home Assistant dashboard; the two interactive cards are the production components.
 
-The 17-second sequence shows the expanded recent list, a checked task remaining in place, older homework, a simulated published timetable change recalculating Sunday hours, and the collapsed checklist. The simulated change is not a demonstration of a Shahaf connection or message parsing.
+The 23-second sequence opens with the product overview for six seconds. This first frame is also the default still preview. It then shows the expanded recent list, a checked task remaining in place, older homework, a simulated published timetable change recalculating Sunday hours, and the collapsed checklist. Days without lessons are omitted from the weekly table. The simulated change is not a demonstration of a Shahaf connection or message parsing.
 
-To reproduce: serve the repository locally (`python -m http.server 8766 --bind 127.0.0.1`), open `/scripts/dashboard-demo/`, choose a language, and capture those five interactions in the browser. Review every frame for privacy. `python scripts/encode_card_demo.py CAPTURE_DIRECTORY` crops only the empty side margins and encodes the reviewed states; see its docstring for filenames. [Static English view](images/mashov-children-live.jpg) · [Static Hebrew view](images/mashov-children-live-he.jpg).
+To reproduce: serve the repository locally (`python -m http.server 8766 --bind 127.0.0.1`), open `/scripts/dashboard-demo/`, choose a language, and capture those five interactions in the browser. Review every frame for privacy. `python scripts/encode_card_demo.py CAPTURE_DIRECTORY` crops only the empty side margins, prepends the matching language's product overview without cropping it, and encodes the reviewed states; see its docstring for filenames. [Static English view](images/mashov-children-live.jpg) · [Static Hebrew view](images/mashov-children-live-he.jpg).
 
 ## Earlier illustrated feature tour
 
