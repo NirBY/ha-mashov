@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-22
+
+### Added
+- Bundled, automatically loaded homework and weekly timetable cards with readable RTL layout and steady neon accents.
+- Collapsible homework for the last three distinct reporting dates by default, an older-days toggle, and persistent checkboxes that strike through completed tasks without removing them. The dashboard blueprint accepts 1–14 recent homework dates.
+- Weekly subjects and each child's daily start/end time, joined to their school's bells. A compact full-week sensor attribute preserves all weekdays despite raw-item limits. Holidays, missing times, partial data and week-specific lessons are labeled.
+- Updated reusable dashboard blueprint, English/Hebrew documentation and recordings of the actual cards using fictional data only.
+
+### Fixed
+- Child and counter buttons open readable topic dialogs instead of raw sensor history.
+- Attendance totals, justified/unjustified breakdowns, subject/teacher details, lesson counts and profile pictures are included when selected.
+
+### Limitations
+- Hours recalculate when the published Mashov timetable changes. Cancellations available only in messages or Shahaf/iScool are not interpreted automatically; no Shahaf connector is included.
+- Bell times must be published by the school. Missing times are never inferred from another school's schedule.
+
 ## [1.4.0] - 2026-11-21
 
 ### Added

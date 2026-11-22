@@ -186,6 +186,16 @@ create_live_dashboard:
   name: "Create Mashov Live dashboard"
   description: "Build the Mashov Live Bubble Card dashboard and save it into an existing UI dashboard."
   fields:
+    homework_days:
+      name: "Recent homework days"
+      description: "Show this many dates with homework. Older dates remain available in the checklist."
+      default: 3
+      selector:
+        number:
+          min: 1
+          max: 14
+          step: 1
+          mode: box
     dashboard:
       name: "Dashboard URL"
       description: "URL path of an existing, empty UI dashboard (for example mashov-live)."

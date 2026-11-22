@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="he" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mashov · interactive card demo</title>
+<style>
+body{margin:0;background:#090f1c;color:#eef4ff;font:16px/1.6 Arial,sans-serif}main{max-width:1060px;margin:24px auto;padding:0 20px}header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #ffffff20;padding-bottom:16px;margin-bottom:22px}h1{font-size:28px;margin:0}p{margin:0;color:#b8c8df;font-size:13px}.grid{display:grid;grid-template-columns:1.15fr 1fr;gap:22px;align-items:start}.stack{display:grid;gap:18px}.person{border:1px solid #b6a0ff65;border-radius:22px;padding:18px 22px;background:#151e32;box-shadow:0 0 24px #b6a0ff12}.person strong{font-size:24px;color:#b6a0ff}.badge{display:inline-block;padding:7px 12px;border-radius:12px;background:#ffffff08;color:#cfdaec;margin-top:10px;font-size:12px}button,select{font:inherit;font-size:13px;color:#d4e3ff;border:1px solid #ffffff30;border-radius:12px;background:#172338;padding:8px 12px;cursor:pointer}footer{padding:16px 0;color:#8fa2c0;font-size:11px}#scenario{margin:12px 0}#caption{color:#73e4c1;min-height:26px;font-size:14px}@media(max-width:700px){.grid{grid-template-columns:1fr}header{align-items:start;gap:15px}h1{font-size:23px}}
+</style>
+<main><header><div><h1>משוב · היום שלי</h1><p>כרטיסים אמיתיים · נתוני דוגמה בדויים בלבד</p></div><select aria-label="Language"><option value="he">עברית</option><option value="en">English</option></select></header><div class="grid"><div class="stack"><div class="person"><strong>⭐ נועה · כיתה ז׳</strong><p>כל מה שצריך ליום הלימודים</p><span class="badge">נוכחות · 2 היעדרויות · איחור אחד</span></div><mashov-homework-card></mashov-homework-card><p id="caption" role="status"></p></div><div><mashov-weekly-card></mashov-weekly-card><button id="scenario">הדגמת עדכון מערכת: יום קצר יותר</button></div></div><footer>DEMO · Fictional names, assignments and schedule. Actual bundled Mashov cards; no live account or personal data.</footer></main>
+<script type="module">
+import '../../custom_components/mashov/homework-card.js';
+import '../../custom_components/mashov/weekly-card.js';
+const homework=document.querySelector('mashov-homework-card'), weekly=document.querySelector('mashov-weekly-card');
+const language=document.querySelector('select'), caption=document.querySelector('#caption');
+let tasks, state, shortDay=false;
+const subjects={he:['מתמטיקה','אנגלית','מדעים','עברית','היסטוריה','ספורט'],en:['Math','English','Science','Hebrew','History','PE']};
+function setup(){
+ const he=language.value==='he', lang=language.value;
+ document.documentElement.lang=lang;document.documentElement.dir=he?'rtl':'ltr';
+ document.querySelector('h1').textContent=he?'משוב · היום שלי':'Mashov · My school day';
+ document.querySelector('header p').textContent=he?'כרטיסים אמיתיים · נתוני דוגמה בדויים בלבד':'Actual cards · Fictional example data';
+ document.querySelector('.person strong').textContent=he?'⭐ נועה · כיתה ז׳':'⭐ Noa · Year 7';
+ document.querySelector('.person p').textContent=he?'כל מה שצריך ליום הלימודים':'Everything for the school day';
+ document.querySelector('.badge').textContent=he?'נוכחות · 2 היעדרויות · איחור אחד':'Attendance · 2 absences · 1 late arrival';
+ document.querySelector('#scenario').textContent=he?'הדגמת עדכון מערכת: יום קצר יותר':'Demo timetable update: a shorter day';caption.textContent='';
+ const day=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Jerusalem',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+ const past=n=>new Date(Date.parse(day+'T12:00:00Z')-n*86400000).toISOString().slice(0,10);
+ const summaries=he?['מתמטיקה — תרגילים 1–4 בעמוד 32','אנגלית — לקרוא את הסיפור הקצר','מדעים — להשלים את תרשים מחזור המים','עברית — לכתוב פסקה על הספר','היסטוריה — להכין ציר זמן']:['Math — exercises 1–4 on page 32','English — read the short story','Science — complete the water cycle diagram','Hebrew — write a paragraph about the book','History — prepare a timeline'];
+ tasks=summaries.map((summary,i)=>({uid:'demo-'+i,summary,description:past([0,0,2,4,7][i]),status:'needs_action'}));
+ state={config:{time_zone:'Asia/Jerusalem'},states:{'todo.demo':{state:'5',attributes:{}},'sensor.homework_demo':{state:'5',attributes:{}},'sensor.week_demo':{state:'30',attributes:{weekly_schedule_complete:true,weekly_schedule:Array.from({length:7},(_,i)=>({day:i+1,lessons:i<5?Array.from({length:i%2?5:6},(_,j)=>({lesson:j+1,subject:subjects[lang][(i+j)%6]})):[]}))}},'sensor.bells_demo':{state:'6',attributes:{items:['08:30','09:15','10:15','11:00','12:00','12:45'].map((startTime,i)=>({lessonNumber:i+1,startTime,endTime:['09:15','10:00','11:00','11:45','12:45','13:30'][i]}))}}},
+ callWS:async()=>({response:{'todo.demo':{items:tasks.map(x=>({...x}))}}}),
+ callService:async(domain,service,data)=>{if(domain!=='todo'||service!=='update_item')throw Error('Unexpected demo action');tasks=tasks.map(x=>x.uid===data.item?{...x,status:data.status}:x);state.states['todo.demo']={state:String(tasks.filter(x=>x.status!=='completed').length),attributes:{}};caption.textContent=he?'הסימון נשמר · המשימה נשארת ברשימה':'Checkmark saved · The task stays in the list';homework.hass=state;}}
+ homework.setConfig({entity:'todo.demo',source_entity:'sensor.homework_demo',language:lang,accent:'#b6a0ff',days:3,collapsed:true});homework.hass=state;
+ weekly.setConfig({entity:'sensor.week_demo',bells_entity:'sensor.bells_demo',language:lang});weekly.hass=state;shortDay=false;
+}
+language.addEventListener('change',setup);
+document.querySelector('#scenario').addEventListener('click',()=>{shortDay=!shortDay;const s=state.states['sensor.week_demo'];state.states['sensor.week_demo']={...s,attributes:{...s.attributes,weekly_schedule:s.attributes.weekly_schedule.map((d,i)=>i===0?{...d,lessons:shortDay?d.lessons.filter(x=>x.lesson>1&&x.lesson<6):Array.from({length:6},(_,j)=>({lesson:j+1,subject:subjects[language.value][j]}))}:d)}};weekly.hass=state;caption.textContent=language.value==='he'?'המקור עודכן · שעות יום ראשון חושבו מחדש':'Source updated · Sunday hours recalculated';});
+setup();
+</script></html>

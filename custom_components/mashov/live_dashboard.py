@@ -7,7 +7,7 @@ generated "sections" view:
     holiday/next-holiday countdown and a "refresh now" button;
   - one grid section per student, holding
       * the student card: name/emoji/class, a "tomorrow" summary line, chips for
-        behavior/grades/noticeboard and a read-only homework slider;
+        behavior/grades/noticeboard and a homework count;
       * a Bubble Card pop-up (opened via the card's #hash) with tomorrow's
         timetable, recent homework, behavior, grades, noticeboard and the
         holidays calendar.
@@ -36,6 +36,7 @@ from homeassistant.exceptions import ServiceValidationError  # type: ignore
 from homeassistant.helpers import entity_registry as er  # type: ignore
 
 from .const import DOMAIN
+from .dashboard_cards import extra_student_cards, guard, markdown_card
 from .school_day import SCHOOL_DAY_SEARCH
 
 _LOGGER = logging.getLogger(__name__)
@@ -50,8 +51,8 @@ DEFAULT_TITLE = "משוב לייב"
 # Top-level key written into the saved config so later runs can recognise (and
 # safely overwrite) a dashboard this module generated.
 DASHBOARD_MARKER = "mashov_live"
-# Muted accent colors assigned round-robin to students without a custom accent.
-DEFAULT_ACCENTS = ("#9bb0c9", "#d4b2a4", "#a8c4b4", "#c7b8d9", "#d6cfa3", "#a9c7cf")
+# Bright accents stay on borders and headings; body text remains high contrast.
+DEFAULT_ACCENTS = ("#5adcf0", "#b6a0ff", "#68e0ba", "#f4b67a", "#e1ca74", "#81b9ff")
 
 # Per-student entity slots; each may be discovered or overridden by the service call.
 STUDENT_ENTITY_KEYS = (
@@ -63,6 +64,11 @@ STUDENT_ENTITY_KEYS = (
     "noticeboard",
     "holidays",
     "calendar",
+    "attendance_counts",
+    "study_groups",
+    "lessons_count",
+    "bells",
+    "picture",
 )
 
 # Shared dark, low-contrast Bubble Card CSS (RTL text, round avatars) used by every card.
@@ -229,6 +235,11 @@ def discover_students(hass: HomeAssistant) -> list[dict[str, Any]]:
                 "noticeboard": _registry_entity(registry, "sensor", f"{prefix}message_board"),
                 "holidays": _registry_entity(registry, "sensor", f"mashov_{entry_id}_holidays"),
                 "calendar": _registry_entity(registry, "calendar", f"mashov_{entry_id}_holidays_calendar"),
+                "attendance_counts": _registry_entity(registry, "sensor", f"{prefix}attendance_counts"),
+                "study_groups": _registry_entity(registry, "sensor", f"{prefix}study_groups"),
+                "lessons_count": _registry_entity(registry, "sensor", f"{prefix}lessons_count"),
+                "bells": _registry_entity(registry, "sensor", f"mashov_{entry_id}_bells"),
+                "picture": _registry_entity(registry, "image", f"{prefix}picture"),
             }
             if not record["homework"] and not record["timetable"]:
                 _LOGGER.warning(
@@ -537,15 +548,15 @@ def _student_card(s: dict[str, Any]) -> dict[str, Any]:
 
     Title is emoji + name (+ class label), escaped with _jinja_literal. Below it:
     a row of chips for whichever behavior/grades/noticeboard sensors exist and a
-    read-only homework slider (0-20). The top border uses the student's accent,
-    and a linked person supplies the avatar picture.
+    homework count. The border uses the student's accent, and the Mashov
+    picture (or linked person) supplies the avatar.
     """
     chips = [
-        _chip(s[key], icon, s["hash"])
-        for key, icon in (
-            ("behavior", "mdi:account-heart"),
-            ("grades", "mdi:star-circle"),
-            ("noticeboard", "mdi:bulletin-board"),
+        {**_chip(s[key], icon, s["hash"]), "name": label, "show_name": True}
+        for key, icon, label in (
+            ("behavior", "mdi:account-heart", "התנהגות"),
+            ("grades", "mdi:star-circle", "ציונים"),
+            ("noticeboard", "mdi:bulletin-board", "הודעות"),
         )
         if s[key]
     ]
@@ -558,16 +569,12 @@ def _student_card(s: dict[str, Any]) -> dict[str, Any]:
                 "group": [
                     {
                         "entity": s["homework"],
-                        "name": "שיעורי בית",
+                        "name": "דיווחי שיעורי בית",
                         "icon": "mdi:book-open-page-variant",
-                        "sub_button_type": "slider",
-                        "read_only_slider": True,
-                        "always_visible": True,
-                        "show_button_info": True,
                         "show_name": True,
+                        "show_state": True,
                         "state_content": "state",
-                        "min_value": 0,
-                        "max_value": 20,
+                        "tap_action": {"action": "navigate", "navigation_path": s["hash"]},
                     }
                 ],
                 "justify_content": "fill",
@@ -582,19 +589,37 @@ def _student_card(s: dict[str, Any]) -> dict[str, Any]:
         "button_type": "name",
         "name": title,
         "state_content": [_tomorrow_line(s)],
-        "scrolling_effect": True,
+        "scrolling_effect": False,
         "card_layout": "large",
-        "grid_options": {"columns": 12, "rows": 2},
+        "grid_options": {"columns": 12, "rows": 3 if bottom else 1},
         "button_action": {"tap_action": {"action": "navigate", "navigation_path": s["hash"]}},
-        "sub_button": {"bottom": bottom},
+        "sub_button": {"bottom": bottom, "bottom_layout": "rows"},
         "styles": QUIET_STYLES
         + f"""
 .bubble-button-card-container {{ border-top: 3px solid {s["accent"]} !important; }}
 .bubble-icon-container {{ width: 52px !important; height: 52px !important; }}
 .bubble-name {{ font-size: 18px !important; font-weight: 650 !important; }}
+.bubble-button-card-container {{
+  background: linear-gradient(140deg, #17233b, #0d1526) !important;
+  border: 1px solid {s["accent"]}77 !important;
+  box-shadow: 0 0 22px {s["accent"]}20, inset 0 1px 0 {s["accent"]}44 !important;
+}}
+.bubble-sub-button {{ border-color: {s["accent"]}44 !important; }}
+.bubble-sub-button-icon, .bubble-icon {{ color: {s["accent"]} !important; }}
+.bubble-state {{ opacity: 1 !important; color: #cad8ee !important; font-size: 14px !important; }}
+.bubble-state, .bubble-sub-button-name {{ white-space: normal !important; }}
+.bubble-sub-button-name {{ font-size: 12px !important; text-align: center !important; }}
+.bubble-sub-button-bottom-container .bubble-sub-button-group:first-child .bubble-sub-button {{
+  flex-direction: column !important; height: 52px !important; gap: 2px !important;
+}}
+.bubble-content-container {{ pointer-events: none !important; }}
+.bubble-main-icon-container {{ pointer-events: auto !important; }}
+.bubble-sub-button-name, .bubble-sub-button-icon {{ pointer-events: none !important; }}
 """,
     }
-    if s["person"]:
+    if s.get("picture"):
+        card.update({"entity": s["picture"], "force_icon": False, "show_state": False})
+    elif s["person"]:
         card.update({"entity": s["person"], "force_icon": False, "show_state": False})
     else:
         card["icon"] = "mdi:account-school"
@@ -606,7 +631,7 @@ def _table_cell(expr: str) -> str:
     return "{{ ((" + expr + ") or '') | string | replace('\\r', '') | replace('\\n', ' ') | replace('|', '\\\\|') }}"
 
 
-def _popup_markdown(s: dict[str, Any]) -> str:
+def _popup_markdown(s: dict[str, Any], *, recent_only=True) -> str:
     """Markdown/Jinja body of the student pop-up; each block appears only if its sensor exists.
 
     Blocks: tomorrow (holiday / Saturday alert, else a lessons table with
@@ -649,24 +674,25 @@ def _popup_markdown(s: dict[str, Any]) -> str:
             "\n### 📚 שיעורי בית אחרונים\n"
             f"{{% set hw = (state_attr('{s['homework']}', 'items') or []) | selectattr('lesson_date') | sort(attribute='lesson_date', reverse=true) %}}"
             "{% if hw %}\n| תאריך | מקצוע | משימה |\n|:-:|---|---|\n"
-            "{% for x in hw[:6] %}| {{ as_timestamp(x.lesson_date) | timestamp_custom('%d/%m') }} | "
+            + ("{% for x in hw[:6] %}" if recent_only else "{% for x in hw %}")
+            + "| {{ as_timestamp(x.lesson_date) | timestamp_custom('%d/%m') }} | "
             + _table_cell("x.subject_name")
             + " | "
-            + _table_cell("(x.homework or '') | truncate(80)")
+            + _table_cell("(x.homework or '')" + (" | truncate(80)" if recent_only else ""))
             + " |\n{% endfor %}"
             "{% else %}\nאין שיעורי בית 🎉{% endif %}\n"
         )
     if s["behavior"]:
         parts.append(
             "\n### 💬 התנהגות\n"
-            f"{{% for x in ((state_attr('{s['behavior']}', 'items') or []) | selectattr('lesson_date') | sort(attribute='lesson_date', reverse=true))[:4] %}}"
+            f"{{% for x in ((state_attr('{s['behavior']}', 'items') or []) | selectattr('lesson_date') | sort(attribute='lesson_date', reverse=true)){('[:4]' if recent_only else '')} %}}"
             "- **{{ as_timestamp(x.lesson_date) | timestamp_custom('%d/%m') }}** · {{ x.subject }} · {{ x.achva_name }}\n"
             "{% else %}אין אירועים\n{% endfor %}"
         )
     if s["grades"]:
         parts.append(
             "\n### ⭐ ציונים\n"
-            f"{{% for x in (state_attr('{s['grades']}', 'items') or [])[:4] %}}"
+            f"{{% for x in (state_attr('{s['grades']}', 'items') or []){('[:4]' if recent_only else '')} %}}"
             "- **{{ x.subjectName }}** · {{ x.gradingEvent }} · <b>{{ x.grade }}</b>\n"
             "{% else %}אין ציונים עדיין\n{% endfor %}"
         )
@@ -684,18 +710,43 @@ def _popup_markdown(s: dict[str, Any]) -> str:
     return "".join(parts)
 
 
+def student_detail_cards(s: dict[str, Any], *, include_homework=True, compact=True) -> list[dict[str, Any]]:
+    """Separate the school day, counters and updates into readable native cards.
+
+    Shared by the generated pop-up and embeddable child-room sections. Viewer
+    conditions belong to the surrounding section and are never broadened here.
+    """
+    cards = []
+    keys = ("timetable", "homework", "behavior", "grades", "noticeboard")
+    for key in keys:
+        if key == "homework" and (not include_homework or s.get("homework_checklist")):
+            continue
+        if not s.get(key) and not (key == "timetable" and s.get("holidays")):
+            continue
+        part = {**s, **dict.fromkeys((*keys, "holidays"))}
+        part[key] = s.get(key)
+        if key == "timetable":
+            part["holidays"] = s.get("holidays")
+        body = _popup_markdown(part, recent_only=compact).removeprefix('<div dir="rtl">').removesuffix("</div>")
+        if compact and key in ("behavior", "grades", "noticeboard"):
+            title = {"behavior": "💬 התנהגות", "grades": "⭐ ציונים אחרונים", "noticeboard": "📌 הודעות בית הספר"}[key]
+            body = re.sub(r"\n### [^\n]+\n", "", body, count=1)
+            body = f"<details><summary>{title}</summary>\n\n{body}\n</details>"
+        if s.get(key):
+            body = guard(s[key], body)
+        cards.append(markdown_card(body, s["accent"]))
+        if key == "timetable":
+            cards.extend(extra_student_cards(s))
+    if not s.get("timetable") and not s.get("holidays"):
+        cards[0:0] = extra_student_cards(s)
+    return cards
+
+
 def _popup(s: dict[str, Any]) -> dict[str, Any]:
     """Bubble Card pop-up opened by the student's #hash: markdown body plus holidays calendar."""
-    cards: list[dict[str, Any]] = [{"type": "markdown", "content": _popup_markdown(s)}]
+    cards = student_detail_cards(s)
     if s.get("homework_checklist"):
-        cards.append(
-            {
-                "type": "todo-list",
-                "entity": s["homework_checklist"],
-                "title": f"שיעורי הבית של {s['name']}",
-                "hide_create": True,
-            }
-        )
+        cards.append(homework_checklist_card(s, collapsed=False))
     if s["calendar"]:
         cards.append(
             {
@@ -731,12 +782,77 @@ def _popup(s: dict[str, Any]) -> dict[str, Any]:
     return popup
 
 
+def homework_checklist_card(s: dict[str, Any], *, collapsed=True) -> dict[str, Any]:
+    """Recent homework dates with durable, non-deleting completion checkboxes."""
+    return {
+        "type": "custom:mashov-homework-card",
+        "entity": s["homework_checklist"],
+        "source_entity": s.get("homework"),
+        "title": f"שיעורי בית · {s['name']}",
+        "days": s.get("homework_days", 3),
+        "collapsed": collapsed,
+        "accent": s["accent"],
+    }
+
+
+def student_room_cards(s: dict[str, Any], *, include_homework=False) -> list[dict[str, Any]]:
+    """Inline school section with readable pop-ups for the profile and every chip.
+
+    Keep this entire list inside the room's existing user visibility condition.
+    Topic pop-ups show all stored items immediately, without sensor history or
+    another collapsed-details click. The separate room homework card is kept.
+    """
+    hero = _student_card(s)
+    hero["tap_action"] = dict(hero["button_action"]["tap_action"])
+    hero["hold_action"] = {"action": "none"}
+    hero["double_tap_action"] = {"action": "none"}
+    overview = _popup(s)
+    popups = [overview]
+    topics = {
+        "behavior": "התנהגות",
+        "grades": "ציונים",
+        "noticeboard": "הודעות בית הספר",
+        "homework": "דיווחי שיעורי בית",
+    }
+    for key, label in topics.items():
+        if not s.get(key):
+            continue
+        target = f"{s['hash']}-{key}"
+        part = {**s, **dict.fromkeys(STUDENT_ENTITY_KEYS), key: s[key]}
+        popup = {
+            **overview,
+            "name": f"{_jinja_literal(s['name'])} · {label}",
+            "hash": target,
+            "cards": student_detail_cards(part, compact=False),
+        }
+        if key == "homework" and s.get("homework_checklist"):
+            popup["cards"] = [homework_checklist_card(s, collapsed=False)]
+        popups.append(popup)
+        for row in hero["sub_button"]["bottom"]:
+            for chip in row["group"]:
+                if chip["entity"] == s[key]:
+                    chip["tap_action"] = {"action": "navigate", "navigation_path": target}
+                    chip["hold_action"] = {"action": "none"}
+                    chip["double_tap_action"] = {"action": "none"}
+    for popup in popups:
+        popup["tap_action"] = {"action": "none"}
+        popup["hold_action"] = {"action": "none"}
+        popup["double_tap_action"] = {"action": "none"}
+    cards = [hero, *student_detail_cards(s, include_homework=False)]
+    if include_homework and s.get("homework_checklist"):
+        cards.insert(1, homework_checklist_card(s))
+    if s.get("calendar"):
+        cards.append(overview["cards"][-1])
+    return [*cards, *popups]
+
+
 def build_live_dashboard(
     students: list[dict[str, Any]],
     *,
     title: str,
     family_user_ids: list[str],
     viewer_user_ids: dict[str, list[str]],
+    homework_days: int = 3,
 ) -> dict[str, Any]:
     """Return the Lovelace config for normalized students.
 
@@ -753,7 +869,8 @@ def build_live_dashboard(
         }
     ]
     for s in students:
-        section: dict[str, Any] = {"type": "grid", "cards": [_student_card(s), _popup(s)]}
+        s = {**s, "homework_days": homework_days}
+        section: dict[str, Any] = {"type": "grid", "cards": student_room_cards(s, include_homework=True)}
         users = list(dict.fromkeys([*family_user_ids, *viewer_user_ids.get(s["hash"], [])]))
         # Restrict the section whenever any audience was requested (or the child was
         # auto-discovered). If that restriction resolves to no users, refuse rather
@@ -904,6 +1021,7 @@ async def async_save_live_dashboard(hass: HomeAssistant, data: dict[str, Any]) -
         title=_clean(data.get("title")) or DEFAULT_TITLE,
         family_user_ids=family,
         viewer_user_ids=viewers,
+        homework_days=data.get("homework_days", 3),
     )
     await target.async_save(config)
 

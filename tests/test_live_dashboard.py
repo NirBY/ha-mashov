@@ -47,6 +47,21 @@ def test_normalize_skips_empty_slots_and_converts_accent():
     assert students[0]["grades"] is None
 
 
+def test_generated_blueprint_view_contains_recent_checklist_and_full_week():
+    students = normalize_students([{**KID, "homework_checklist": "todo.noa_homework", "bells": "sensor.bells"}])
+    config = build_live_dashboard(
+        students, title="School", family_user_ids=["parent"], viewer_user_ids={}, homework_days=5
+    )
+    cards = _sections(config)[1]["cards"]
+    checklist = next(card for card in cards if card["type"] == "custom:mashov-homework-card")
+    assert checklist["days"] == 5 and checklist["collapsed"] is True
+    assert checklist["source_entity"] == KID["homework"]
+    week = next(card for card in cards if card["type"] == "custom:mashov-weekly-card")
+    assert week["bells_entity"] == "sensor.bells"
+    popup = next(card for card in cards if card.get("hash") == students[0]["hash"] + "-homework")
+    assert popup["cards"][0]["days"] == 5 and popup["cards"][0]["collapsed"] is False
+
+
 def test_normalize_requires_a_student_and_core_sensor():
     """Input without any named student, or a student without homework/timetable, is rejected."""
     with pytest.raises(ServiceValidationError):
@@ -71,14 +86,16 @@ def test_build_restricts_only_students_with_viewers():
     assert noa_section["visibility"] == [{"condition": "user", "users": ["parent", "noa-user"]}]
     assert dan_section["visibility"] == [{"condition": "user", "users": ["parent"]}]
 
-    noa_card, noa_popup = noa_section["cards"]
+    noa_card = noa_section["cards"][0]
+    noa_popup = next(card for card in noa_section["cards"] if card.get("hash") == noa["hash"])
     assert noa_card["entity"] == "person.noa"
     assert noa_card["force_icon"] is False
     assert "#ff0010" in noa_card["styles"]
     assert noa_popup["hash"] == noa["hash"]
     assert noa_popup["cards"][-1]["card_type"] == "calendar"
 
-    dan_card, dan_popup = dan_section["cards"]
+    dan_card = dan_section["cards"][0]
+    dan_popup = next(card for card in dan_section["cards"] if card.get("hash") == dan["hash"])
     assert dan_card["icon"] == "mdi:account-school"
     assert [group["group"][0]["entity"] for group in dan_card["sub_button"]["bottom"]] == ["sensor.dan_homework"]
     assert len(dan_popup["cards"]) == 1
@@ -129,8 +146,20 @@ async def test_service_explains_missing_dashboard(hass: HomeAssistant):
 
 def _register_child(registry, entry_id: str, student_id: str) -> None:
     """Register the sensor and calendar entities a Mashov hub creates for one student."""
-    for key in ("homework", "timetable", "behavior", "grades", "message_board"):
+    for key in (
+        "homework",
+        "timetable",
+        "behavior",
+        "grades",
+        "message_board",
+        "attendance_counts",
+        "study_groups",
+        "lessons_count",
+    ):
         registry.async_get_or_create("sensor", DOMAIN, f"mashov_{entry_id}_{student_id}_{key}")
+    registry.async_get_or_create("image", DOMAIN, f"mashov_{entry_id}_{student_id}_picture")
+    registry.async_get_or_create("todo", DOMAIN, f"mashov_{entry_id}_{student_id}_checklist_homework")
+    registry.async_get_or_create("sensor", DOMAIN, f"mashov_{entry_id}_bells")
     registry.async_get_or_create("sensor", DOMAIN, f"mashov_{entry_id}_holidays")
     registry.async_get_or_create("calendar", DOMAIN, f"mashov_{entry_id}_holidays_calendar")
 
@@ -168,10 +197,14 @@ async def test_discovers_every_child_and_keeps_unlisted_ones_private(hass: HomeA
     assert first["next_school_day"] is True
     assert first["homework"].startswith("sensor.")
     assert first["calendar"].startswith("calendar.")
+    for key in ("attendance_counts", "study_groups", "lessons_count", "picture"):
+        assert registry.async_get(first[key]).unique_id == f"mashov_one_one-0_{key}"
+    assert registry.async_get(first["bells"]).unique_id == "mashov_one_bells"
     untouched = next(student for student in resolved if student["id"] == "two-3")
     assert untouched["emoji"] == ""
     assert untouched["family_only"] is True
     assert untouched["next_school_day"] is False
+    assert registry.async_get(untouched["bells"]).unique_id == "mashov_two_bells"
 
     with pytest.raises(ServiceValidationError, match="Choose the family"):
         build_live_dashboard(resolved, title="Live", family_user_ids=[], viewer_user_ids={})
@@ -186,7 +219,9 @@ async def test_discovers_every_child_and_keeps_unlisted_ones_private(hass: HomeA
 
     assert len(limited) == 10
     assert all(section["visibility"][0]["users"][0] == "parent" for section in limited)
-    matched = next(section for section in limited if section["cards"][1]["hash"] == first["hash"])
+    matched = next(
+        section for section in limited if any(card.get("hash") == first["hash"] for card in section["cards"])
+    )
     assert matched["visibility"] == [{"condition": "user", "users": ["parent", "kid-user"]}]
 
 

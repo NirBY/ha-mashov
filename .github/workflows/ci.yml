@@ -7,6 +7,16 @@ on:
     branches: [main]
 
 jobs:
+  frontend:
+    name: Dashboard card tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node --test tests/frontend/*.test.mjs
+
   lint:
     name: Lint with Ruff
     runs-on: ubuntu-latest

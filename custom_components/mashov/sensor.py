@@ -77,6 +77,7 @@ from .holidays_utils import (
     parse_iso_date_to_date,
     parse_iso_date_to_formatted,
 )
+from .timetable import weekly_schedule
 
 
 def _async_migrate_list_sensor_unique_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -574,6 +575,8 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
             "next_scheduled_refresh": schedule_info.get("next"),
         }
         if self._data_key == "timetable":
+            # A compact full week survives the raw/formatting attribute limits.
+            attributes["weekly_schedule"], attributes["weekly_schedule_complete"] = weekly_schedule(items)
             # Distinct Mashov weekdays (1=Sunday..7=Saturday) from the FULL timetable. The items
             # attribute is size-bounded and can drop whole weekdays; next-school-day templates
             # use this small list instead.

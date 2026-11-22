@@ -1,12 +1,19 @@
 blueprint:
   name: Mashov – Live dashboard (Bubble Card)
   description: >
-    Version v1.0.0. Builds the "Mashov Live" dashboard for every child on every Mashov hub. Names, classes
+    Version v1.2.0. Builds the "Mashov Live" dashboard for every child on every Mashov hub. Names, classes
     and sensors come from the integration. The student sections below are optional tweaks (emoji, color,
     linked person, extra viewers): match a child by name, and leave a section empty to skip it. A child
     with no linked person is visible only to the family. A new child appears the next time you run the
-    script. Requirements: Mashov integration 1.0.14+, Bubble Card 3.4+ (HACS) and an existing empty
+    script. Requirements: Mashov integration 1.6.0+, Bubble Card 3.4+ (HACS) and an existing empty
     UI dashboard (Settings > Dashboards > Add dashboard > New dashboard from scratch).
+    Selected attendance counters, lesson counts, groups, bell times and Mashov pictures are discovered
+    automatically. Detail sections expand on demand. Optional card-mod adds the neon panel styling.
+    Homework is a collapsible checklist for the last three reported homework days by default, with
+    an option to show older days. Completed rows stay visible with a strike-through and can be unchecked.
+    The child card and its counters open readable school details. The weekly table combines each
+    child's subjects with school bells to show daily start/end times. It updates with the Mashov
+    timetable; cancellations published only in messages or Shahaf are not interpreted automatically.
   domain: script
   source_url: https://raw.githubusercontent.com/NirBY/ha-mashov/main/blueprints/script/mashov/mashov_live_dashboard.yaml
   input:
@@ -35,6 +42,11 @@ blueprint:
             Overview. The previous content is lost. Not needed for an empty dashboard or one this script built.
           default: false
           selector: { boolean: {} }
+        homework_days:
+          name: Recent homework days
+          description: Number of dates with reported homework to show initially. Older dates remain available through Show older days.
+          default: 3
+          selector: { number: { min: 1, max: 14, step: 1, mode: box } }
     student_1:
       name: Optional customization 1
       icon: mdi:account-school
@@ -312,6 +324,7 @@ variables:
   title: !input title
   family: !input family
   overwrite: !input overwrite
+  homework_days: !input homework_days
   student_1:
     name: !input s1_name
     emoji: !input s1_emoji
@@ -383,6 +396,7 @@ sequence:
       title: "{{ title }}"
       family: "{{ family }}"
       overwrite: "{{ overwrite }}"
+      homework_days: "{{ homework_days }}"
       students: "{{ students }}"
     response_variable: result
   - action: persistent_notification.create

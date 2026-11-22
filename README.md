@@ -6,13 +6,26 @@ Unofficial integration for **משו״ב (Mashov)**. Choose which school data to 
 
 Community project; not affiliated with Mashov. [Release notes](RELEASE_NOTES.md) · [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md)
 
-![Mashov connects homework, timetables, grades, spoken bag reminders, notices, exams and timetable updates, blueprints and AI via MCP to Home Assistant — neon concept illustration](docs/images/mashov-neon-overview.png)
+[Mashov connects homework, timetables, grades, spoken bag reminders, notices, exams and timetable updates, blueprints and AI via MCP to Home Assistant — neon concept illustration](docs/images/mashov-neon-overview.png)
+
+## The new child view
+
+![Actual Mashov cards: weekly start/end times, a homework checklist and older homework days](docs/images/mashov-children-live.gif)
+
+This GIF records the **actual interactive cards** using fictional names, homework and school data. It shows checking a task without removing it, opening older homework days, and recalculating hours after a published timetable change. It is a component demo, not a connection to a live school account.
+
+- **Weekly school table:** each child's subjects and daily start/end times, using the school's bell schedule. Missing times are labeled.
+- **Homework:** the last **3 dates with homework**, a collapsible list, persistent checkboxes with strike-through, and **Show older days**. The blueprint lets you choose 1–14 recent homework dates.
+- **Readable detail buttons:** messages, grades, behavior and homework open their content; attendance and lesson counters have labeled breakdowns.
+- **Reusable blueprint:** [Import the new-view blueprint](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FNirBY%2Fha-mashov%2Fmain%2Fblueprints%2Fscript%2Fmashov%2Fmashov_live_dashboard.yaml), then create and run its script. Requires Mashov **1.6.0+**, Bubble Card **3.4+**, and an empty UI dashboard. [Setup and upgrade guide](docs/dashboard.md).
+
+The table updates when Mashov's published timetable changes. **Cancellations appearing only in messages or Shahaf/iScool are not applied automatically.** The cards and completion data survive normal upgrades with the same persistent HA configuration; future compatibility still requires testing.
 
 ## What it looks like
 
 **Explore the integration in 90 seconds:** family dashboards, timetables, homework checklists, all 24 data sources, refresh schedules, account and advanced options, optional mailbox and AI access, and all four blueprints.
 
-![Animated Mashov feature tour: fictional family data, selectable sources, settings and four blueprint walkthroughs](docs/images/mashov-feature-tour.gif)
+[Animated Mashov feature tour: fictional family data, selectable sources, settings and four blueprint walkthroughs](docs/images/mashov-feature-tour.gif)
 
 The neon artwork and animated tour are **illustrations**, not screenshots of a new interface. Every person, school, grade, message and entity example in the tour is fictional; no live Home Assistant account was used. [Actual dashboard screenshots](docs/dashboard.md) · [Original HA walkthrough](docs/images/mashov-usage.gif) · [Tour transcript and rebuild instructions](docs/readme-visuals.md)
 
@@ -36,6 +49,8 @@ Requires **Home Assistant 2025.3 or newer**.
 **Manual:** copy `custom_components/mashov` to `/config/custom_components/mashov`, then restart Home Assistant.
 
 For updates, install through HACS and restart. Existing data selections, schedules, entity IDs and customizations are preserved; no new data source is enabled automatically.
+
+Saved dashboards remain in HA's persistent configuration through upgrades. The [dashboard guide](docs/dashboard.md#keeping-the-dashboard-through-upgrades) explains backups and frontend dependencies, and covers the readable attendance, subject, lesson and bell-time cards with optional neon styling.
 
 ## ⚙️ Configuration
 
