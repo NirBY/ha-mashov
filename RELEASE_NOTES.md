@@ -1,22 +1,21 @@
-# v1.5.0 — Absence and lateness counters
+# v1.6.0 — Readable child views and homework checklists
 
-Issue #20 now has a dedicated **Absence and lateness counters (school year)** source under **Configure → Data to fetch**. It is read only and off by default.
+Readable child dashboards, homework checklists and weekly school hours.
 
-- One sensor per student: state is total absence events, including justified and online absences. These are lesson events, not days absent.
-- Attributes include lateness, justified/unjustified totals, and subject/teaching-group rows with original event names and counts.
-- Counters cover September 1 through August 31 of the selected school year. Their dates are explicit and independent of the homework window.
-- Classification uses each school's event definitions. Events without a standard Mashov category remain visible as unclassified; they are not silently included in absence/lateness totals.
-- Temporary failures retain the previous counts and their original dates, marked stale. Permission or malformed-response failures do not become false zeroes. Raw student profiles are excluded from this source's cache and attributes.
-- Assist/MCP exposes the same totals and dates alongside paginated rows, subject to the existing opt-in and administrator checks.
+- Child/photo and counter buttons open readable messages, grades, behavior and homework.
+- Homework shows the last three distinct homework dates by default, with older dates available. Checked tasks stay in place with a strike-through and can be reopened. Completion is stored locally in Home Assistant.
+- Days without lessons and school holidays are hidden. Friday is retained when that child has classes.
+- Weekly subjects and each child's start/end times use the school's published timetable and bells. Missing times, partial data and week-specific boundary lessons are labeled.
+- Attendance breakdowns, subjects/teachers, lesson counters and profile pictures appear when selected.
+- The updated Mashov Live blueprint builds the new view and accepts 1–14 recent homework dates. Requires Bubble Card 3.4+; card-mod is optional for native Markdown accents.
+- English and Hebrew README GIFs open with the product overview as their default preview, followed by actual interactive cards with entirely fictional demo data.
 
-Both English and Hebrew READMEs and feature-tour GIFs now cover all **24 sources**. All five UI languages include the new option.
+**Existing 1.6.0 updated in place:** the version number is unchanged. If you already installed 1.6.0, use HACS Redownload or replace the integration with the updated `mashov.zip`.
 
-## Upgrade
+After updating, restart Home Assistant and refresh the browser after startup. Re-import and run the blueprint to adopt the new layout; ordinary updates preserve saved dashboards. Keep the same persistent `/config` volume and include Mashov's completion storage in backups.
 
-Update through HACS or install `mashov.zip`, then restart Home Assistant. Enable **Absence and lateness counters (school year)** explicitly. Existing selections, schedules and entity IDs are preserved. The option also reads school event definitions and group labels; the separate Behavior and Study Groups sources do not need to be enabled.
+**Known limitation:** cancellations appearing only in Mashov messages or Shahaf/iScool are not applied automatically. Hours recalculate when the published Mashov timetable changes. No Shahaf connector is included.
 
-## Validation
+Validation: 620 Python tests passed (1 skipped), 16 frontend tests passed, Ruff lint and formatting passed. All three local room dashboards were checked with their existing controls and viewer conditions preserved.
 
-The implementation was verified with read-only live requests for three students across two schools. Date-filtered aggregates matched the underlying behavior-event counts. Regression checks cover school-specific codes, justifications, student isolation, schedules, stale data, bounded attributes and Assist/MCP metadata. The full release CI checks Python 3.13/3.14, Ruff, hassfest and HACS.
-
-Issue #17 (follow-up note attachments) remains open because a real attachment schema and route still need verification.
+Issue #17 (follow-up note attachments) remains open pending verification of the attachment schema and route.
