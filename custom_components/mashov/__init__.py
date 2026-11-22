@@ -294,6 +294,10 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     else:
         _LOGGER.debug("No YAML options provided for Mashov")
     _async_register_services(hass)
+    if {"frontend", "http"}.issubset(hass.config.components):
+        from .dashboard_frontend import async_setup_dashboard_frontend
+
+        await async_setup_dashboard_frontend(hass)
     if "http" in hass.config.components and not hass.data[DOMAIN].get("attachment_view"):
         from .mail_attachments import MashovAttachmentView
 
@@ -371,6 +375,7 @@ CREATE_LIVE_DASHBOARD_SCHEMA = vol.Schema(
         vol.Optional("title"): vol.Any(None, cv.string),
         vol.Optional("family"): vol.Any(None, vol.All(cv.ensure_list, [cv.entity_id])),
         vol.Optional("overwrite", default=False): cv.boolean,
+        vol.Optional("homework_days", default=3): _int_in(1, 14),
         vol.Optional("students"): vol.Any(None, vol.All(cv.ensure_list, [LIVE_STUDENT_SCHEMA])),
     }
 )
