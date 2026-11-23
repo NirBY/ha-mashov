@@ -14,6 +14,12 @@ DEFAULT_MAILBOX_ATTACHMENT_MAX_MB = 25
 MIN_MAILBOX_ATTACHMENT_MAX_MB = 1
 MAX_MAILBOX_ATTACHMENT_MAX_MB = 100
 BYTES_PER_MB = 1024 * 1024
+# Parent approvals: the only write this integration can make, plus the portal's list toggles.
+CONF_ALLOW_APPROVAL_ANSWERS = "allow_approval_answers"
+CONF_APPROVALS_SHOW_ENDED = "approvals_show_ended"
+CONF_APPROVALS_HIDE_ANSWERED = "approvals_hide_answered"
+CONF_APPROVALS_NEWEST_FIRST = "approvals_newest_first"
+APPROVALS_DISPLAY_OPTIONS = (CONF_APPROVALS_SHOW_ENDED, CONF_APPROVALS_HIDE_ANSWERED, CONF_APPROVALS_NEWEST_FIRST)
 
 # Frozen historical default, including installations from v1.0.7. Never extend
 # this tuple when adding a resource: upgrades must not enable new data sources.
@@ -44,6 +50,9 @@ def merge_selection_options(current, changes):
     # it later must not silently reuse an old full-content opt-in.
     if "mailbox" not in merged[CONF_ENABLED_DATA]:
         merged[CONF_MAILBOX_FULL_CONTENT] = False
+    # Consent to answer approvals never outlives the approvals selection.
+    if merged.get(CONF_ALLOW_APPROVAL_ANSWERS) and "parent_approvals" not in merged[CONF_ENABLED_DATA]:
+        merged[CONF_ALLOW_APPROVAL_ANSWERS] = False
     # Attachments need detail GETs; they never outlive full-content consent.
     if merged.get(CONF_MAILBOX_ATTACHMENTS) and not merged.get(CONF_MAILBOX_FULL_CONTENT):
         merged[CONF_MAILBOX_ATTACHMENTS] = False
@@ -52,6 +61,11 @@ def merge_selection_options(current, changes):
 
 def _mailbox_selected(options):
     return "mailbox" in enabled_data(options)
+
+
+def approval_answers_enabled(options):
+    """Answering needs the parent approvals data source and its own opt-in."""
+    return bool(options.get(CONF_ALLOW_APPROVAL_ANSWERS)) and "parent_approvals" in enabled_data(options)
 
 
 def attachments_enabled(options):
@@ -70,7 +84,8 @@ def attachment_max_bytes(options):
 
 # Opt-in -> (error key, prerequisite). Order matters: a reset full-content box
 # must be seen by the attachments check that follows it.
-MAILBOX_DEPENDENCIES = (
+OPT_IN_DEPENDENCIES = (
+    (CONF_ALLOW_APPROVAL_ANSWERS, "approvals_required", lambda options: "parent_approvals" in enabled_data(options)),
     (CONF_MAILBOX_FULL_CONTENT, "mailbox_required", _mailbox_selected),
     (
         CONF_MAILBOX_ATTACHMENTS,
@@ -81,13 +96,13 @@ MAILBOX_DEPENDENCIES = (
 
 
 def mailbox_option_errors(submitted, current, reset_removed=False):
-    """Return (submitted, errors) for mailbox opt-ins whose prerequisite is missing.
+    """Return (submitted, errors) for opt-ins (mailbox, approval answers) whose prerequisite is missing.
 
     With reset_removed (Configure form), removing a prerequisite that the hub
     had takes precedence over the old checked box, which is reset instead.
     """
     errors = {}
-    for key, error, satisfied in MAILBOX_DEPENDENCIES:
+    for key, error, satisfied in OPT_IN_DEPENDENCIES:
         if not submitted.get(key) or satisfied({**current, **submitted}):
             continue
         if reset_removed and satisfied(current):

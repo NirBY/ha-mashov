@@ -182,6 +182,27 @@ set_options:
           unit_of_measurement: MB
           mode: box
 
+    approvals_show_ended:
+      name: "Approvals: show ended activities"
+      description: "Display only: the per-child activities list also shows activities that already ended."
+      selector:
+        boolean: {}
+    approvals_hide_answered:
+      name: "Approvals: hide answered activities"
+      description: "Display only: the per-child activities list leaves out activities already answered."
+      selector:
+        boolean: {}
+    approvals_newest_first:
+      name: "Approvals: newest first"
+      description: "Display only: sort the per-child activities list from newest to oldest."
+      selector:
+        boolean: {}
+    allow_approval_answers:
+      name: "Allow answering parent approvals"
+      description: "Off by default. Lets the admin service answer_school_activity send an answer to Mashov. Needs parent approvals selected. Only an authenticated administrator can turn it on."
+      selector:
+        boolean: {}
+
 create_live_dashboard:
   name: "Create Mashov Live dashboard"
   description: "Build the Mashov Live Bubble Card dashboard and save it into an existing UI dashboard."
@@ -226,3 +247,46 @@ create_live_dashboard:
       default: false
       selector:
         boolean: {}
+
+answer_school_activity:
+  name: "Answer a school activity"
+  description: "Sends a parent's answer for one child to Mashov, like the portal does. Needs the hub option allow_approval_answers. Mashov is checked again first: activities past their deadline or with questions are refused."
+  fields:
+    entry_id:
+      name: "Hub entry ID"
+      description: "Required when more than one Mashov hub is loaded."
+      required: false
+      selector:
+        config_entry:
+          integration: mashov
+    activity_id:
+      name: "Activity ID"
+      description: "activity_id from the child's Pending approvals sensor."
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+    student:
+      name: "Student"
+      description: "The student's id or slug, as on the sensor."
+      required: true
+      selector:
+        text: {}
+    answer:
+      name: "Answer"
+      required: true
+      selector:
+        select:
+          translation_key: approval_answer
+          options:
+            - approved
+            - approved_with_conditions
+            - denied
+    remark:
+      name: "Remark"
+      description: "Optional, up to 500 characters. Sent to the school. This integration does not log or store it (automation traces may still contain service data)."
+      required: false
+      selector:
+        text:
+          multiline: true

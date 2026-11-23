@@ -59,6 +59,8 @@ from .const import (
 )
 from .data_schedule import CONF_DATA_SCHEDULES, CONF_EDIT_DATA_SCHEDULES, CONF_STUDENT_SCHEDULES, SCHEDULE_SCHEMA
 from .data_selection import (
+    APPROVALS_DISPLAY_OPTIONS,
+    CONF_ALLOW_APPROVAL_ANSWERS,
     CONF_ENABLED_DATA,
     CONF_MAILBOX_ATTACHMENT_MAX_MB,
     CONF_MAILBOX_ATTACHMENTS,
@@ -138,6 +140,8 @@ def _data_fields(selected, options):
         vol.Optional(CONF_MAILBOX_ATTACHMENT_MAX_MB, default=max_mb): vol.All(
             int, vol.Range(min=MIN_MAILBOX_ATTACHMENT_MAX_MB, max=MAX_MAILBOX_ATTACHMENT_MAX_MB)
         ),
+        **{vol.Optional(key, default=options.get(key, False)): bool for key in APPROVALS_DISPLAY_OPTIONS},
+        vol.Optional(CONF_ALLOW_APPROVAL_ANSWERS, default=options.get(CONF_ALLOW_APPROVAL_ANSWERS, False)): bool,
     }
 
 
@@ -397,6 +401,8 @@ class ConfigFlow(DataScheduleFlow, config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_MAILBOX_LIMIT,
                         CONF_MAILBOX_ATTACHMENTS,
                         CONF_MAILBOX_ATTACHMENT_MAX_MB,
+                        CONF_ALLOW_APPROVAL_ANSWERS,
+                        *APPROVALS_DISPLAY_OPTIONS,
                         CONF_SCHEDULE_TYPE,
                         CONF_SCHEDULE_TIME,
                         CONF_SCHEDULE_DAYS,

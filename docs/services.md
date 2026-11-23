@@ -101,3 +101,32 @@ response_variable: result
 The response reports the dashboard, the number of students and whether the Bubble Card resource was found. There is no limit on the number of children.
 
 ---
+
+## `mashov.answer_school_activity`
+
+Answer a trip or school activity for one child, as the Mashov portal does. This is the
+integration's only write to Mashov. It is admin-only and needs the hub option
+**Allow answering parent approvals** (`allow_approval_answers`, off by default, requires
+Parent approvals).
+
+```yaml
+action: mashov.answer_school_activity
+data:
+  entry_id: YOUR_ENTRY_ID      # optional with a single hub
+  activity_id: 123             # activity_id from the child's Pending approvals sensor
+  student: STUDENT_ID_OR_SLUG
+  answer: approved             # approved | approved_with_conditions | denied
+  remark: ""                   # optional, up to 500 characters
+```
+
+Right before sending, the activity and its answers are read again from Mashov. Nothing is
+sent, and the call fails, when the answer deadline has passed, the activity has questions
+(answer those in Mashov), the activity does not cover this child, or Mashov cannot be
+checked. After a successful answer, parent approvals refresh. The remark goes to the
+school; this integration does not log or store it (automation and script traces may still
+contain the call data). Logs contain only the activity ID and HTTP status. Activities without
+an answer deadline are refused too.
+
+Once the option is on, automations and scripts can call this service too, for example from a
+notification action, just like other admin services. Only an authenticated administrator can
+turn the option on.

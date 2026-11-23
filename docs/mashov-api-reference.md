@@ -48,7 +48,7 @@ Side effects: `none` / `marks read` / `writes`. Rows marked ⚠ are calls the ap
 | GET | `schoolActivities/<ACTIVITY_ID>/userAnswers` | This parent's answer(s) per child for the activity | none | yes |
 | GET | `schoolActivities/<ACTIVITY_ID>/answers` | All answers (staff) | none | yes (403 for parent) |
 | GET | `schoolActivities` | Staff list | none | yes (403 for parent) |
-| PUT | `students/<STUDENT_GUID>/schoolActivities/<ACTIVITY_ID>` | **Submit approval answer** | writes | bundle-only |
+| PUT | `students/<STUDENT_GUID>/schoolActivities/<ACTIVITY_ID>` | **Submit approval answer**. Body `{activityId, studentGuid, userId: <PARENT_GUID>, answer: 1\|2\|3, remark}` (+ `answerData` when the activity has questions). Used only by the opt-in `answer_school_activity` service | writes | bundle-only (body from bundle; parent `userId` matched live against a sent answer) |
 | PUT | `digitalApproval/<PARENT_GUID>` | Parent's yearly "digital approval" declaration. Body empty. Returns the new `isDigitalApproved` year list | writes | bundle-only |
 | URL | `schoolActivities/<ACTIVITY_ID>/files/<FILE_ID>/<FILE_NAME>` | Activity attachment download | none (assumed) | bundle-only |
 | GET | `user/forms?isParentsConsent=true` | **Parent consent questionnaires (שאלוני הורים מקוונים)** | none | yes (empty list) |

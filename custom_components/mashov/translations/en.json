@@ -18,14 +18,22 @@
           "schedule_time": "Refresh time (HH:MM or HH:MM:SS)",
           "schedule_days": "Weekdays (0=Mon ... 6=Sun)",
           "schedule_interval": "Interval minutes (interval mode)",
-          "edit_data_schedules": "Edit schedules by data type"
+          "edit_data_schedules": "Edit schedules by data type",
+          "approvals_show_ended": "Approvals: show ended activities",
+          "approvals_hide_answered": "Approvals: hide answered activities",
+          "approvals_newest_first": "Approvals: newest first",
+          "allow_approval_answers": "Allow answering parent approvals"
         },
         "data_description": {
           "enabled_data": "Choose only the data you need. Existing hubs retain their previous selection. Warning: an empty selection creates no school-data sensors. Dashboards and blueprints require their corresponding categories to be selected.",
           "mailbox_full_content": "Full message content is off by default. When on, bodies and attachments are fetched only for conversations you have already read in Mashov, so unread conversations stay unread until you open them in Mashov.",
           "mailbox_limit": "Up to 50 recent inbox conversations. Older conversations are not fetched.",
           "mailbox_attachments": "Off by default. Needs Mailbox and full message content. Saves attachments of already-read conversations in the Home Assistant config folder (mashov_files), where they are included in backups. Only signed-in Home Assistant users can download them.",
-          "mailbox_attachment_max_mb": "Larger attachments are skipped and marked too_large (1–100 MB, default 25)."
+          "mailbox_attachment_max_mb": "Larger attachments are skipped and marked too_large (1–100 MB, default 25).",
+          "approvals_show_ended": "Display only. Changes the per-child activities list, not what is fetched.",
+          "approvals_hide_answered": "Display only. Changes the per-child activities list, not what is fetched.",
+          "approvals_newest_first": "Display only. Changes the per-child activities list, not what is fetched.",
+          "allow_approval_answers": "Off by default. Lets the admin service answer_school_activity send your answer to Mashov. Needs Parent approvals selected. Activities past their deadline or with questions are refused."
         },
         "sections": {
           "data": {
@@ -35,14 +43,22 @@
               "mailbox_full_content": "Full message content (already-read conversations)",
               "mailbox_limit": "Recent inbox conversations",
               "mailbox_attachments": "Download attachments (all file types, saved in the config folder)",
-              "mailbox_attachment_max_mb": "Maximum attachment size (MB)"
+              "mailbox_attachment_max_mb": "Maximum attachment size (MB)",
+              "approvals_show_ended": "Approvals: show ended activities",
+              "approvals_hide_answered": "Approvals: hide answered activities",
+              "approvals_newest_first": "Approvals: newest first",
+              "allow_approval_answers": "Allow answering parent approvals"
             },
             "data_description": {
               "enabled_data": "Choose only the data you need. Existing hubs retain their previous selection. Warning: an empty selection creates no school-data sensors. Dashboards and blueprints require their corresponding categories to be selected.",
               "mailbox_full_content": "Full message content is off by default. When on, bodies and attachments are fetched only for conversations you have already read in Mashov, so unread conversations stay unread until you open them in Mashov.",
               "mailbox_limit": "Up to 50 recent inbox conversations. Older conversations are not fetched.",
               "mailbox_attachments": "Off by default. Needs Mailbox and full message content. Saves attachments of already-read conversations in the Home Assistant config folder (mashov_files), where they are included in backups. Only signed-in Home Assistant users can download them.",
-              "mailbox_attachment_max_mb": "Larger attachments are skipped and marked too_large (1–100 MB, default 25)."
+              "mailbox_attachment_max_mb": "Larger attachments are skipped and marked too_large (1–100 MB, default 25).",
+              "approvals_show_ended": "Display only. Changes the per-child activities list, not what is fetched.",
+              "approvals_hide_answered": "Display only. Changes the per-child activities list, not what is fetched.",
+              "approvals_newest_first": "Display only. Changes the per-child activities list, not what is fetched.",
+              "allow_approval_answers": "Off by default. Lets the admin service answer_school_activity send your answer to Mashov. Needs Parent approvals selected. Activities past their deadline or with questions are refused."
             }
           },
           "refresh": {
@@ -110,7 +126,8 @@
       "school_not_found": "No school matched that name.",
       "mailbox_required": "Select Mailbox before enabling full message content.",
       "full_content_required": "Select Mailbox and enable full message content before enabling attachments.",
-      "invalid_data_schedule": "Enter a valid time (HH:MM[:SS]), interval (5–1440 minutes), and at least one weekday for a weekly schedule."
+      "invalid_data_schedule": "Enter a valid time (HH:MM[:SS]), interval (5–1440 minutes), and at least one weekday for a weekly schedule.",
+      "approvals_required": "Select Parent approvals before allowing answers."
     },
     "abort": {
       "already_configured": "This Mashov account is already configured."
@@ -140,7 +157,11 @@
           "mailbox_attachments": "Download attachments (all file types, saved in the config folder)",
           "mailbox_attachment_max_mb": "Maximum attachment size (MB)",
           "edit_data_schedules": "Edit schedules by data type",
-          "mcp_enabled": "Expose this account to MCP / Assist (read only)"
+          "mcp_enabled": "Expose this account to MCP / Assist (read only)",
+          "approvals_show_ended": "Approvals: show ended activities",
+          "approvals_hide_answered": "Approvals: hide answered activities",
+          "approvals_newest_first": "Approvals: newest first",
+          "allow_approval_answers": "Allow answering parent approvals"
         },
         "data_description": {
           "enabled_data": "Choose only the data you need. Existing hubs retain their previous selection. Warning: an empty selection creates no school-data sensors. Dashboards and blueprints require their corresponding categories to be selected.",
@@ -148,7 +169,11 @@
           "mailbox_limit": "Up to 50 recent inbox conversations. Older conversations are not fetched.",
           "mailbox_attachments": "Off by default. Needs Mailbox and full message content. Saves attachments of already-read conversations in the Home Assistant config folder (mashov_files), where they are included in backups. Only signed-in Home Assistant users can download them.",
           "mailbox_attachment_max_mb": "Larger attachments are skipped and marked too_large (1–100 MB, default 25).",
-          "mcp_enabled": "Off by default. Authenticated administrators can read all children in this account, limited to selected data sources. Select the Mashov API in MCP Server settings."
+          "mcp_enabled": "Off by default. Authenticated administrators can read all children in this account, limited to selected data sources. Select the Mashov API in MCP Server settings.",
+          "approvals_show_ended": "Display only. Changes the per-child activities list, not what is fetched.",
+          "approvals_hide_answered": "Display only. Changes the per-child activities list, not what is fetched.",
+          "approvals_newest_first": "Display only. Changes the per-child activities list, not what is fetched.",
+          "allow_approval_answers": "Off by default. Lets the admin service answer_school_activity send your answer to Mashov. Needs Parent approvals selected. Activities past their deadline or with questions are refused."
         },
         "sections": {
           "data": {
@@ -158,14 +183,22 @@
               "mailbox_full_content": "Full message content (already-read conversations)",
               "mailbox_limit": "Recent inbox conversations",
               "mailbox_attachments": "Download attachments (all file types, saved in the config folder)",
-              "mailbox_attachment_max_mb": "Maximum attachment size (MB)"
+              "mailbox_attachment_max_mb": "Maximum attachment size (MB)",
+              "approvals_show_ended": "Approvals: show ended activities",
+              "approvals_hide_answered": "Approvals: hide answered activities",
+              "approvals_newest_first": "Approvals: newest first",
+              "allow_approval_answers": "Allow answering parent approvals"
             },
             "data_description": {
               "enabled_data": "Choose only the data you need. Existing hubs retain their previous selection. Warning: an empty selection creates no school-data sensors. Dashboards and blueprints require their corresponding categories to be selected.",
               "mailbox_full_content": "Full message content is off by default. When on, bodies and attachments are fetched only for conversations you have already read in Mashov, so unread conversations stay unread until you open them in Mashov.",
               "mailbox_limit": "Up to 50 recent inbox conversations. Older conversations are not fetched.",
               "mailbox_attachments": "Off by default. Needs Mailbox and full message content. Saves attachments of already-read conversations in the Home Assistant config folder (mashov_files), where they are included in backups. Only signed-in Home Assistant users can download them.",
-              "mailbox_attachment_max_mb": "Larger attachments are skipped and marked too_large (1–100 MB, default 25)."
+              "mailbox_attachment_max_mb": "Larger attachments are skipped and marked too_large (1–100 MB, default 25).",
+              "approvals_show_ended": "Display only. Changes the per-child activities list, not what is fetched.",
+              "approvals_hide_answered": "Display only. Changes the per-child activities list, not what is fetched.",
+              "approvals_newest_first": "Display only. Changes the per-child activities list, not what is fetched.",
+              "allow_approval_answers": "Off by default. Lets the admin service answer_school_activity send your answer to Mashov. Needs Parent approvals selected. Activities past their deadline or with questions are refused."
             }
           },
           "refresh": {
@@ -242,7 +275,8 @@
       "full_content_required": "Select Mailbox and enable full message content before enabling attachments.",
       "invalid_data_schedule": "Enter a valid time (HH:MM[:SS]), interval (5–1440 minutes), and at least one weekday for a weekly schedule.",
       "auth": "Authentication failed. Check credentials/school.",
-      "cannot_connect": "Cannot reach Mashov."
+      "cannot_connect": "Cannot reach Mashov.",
+      "approvals_required": "Select Parent approvals before allowing answers."
     }
   },
   "selector": {
@@ -378,6 +412,13 @@
         "account_help": "Holidays belong to the school and Mailbox to the account. Other schedules here are inherited defaults for students without overrides.",
         "inherit_defaults": "Use existing account defaults",
         "registration_students": "Registration saves initial defaults. After authentication, choose each student here to set their own schedules."
+      }
+    },
+    "approval_answer": {
+      "options": {
+        "approved": "Approved",
+        "approved_with_conditions": "Approved with health conditions",
+        "denied": "Denied"
       }
     }
   },
@@ -550,6 +591,22 @@
         },
         "data_schedules": {
           "name": "Data schedules"
+        },
+        "approvals_show_ended": {
+          "name": "Approvals: show ended activities",
+          "description": "Display only. Changes the per-child activities list, not what is fetched."
+        },
+        "approvals_hide_answered": {
+          "name": "Approvals: hide answered activities",
+          "description": "Display only. Changes the per-child activities list, not what is fetched."
+        },
+        "approvals_newest_first": {
+          "name": "Approvals: newest first",
+          "description": "Display only. Changes the per-child activities list, not what is fetched."
+        },
+        "allow_approval_answers": {
+          "name": "Allow answering parent approvals",
+          "description": "Off by default. Lets the admin service answer_school_activity send your answer to Mashov. Needs Parent approvals selected. Activities past their deadline or with questions are refused."
         }
       }
     },
@@ -574,6 +631,27 @@
         "overwrite": {
           "name": "Replace existing content",
           "description": "Replace a dashboard that already has other content, or a built-in dashboard such as the Overview. The previous content is lost."
+        }
+      }
+    },
+    "answer_school_activity": {
+      "name": "Answer a school activity",
+      "description": "Sends a parent's answer for one child to Mashov. Needs the hub option Allow answering parent approvals. Mashov is checked again first.",
+      "fields": {
+        "entry_id": {
+          "name": "Hub entry ID"
+        },
+        "activity_id": {
+          "name": "Activity ID"
+        },
+        "student": {
+          "name": "Student"
+        },
+        "answer": {
+          "name": "Answer"
+        },
+        "remark": {
+          "name": "Remark"
         }
       }
     }
