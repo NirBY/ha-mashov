@@ -43,7 +43,7 @@ def _local_timestamp(value: float | None) -> str | None:
 
 # NOTE: these package imports sit below the helper above for historical reasons; order is harmless.
 from .additional_data import STUDENT_RESOURCES
-from .approvals import FORM_KINDS, PARENT_APPROVALS, open_forms, open_pending
+from .approvals import FORM_KINDS, PARENT_APPROVALS, display_activities, open_forms, open_pending
 from .attendance import ATTENDANCE_COUNTS, METADATA_FIELDS
 from .const import (
     CONF_MAX_ITEMS_IN_ATTRIBUTES,
@@ -68,7 +68,13 @@ from .const import (
     SENSOR_KEY_WEEKLY_PLAN,
 )
 from .data_schedule import SHARED_DATA, effective_schedule
-from .data_selection import LEGACY_CORE_DATA, enabled_data
+from .data_selection import (
+    CONF_APPROVALS_HIDE_ANSWERED,
+    CONF_APPROVALS_NEWEST_FIRST,
+    CONF_APPROVALS_SHOW_ENDED,
+    LEGACY_CORE_DATA,
+    enabled_data,
+)
 from .entity import MashovEntity, MashovStudentEntity, sync_selected_entities
 from .holidays_utils import (
     HOLIDAY_DEFAULT_NAME,
@@ -1490,11 +1496,16 @@ def _approvals(coordinator):
 
 
 class MashovApprovalsSensor(MashovAdditionalSensor):
-    """Pending activity approvals (trips, culture basket) of one child. Never answered here."""
+    """Pending activity approvals (trips, culture basket) of one child.
+
+    The state counts pending items only. ``activities`` is the portal's list view of
+    every fetched activity, shaped by the hub's show-ended / hide-answered /
+    newest-first options.
+    """
 
     _attr_icon = "mdi:clipboard-check-outline"
     # Titles and descriptions stay available live but are kept out of Recorder history.
-    _unrecorded_attributes = frozenset({"pending"})
+    _unrecorded_attributes = frozenset({"pending", "activities"})
 
     def __init__(self, coordinator, student_id, slug, name, entry_id):
         super().__init__(coordinator, student_id, slug, name, PARENT_APPROVALS, entry_id)
@@ -1523,13 +1534,24 @@ class MashovApprovalsSensor(MashovAdditionalSensor):
             **({"items_retained": True} if resource.get("retained") else {}),
             "truncated": False,
             "pending": [],
+            "activities": [],
             "last_update": _local_timestamp(
                 resource.get("last_update", getattr(self.coordinator, "last_successful_update", None))
             ),
             **self.schedule_attributes(PARENT_APPROVALS),
         }
         _fill_bounded(attributes, "pending", pending)
+        _fill_bounded(attributes, "activities", self._activities(resource))
         return attributes
+
+    def _activities(self, resource):
+        options = self.coordinator.entry.options
+        return display_activities(
+            resource.get("by_student", {}).get(self._student_id, []),
+            show_ended=options.get(CONF_APPROVALS_SHOW_ENDED, False),
+            hide_answered=options.get(CONF_APPROVALS_HIDE_ANSWERED, False),
+            newest_first=options.get(CONF_APPROVALS_NEWEST_FIRST, False),
+        )
 
 
 class MashovOpenFormsSensor(MashovEntity, SensorEntity):

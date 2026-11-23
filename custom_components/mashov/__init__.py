@@ -43,6 +43,7 @@ from homeassistant.util import dt as dt_util  # type: ignore
 import voluptuous as vol  # type: ignore
 
 from .additional_data import CONF_ADDITIONAL_DATA, STUDENT_RESOURCES
+from .approval_service import ANSWER_SCHEMA, SERVICE_ANSWER_SCHOOL_ACTIVITY, async_handle_answer
 from .const import (
     CONF_API_BASE,
     CONF_HOMEWORK_DAYS_BACK,
@@ -79,6 +80,8 @@ from .data_schedule import (
     student_schedule_groups,
 )
 from .data_selection import (
+    APPROVALS_DISPLAY_OPTIONS,
+    CONF_ALLOW_APPROVAL_ANSWERS,
     CONF_ENABLED_DATA,
     CONF_MAILBOX_ATTACHMENT_MAX_MB,
     CONF_MAILBOX_ATTACHMENTS,
@@ -335,6 +338,8 @@ SET_OPTIONS_SCHEMA = vol.Schema(
         vol.Optional(CONF_MAILBOX_ATTACHMENT_MAX_MB): _int_in(
             MIN_MAILBOX_ATTACHMENT_MAX_MB, MAX_MAILBOX_ATTACHMENT_MAX_MB
         ),
+        vol.Optional(CONF_ALLOW_APPROVAL_ANSWERS): cv.boolean,
+        **{vol.Optional(key): cv.boolean for key in APPROVALS_DISPLAY_OPTIONS},
         vol.Optional(CONF_SCHEDULE_TYPE): vol.In(["daily", "weekly", "interval"]),
         vol.Optional(CONF_SCHEDULE_TIME): vol.Match(r"^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$"),
         vol.Optional(CONF_SCHEDULE_DAY): _int_in(0, 6),
@@ -384,7 +389,15 @@ CREATE_LIVE_DASHBOARD_SCHEMA = vol.Schema(
 _SERVICE_OPTION_ERRORS = {
     "mailbox_required": "Select mailbox before enabling full message content",
     "full_content_required": "Select mailbox and enable full content before enabling attachments",
+    "approvals_required": "Select parent approvals before allowing answers",
 }
+
+
+async def _require_admin_user(hass: HomeAssistant, call: ServiceCall, message: str) -> None:
+    """Calls without a user (automations, scripts) are refused too."""
+    user = await hass.auth.async_get_user(call.context.user_id) if call.context.user_id else None
+    if user is None or not user.is_admin:
+        raise ServiceValidationError(message)
 
 
 def _async_register_services(hass: HomeAssistant) -> None:
@@ -437,9 +450,10 @@ def _async_register_services(hass: HomeAssistant) -> None:
         if errors:
             raise ServiceValidationError(_SERVICE_OPTION_ERRORS[next(iter(errors.values()))])
         if "mcp_enabled" in payload:
-            user = await hass.auth.async_get_user(call.context.user_id) if call.context.user_id else None
-            if user is None or not user.is_admin:
-                raise ServiceValidationError("Only an authenticated administrator can change Mashov MCP exposure")
+            await _require_admin_user(hass, call, "Only an authenticated administrator can change Mashov MCP exposure")
+        if payload.get(CONF_ALLOW_APPROVAL_ANSWERS):
+            # An automation must not grant itself write access to Mashov.
+            await _require_admin_user(hass, call, "Only an authenticated administrator can allow answering approvals")
         opts = merge_selection_options(entry.options, payload)
         # Legacy schedule_day is promoted to a one-element schedule_days, and the old
         # key is never stored alongside the list (mirrors the setup-time migration).
@@ -454,7 +468,15 @@ def _async_register_services(hass: HomeAssistant) -> None:
         """Write the generated Lovelace dashboard; returns a summary when a response is requested."""
         return await async_save_live_dashboard(hass, dict(call.data))
 
+    async def _handle_answer_school_activity(call: ServiceCall):
+        await async_handle_answer(hass, call)
+
     hass.services.async_register(DOMAIN, "refresh_now", _handle_refresh, schema=REFRESH_NOW_SCHEMA)
+    # Admin-only: the one service that writes to Mashov (a parent's answer to an activity).
+    # It also needs the hub option allow_approval_answers, which is off by default.
+    async_register_admin_service(
+        hass, DOMAIN, SERVICE_ANSWER_SCHOOL_ACTIVITY, _handle_answer_school_activity, schema=ANSWER_SCHEMA
+    )
     # Admin-only: set_options can change api_base (where the stored credentials are sent),
     # enable sources that mark mail read, and widen what is exposed. Calls without a user
     # (automations, scripts) are still allowed by Home Assistant.
@@ -880,6 +902,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             return
         _LOGGER.info("Options updated for entry %s; reconfiguring scheduler", updated_entry.title)
         await _async_setup_scheduler(hass, updated_entry)
+        # Display options (approval list toggles) are read live; redraw the sensors now.
+        coordinator.async_update_listeners()
 
     entry.async_on_unload(entry.add_update_listener(_options_updated))
 

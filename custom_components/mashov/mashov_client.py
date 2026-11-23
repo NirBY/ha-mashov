@@ -2,7 +2,8 @@
 
 Handles login (with a cached-session fast path), school lookup, per-student data
 fetching and normalization of the raw API payloads into the snake_case dicts the
-sensors consume. It never submits forms. The optional mailbox full-content GET
+sensors consume. It never submits forms; its only write is an activity answer from
+the opt-in admin service answer_school_activity. The optional mailbox full-content GET
 requires explicit opt-in and is made only for conversations already read in
 Mashov (opening one marks it read there); attachment downloads need a further
 opt-in on top of it.
@@ -27,7 +28,16 @@ import aiohttp  # type: ignore[import]
 import yarl  # type: ignore[import]
 
 from .additional_data import STUDENT_RESOURCES
-from .approvals import ANSWERS_KEY, fetch_parent_approvals
+from .approvals import (
+    ANSWER_PATH,
+    ANSWERS_KEY,
+    ANSWERS_PATH,
+    DETAIL_KEY,
+    DETAIL_PATH,
+    answer_body,
+    answer_refusal,
+    fetch_parent_approvals,
+)
 from .attendance import ATTENDANCE_COUNTS, normalize_attendance
 from .const import CONF_YEAR
 from .data_schedule import SHARED_DATA
@@ -70,7 +80,7 @@ PICTURE_TIMEOUT = aiohttp.ClientTimeout(total=60, sock_connect=15, sock_read=30)
 RELOGIN_FAILURE_COOLDOWN = 300
 # Account routes for one item (a conversation, an activity's answers). They back off
 # per path, and a 404 (item removed) is not parked, so one item never blocks the others.
-PER_ITEM_ACCOUNT_KEYS = frozenset({"mail_content", ANSWERS_KEY})
+PER_ITEM_ACCOUNT_KEYS = frozenset({"mail_content", ANSWERS_KEY, DETAIL_KEY})
 
 # A data type is retired only after this many refreshes in a row in which every attempt
 # got HTTP 5xx. Refreshes closer together than the spacing count once, so repeated manual
@@ -96,6 +106,14 @@ class MashovAuthError(MashovError):
     """Raised when Mashov rejects the credentials (re-auth is required)."""
 
     pass
+
+
+class MashovAnswerRefusedError(MashovError):
+    """Raised before any write when fresh Mashov data says the answer must not be sent."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
 
 
 class MashovPasswordChangeRequiredError(MashovAuthError):
@@ -1301,6 +1319,55 @@ class MashovClient:
         except (aiohttp.ClientError, TimeoutError, ValueError):
             _LOGGER.warning("Unable to fetch Mashov account resource %s", key)
             return "fetch_failed", None
+
+    async def async_answer_school_activity(
+        self, activity_id: int, student_id: str, status: str, remark: str, now=None
+    ) -> None:
+        """Answer one activity for one child, re-checking it on Mashov first (the only write)."""
+        await self._check_answerable(activity_id, student_id, now)
+        credential = self._auth_data.get("credential")
+        parent_user_id = credential.get("userId") if isinstance(credential, dict) else None
+        if not isinstance(parent_user_id, str) or not parent_user_id:
+            raise MashovError("Mashov did not return the parent account id; nothing was sent")
+        path = ANSWER_PATH.format(activity_id=activity_id, student_id=quote(student_id, safe=""))
+        await self._put_account_json(path, answer_body(activity_id, student_id, parent_user_id, status, remark))
+        _LOGGER.info("Answered Mashov school activity %s", activity_id)
+
+    async def _check_answerable(self, activity_id: int, student_id: str, now=None) -> None:
+        """Fetch the activity and its answers now; a deadline that passed since the last refresh counts."""
+        detail_status, detail = await self._fetch_account_json(
+            DETAIL_PATH.format(activity_id=activity_id), DETAIL_KEY, list
+        )
+        answers_status, answers = await self._fetch_account_json(
+            ANSWERS_PATH.format(activity_id=activity_id), ANSWERS_KEY, list
+        )
+        if detail_status != "ok" or answers_status != "ok":
+            raise MashovError(
+                f"Could not check the activity on Mashov ({detail_status}/{answers_status}); nothing was sent"
+            )
+        reason = answer_refusal(detail, answers, student_id, now)
+        if reason:
+            raise MashovAnswerRefusedError(reason)
+
+    async def _put_account_json(self, path, body) -> None:
+        """PUT with one re-login on 401; the response body is never logged or returned."""
+        try:
+            for attempt in range(2):
+                async with self._session.put(self._api_base + path, json=body, headers=self._headers) as response:
+                    if response.status == 401 and attempt == 0:
+                        await self._ensure_valid_session()
+                        continue
+                    if response.status == 403 and (response.headers.get("reason") or "").lower() == "changepass":
+                        raise MashovPasswordChangeRequiredError(
+                            "Please change password before authenticating.", self.login_page_url
+                        )
+                    if response.status >= 400:
+                        _LOGGER.warning("Mashov refused a school activity answer: HTTP %s", response.status)
+                        raise MashovError(f"Mashov refused the answer (HTTP {response.status})")
+                    return
+        except (aiohttp.ClientError, TimeoutError) as err:
+            _LOGGER.warning("Sending a Mashov school activity answer failed: network error")
+            raise MashovError("Could not reach Mashov; check the portal before answering again") from err
 
     @property
     def pictures(self) -> dict[str, tuple[bytes, str, float]]:

@@ -1,7 +1,8 @@
-"""Read-only parent approvals: school activities (trips) and online forms.
+"""Parent approvals: school activities (trips) and online forms.
 
-Only GET list routes are requested. Answer submissions (PUT) are never sent and
-the answer page, whose digital-approval prompt writes, is never opened.
+Refreshes only send GET requests. Answering an activity (PUT) happens only from the
+admin service answer_school_activity, and only with the hub option
+allow_approval_answers on. Forms and the digital-approval declaration are never written.
 """
 
 from copy import deepcopy
@@ -16,6 +17,10 @@ ANSWERS_KEY = "activity_answers"
 ACTIVITIES_PATH = "schoolActivities/permitted"
 ANSWERS_PATH = "schoolActivities/{activity_id}/userAnswers"
 FORMS_PATH = "user/forms?isParentsConsent={consent}"
+DETAIL_PATH = "schoolActivities/{activity_id}/permitted"
+DETAIL_KEY = "activity_detail"
+# The portal's own answer request (updateUserSchoolActivityAnswer in the web app).
+ANSWER_PATH = "students/{student_id}/schoolActivities/{activity_id}"
 # Mashov sends school-local times without a zone; never assume the host timezone.
 SCHOOL_TIME_ZONE = ZoneInfo("Asia/Jerusalem")
 # Answers are still fetched this many days after the answer deadline, so a late
@@ -26,6 +31,7 @@ DESCRIPTION_MAX_CHARS = 300
 STATUS_PENDING = "pending"
 STATUS_UNKNOWN = "unknown"
 ANSWER_STATUSES = {1: "approved", 2: "approved_with_conditions", 3: "denied"}
+ANSWER_CODES = {status: code for code, status in ANSWER_STATUSES.items()}
 ACTIVITY_TYPES = {1: "trip", 4: "culture_basket"}
 DEFAULT_ACTIVITY_TYPE = "school_activity"
 FORM_KINDS = {"consent": "true", "general": "false"}
@@ -217,3 +223,53 @@ def pending_summary(resource, students):
         for f in open_forms(resource.get("forms", {}).get(kind, []))
     ]
     return sorted(items, key=_deadline_order)
+
+
+def display_activities(records, *, show_ended, hide_answered, newest_first, now=None):
+    """The portal's list toggles, applied to one child's fetched activities (display only)."""
+    now = now or datetime.now(SCHOOL_TIME_ZONE)
+
+    def ended(record):
+        end = _parse_time(record.get("end"), SCHOOL_TIME_ZONE)
+        return bool(end and now > end)
+
+    shown = [
+        deepcopy(r)
+        for r in records
+        if (show_ended or not ended(r)) and not (hide_answered and r.get("status") in ANSWER_CODES)
+    ]
+    return sorted(shown, key=lambda r: r.get("start") or "", reverse=newest_first)
+
+
+def answer_refusal(detail, answers, student_id, now=None):
+    """Why this answer must not be sent, from data fetched just now; None when it may be sent.
+
+    detail is the GET schoolActivities/<id>/permitted payload and answers the matching
+    userAnswers payload. Both are read right before the PUT, so a deadline that passed
+    after the last refresh is still seen.
+    """
+    now = now or datetime.now(SCHOOL_TIME_ZONE)
+    activity = detail[0] if detail and isinstance(detail[0], dict) else None
+    if activity is None:
+        return "unknown_activity"
+    deadline = _parse_time(activity.get("endAnswerDate"), SCHOOL_TIME_ZONE)
+    if deadline and now > deadline:
+        return "deadline_passed"
+    data = activity.get("activityData")
+    if data is not None and not (isinstance(data, str) and not data.strip()):
+        # A questionnaire needs answerData built from its questions; not supported here.
+        return "has_questions"
+    if student_id not in _answers_by_child(answers, [student_id]):
+        return "student_not_covered"
+    return None
+
+
+def answer_body(activity_id, student_id, parent_user_id, status, remark):
+    """The PUT body the portal sends for an activity without questions."""
+    return {
+        "activityId": activity_id,
+        "studentGuid": student_id,
+        "userId": parent_user_id,
+        "answer": ANSWER_CODES[status],
+        "remark": remark,
+    }

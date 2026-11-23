@@ -141,3 +141,15 @@ TEST_FILE_ID = "4242"
 TEST_FILE_NAME = "תמונה של הכיתה.png"
 TEST_FILE_BYTES = b"synthetic image bytes"
 TEST_FILE_CONTENT_TYPE = "image/png; charset=binary"
+
+# Parent approval answers (synthetic). The parent id comes from the login credential.
+TEST_APPROVAL_REMARK = "Synthetic remark"
+TEST_ACTIVITY_QUESTIONS = '{"questions": [{"isMust": true}]}'
+TEST_AFTER_DEADLINE = "2026-11-21T08:00:00"
+TEST_ANSWERED_ACTIVITY = {**TEST_OPEN_ACTIVITY, "id": 107, "activityStartDate": "2026-11-26T08:00:00"}
+TEST_ENDED_ACTIVITY = {
+    **TEST_OPEN_ACTIVITY,
+    "id": 108,
+    "activityStartDate": "2026-11-10T08:00:00",
+    "activityEndDate": "2026-11-10T14:00:00",
+}
