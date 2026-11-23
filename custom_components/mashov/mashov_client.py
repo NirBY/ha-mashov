@@ -1345,7 +1345,7 @@ class MashovClient:
             raise MashovError(
                 f"Could not check the activity on Mashov ({detail_status}/{answers_status}); nothing was sent"
             )
-        reason = answer_refusal(detail, answers, student_id, now)
+        reason = answer_refusal(detail, answers, activity_id, student_id, now)
         if reason:
             raise MashovAnswerRefusedError(reason)
 

@@ -241,7 +241,7 @@ def display_activities(records, *, show_ended, hide_answered, newest_first, now=
     return sorted(shown, key=lambda r: r.get("start") or "", reverse=newest_first)
 
 
-def answer_refusal(detail, answers, student_id, now=None):
+def answer_refusal(detail, answers, activity_id, student_id, now=None):
     """Why this answer must not be sent, from data fetched just now; None when it may be sent.
 
     detail is the GET schoolActivities/<id>/permitted payload and answers the matching
@@ -250,10 +250,13 @@ def answer_refusal(detail, answers, student_id, now=None):
     """
     now = now or datetime.now(SCHOOL_TIME_ZONE)
     activity = detail[0] if detail and isinstance(detail[0], dict) else None
-    if activity is None:
+    if activity is None or activity.get("id") != activity_id:
         return "unknown_activity"
     deadline = _parse_time(activity.get("endAnswerDate"), SCHOOL_TIME_ZONE)
-    if deadline and now > deadline:
+    if deadline is None:
+        # Fail closed: a write is never sent when the deadline cannot be checked.
+        return "deadline_unknown"
+    if now > deadline:
         return "deadline_passed"
     data = activity.get("activityData")
     if data is not None and not (isinstance(data, str) and not data.strip()):

@@ -285,7 +285,7 @@ answer_school_activity:
             - denied
     remark:
       name: "Remark"
-      description: "Optional, up to 500 characters. Sent to the school; not stored in Home Assistant."
+      description: "Optional, up to 500 characters. Sent to the school. This integration does not log or store it (automation traces may still contain service data)."
       required: false
       selector:
         text:

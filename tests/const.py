@@ -153,3 +153,8 @@ TEST_ENDED_ACTIVITY = {
     "activityStartDate": "2026-11-10T08:00:00",
     "activityEndDate": "2026-11-10T14:00:00",
 }
+TEST_CHILD_A_SLUG = "child-a"
+TEST_CSRF_TOKEN = "synthetic"
+TEST_UNKNOWN_ENTRY_ID = "missing"
+TEST_INVALID_ANSWER = "maybe"
+TEST_ADMIN_USER_ID = "admin-user"

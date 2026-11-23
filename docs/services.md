@@ -123,4 +123,10 @@ Right before sending, the activity and its answers are read again from Mashov. N
 sent, and the call fails, when the answer deadline has passed, the activity has questions
 (answer those in Mashov), the activity does not cover this child, or Mashov cannot be
 checked. After a successful answer, parent approvals refresh. The remark goes to the
-school and is not stored in Home Assistant; logs contain only the activity ID and HTTP status.
+school; this integration does not log or store it (automation and script traces may still
+contain the call data). Logs contain only the activity ID and HTTP status. Activities without
+an answer deadline are refused too.
+
+Once the option is on, automations and scripts can call this service too, for example from a
+notification action, just like other admin services. Only an authenticated administrator can
+turn the option on.

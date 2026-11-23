@@ -3,7 +3,7 @@
 ## [Unreleased]
 
 ### Added
-- Parent approvals: opt-in answering of school activities (trips) through the admin service `mashov.answer_school_activity` (approved, approved with health conditions, denied, optional remark). It needs the new hub option **Allow answering parent approvals** (off by default, requires Parent approvals; only an authenticated administrator can turn it on through `set_options`). Mashov is checked again right before the answer is sent, so an activity whose deadline passed since the last refresh, an activity with questions, or a child the activity does not cover is refused and nothing is sent.
+- Parent approvals: opt-in answering of school activities (trips) through the admin service `mashov.answer_school_activity` (approved, approved with health conditions, denied, optional remark). It needs the new hub option **Allow answering parent approvals** (off by default, requires Parent approvals; only an authenticated administrator can turn it on through `set_options`). Mashov is checked again right before the answer is sent, so an activity whose deadline passed since the last refresh or is missing, an activity with questions, or a child the activity does not cover is refused and nothing is sent.
 - The portal's three list toggles as display options: show ended activities, hide answered activities, newest first. They shape a new `activities` attribute on each child's Pending approvals sensor (kept out of Recorder history); the state and `pending` are unchanged.
 
 ### Limitations

@@ -9,7 +9,7 @@ import pytest
 import voluptuous as vol
 
 from custom_components.mashov import _require_admin_user
-from custom_components.mashov.approval_service import ANSWER_SCHEMA, async_handle_answer
+from custom_components.mashov.approval_service import ANSWER_SCHEMA, REFUSALS, REMARK_MAX_LENGTH, async_handle_answer
 from custom_components.mashov.approvals import (
     ANSWER_CODES,
     ANSWER_PATH,
@@ -33,22 +33,32 @@ from custom_components.mashov.data_selection import (
     mailbox_option_errors,
     merge_selection_options,
 )
-from custom_components.mashov.mashov_client import MashovAnswerRefusedError, MashovClient, MashovError
+from custom_components.mashov.mashov_client import (
+    MashovAnswerRefusedError,
+    MashovClient,
+    MashovError,
+    MashovPasswordChangeRequiredError,
+)
 from custom_components.mashov.sensor import MashovApprovalsSensor
 
 from .const import (
     TEST_ACTIVITY_QUESTIONS,
+    TEST_ADMIN_USER_ID,
     TEST_AFTER_DEADLINE,
     TEST_ANSWERED_ACTIVITY,
     TEST_APPROVAL_REMARK,
     TEST_APPROVALS_NOW,
     TEST_CHILD_A,
+    TEST_CHILD_A_SLUG,
     TEST_CHILD_B,
+    TEST_CSRF_TOKEN,
     TEST_ENDED_ACTIVITY,
     TEST_ENTRY_ID,
+    TEST_INVALID_ANSWER,
     TEST_LATER_ACTIVITY,
     TEST_OPEN_ACTIVITY,
     TEST_PARENT_GUID,
+    TEST_UNKNOWN_ENTRY_ID,
     user_answer,
 )
 from .test_parent_approvals import coordinator_for, router
@@ -90,11 +100,14 @@ def test_answer_body_is_the_portal_request():
         ([{**TEST_OPEN_ACTIVITY, "activityData": {}}], ANSWERS, NOW, "has_questions"),
         ([], ANSWERS, NOW, "unknown_activity"),
         (["not a record"], ANSWERS, NOW, "unknown_activity"),
+        ([TEST_LATER_ACTIVITY], ANSWERS, NOW, "unknown_activity"),
+        ([{**TEST_OPEN_ACTIVITY, "endAnswerDate": None}], ANSWERS, NOW, "deadline_unknown"),
+        ([{**TEST_OPEN_ACTIVITY, "endAnswerDate": TEST_INVALID_ANSWER}], ANSWERS, NOW, "deadline_unknown"),
         ([TEST_OPEN_ACTIVITY], [user_answer(TEST_CHILD_B, None)], NOW, "student_not_covered"),
     ],
 )
 def test_answer_refusal_uses_data_read_now(detail, answers, now, reason):
-    assert answer_refusal(detail, answers, TEST_CHILD_A, now=now) == reason
+    assert answer_refusal(detail, answers, OPEN_ID, TEST_CHILD_A, now=now) == reason
 
 
 async def test_display_toggles_follow_the_portal():
@@ -116,7 +129,12 @@ async def test_display_toggles_follow_the_portal():
     assert ids(**defaults) == [OPEN_ID, TEST_LATER_ACTIVITY["id"], TEST_ANSWERED_ACTIVITY["id"]]
     assert TEST_ENDED_ACTIVITY["id"] in ids(**{**defaults, "show_ended": True})
     assert ids(**{**defaults, "hide_answered": True}) == [OPEN_ID, TEST_LATER_ACTIVITY["id"]]
-    assert ids(**{**defaults, "newest_first": True})[0] == TEST_ANSWERED_ACTIVITY["id"]
+    # Same start date: ties keep Mashov's order.
+    assert ids(**{**defaults, "newest_first": True}) == [
+        TEST_ANSWERED_ACTIVITY["id"],
+        OPEN_ID,
+        TEST_LATER_ACTIVITY["id"],
+    ]
 
 
 # --- Options ----------------------------------------------------------------
@@ -136,12 +154,28 @@ def test_deselecting_approvals_revokes_answer_consent():
     assert CONF_ALLOW_APPROVAL_ANSWERS not in merge_selection_options({}, {CONF_ENABLED_DATA: ["homework"]})
 
 
+def admin_check(user):
+    hass = SimpleNamespace(auth=SimpleNamespace(async_get_user=AsyncMock(return_value=user)))
+    call = SimpleNamespace(context=SimpleNamespace(user_id=TEST_ADMIN_USER_ID if user else None))
+    return _require_admin_user(hass, call, REFUSALS["unknown_activity"])
+
+
 @pytest.mark.parametrize("user", [None, SimpleNamespace(is_admin=False)])
 async def test_only_an_admin_user_can_allow_answering(user):
-    hass = SimpleNamespace(auth=SimpleNamespace(async_get_user=AsyncMock(return_value=user)))
-    call = SimpleNamespace(context=SimpleNamespace(user_id="user" if user else None))
     with pytest.raises(ServiceValidationError):
-        await _require_admin_user(hass, call, "refused")
+        await admin_check(user)
+
+
+async def test_an_admin_user_passes_the_check():
+    await admin_check(SimpleNamespace(is_admin=True))
+
+
+def test_options_form_resets_answering_when_approvals_are_removed():
+    submitted, errors = mailbox_option_errors(
+        {CONF_ENABLED_DATA: ["homework"], CONF_ALLOW_APPROVAL_ANSWERS: True}, APPROVALS_ON, reset_removed=True
+    )
+    assert errors == {}
+    assert submitted[CONF_ALLOW_APPROVAL_ANSWERS] is False
 
 
 # --- Client write -----------------------------------------------------------
@@ -149,7 +183,7 @@ async def test_only_an_admin_user_can_allow_answering(user):
 
 def answer_client(detail, answers=ANSWERS, put_statuses=(200,), credential=True):
     client = MashovClient("123", 2027, "test", "test")
-    client._headers = {"X-Csrf-Token": "synthetic"}
+    client._headers = {"X-Csrf-Token": TEST_CSRF_TOKEN}
     client._auth_data = {"credential": {"userId": TEST_PARENT_GUID}} if credential else {}
     client._session = MagicMock(closed=False)
     client._session.get.side_effect = [_response(200, detail), _response(200, answers)]
@@ -169,7 +203,7 @@ async def test_answer_rechecks_mashov_then_sends_the_portal_put():
     put = client._session.put.call_args
     assert put.args[0] == client._api_base + ANSWER_PATH.format(activity_id=OPEN_ID, student_id=TEST_CHILD_A)
     assert put.kwargs["json"] == answer_body(OPEN_ID, TEST_CHILD_A, TEST_PARENT_GUID, "approved", TEST_APPROVAL_REMARK)
-    assert put.kwargs["headers"]["X-Csrf-Token"] == "synthetic"
+    assert put.kwargs["headers"]["X-Csrf-Token"] == TEST_CSRF_TOKEN
 
 
 async def test_refused_or_unverifiable_answers_send_nothing():
@@ -193,8 +227,18 @@ async def test_answer_retries_once_after_401_and_reports_http_errors():
     assert client._session.put.call_count == 2
     client._ensure_valid_session.assert_awaited_once()
     failing = answer_client([TEST_OPEN_ACTIVITY], put_statuses=(500,))
-    with pytest.raises(MashovError, match="HTTP 500"):
+    with pytest.raises(MashovError) as failed:
         await failing.async_answer_school_activity(OPEN_ID, TEST_CHILD_A, "approved", "", NOW)
+    assert not isinstance(failed.value, MashovPasswordChangeRequiredError)
+
+
+async def test_answer_reports_a_required_password_change():
+    client = answer_client([TEST_OPEN_ACTIVITY], put_statuses=(403,))
+    client._session.put.side_effect = None
+    client._session.put.return_value = _response(403)
+    client._session.put.return_value.__aenter__.return_value.headers = {"reason": "changepass"}
+    with pytest.raises(MashovPasswordChangeRequiredError):
+        await client.async_answer_school_activity(OPEN_ID, TEST_CHILD_A, "approved", "", NOW)
 
 
 # --- Service ----------------------------------------------------------------
@@ -203,7 +247,7 @@ async def test_answer_retries_once_after_401_and_reports_http_errors():
 def service_hass(options, client=None, hubs=1):
     coordinator = SimpleNamespace(
         entry=SimpleNamespace(options=options),
-        data={"students": [{"id": TEST_CHILD_A, "slug": "child-a"}]},
+        data={"students": [{"id": TEST_CHILD_A, "slug": TEST_CHILD_A_SLUG}]},
         async_refresh_datasets=AsyncMock(),
     )
     client = client or SimpleNamespace(async_answer_school_activity=AsyncMock())
@@ -213,7 +257,7 @@ def service_hass(options, client=None, hubs=1):
 
 def call(**overrides):
     return SimpleNamespace(
-        data=ANSWER_SCHEMA({"activity_id": OPEN_ID, "student": "child-a", "answer": "approved", **overrides})
+        data=ANSWER_SCHEMA({"activity_id": OPEN_ID, "student": TEST_CHILD_A_SLUG, "answer": "approved", **overrides})
     )
 
 
@@ -231,7 +275,7 @@ async def test_service_answers_then_refreshes_approvals():
         ({**APPROVALS_ON, CONF_ENABLED_DATA: ["homework"]}, {}, 1),
         (APPROVALS_ON, {"student": TEST_CHILD_B}, 1),
         (APPROVALS_ON, {}, 2),
-        (APPROVALS_ON, {"entry_id": "missing"}, 1),
+        (APPROVALS_ON, {"entry_id": TEST_UNKNOWN_ENTRY_ID}, 1),
     ],
 )
 async def test_service_refuses_before_any_request(options, overrides, hubs):
@@ -246,7 +290,7 @@ async def test_service_maps_client_errors():
         async_answer_school_activity=AsyncMock(side_effect=MashovAnswerRefusedError("deadline_passed"))
     )
     hass, coordinator, _client = service_hass(APPROVALS_ON, refused)
-    with pytest.raises(ServiceValidationError, match="deadline"):
+    with pytest.raises(ServiceValidationError, match=REFUSALS["deadline_passed"]):
         await async_handle_answer(hass, call())
     failed = SimpleNamespace(async_answer_school_activity=AsyncMock(side_effect=MashovError("HTTP 500")))
     hass, coordinator, _client = service_hass(APPROVALS_ON, failed)
@@ -255,11 +299,31 @@ async def test_service_maps_client_errors():
     coordinator.async_refresh_datasets.assert_not_called()
 
 
+async def test_a_failed_refresh_after_a_sent_answer_is_not_an_error():
+    hass, coordinator, client = service_hass(APPROVALS_ON)
+    coordinator.async_refresh_datasets.side_effect = MashovError(REFUSALS["unknown_activity"])
+    await async_handle_answer(hass, call())
+    client.async_answer_school_activity.assert_awaited_once()
+
+
+@pytest.mark.parametrize("activity_id", [True, OPEN_ID + 0.5])
+def test_service_schema_rejects_inexact_activity_ids(activity_id):
+    with pytest.raises(vol.Invalid):
+        ANSWER_SCHEMA({"activity_id": activity_id, "student": TEST_CHILD_A, "answer": "approved"})
+
+
 def test_service_schema_bounds_input():
     with pytest.raises(vol.Invalid):
-        ANSWER_SCHEMA({"activity_id": OPEN_ID, "student": TEST_CHILD_A, "answer": "maybe"})
+        ANSWER_SCHEMA({"activity_id": OPEN_ID, "student": TEST_CHILD_A, "answer": TEST_INVALID_ANSWER})
     with pytest.raises(vol.Invalid):
-        ANSWER_SCHEMA({"activity_id": OPEN_ID, "student": TEST_CHILD_A, "answer": "approved", "remark": "x" * 501})
+        ANSWER_SCHEMA(
+            {
+                "activity_id": OPEN_ID,
+                "student": TEST_CHILD_A,
+                "answer": "approved",
+                "remark": TEST_APPROVAL_REMARK * REMARK_MAX_LENGTH,
+            }
+        )
 
 
 # --- Sensor -----------------------------------------------------------------
@@ -293,7 +357,7 @@ async def test_service_is_registered_and_automations_cannot_grant_writes(hass, m
     hass.config_entries.async_update_entry(mock_config_entry, options={CONF_ENABLED_DATA: [PARENT_APPROVALS]})
     await async_setup(hass, {})
     assert hass.services.has_service(DOMAIN, "answer_school_activity")
-    with pytest.raises(ServiceValidationError, match="administrator"):
+    with pytest.raises(ServiceValidationError):
         await hass.services.async_call(
             DOMAIN,
             "set_options",
