@@ -68,7 +68,7 @@ EVENT_DATA_TYPES: dict[int, tuple[str, ...]] = {
     151: ("parent_approvals",),  # school activity (trip) answer
     201: ("parent_approvals",),  # parents' consent answer
     211: ("parent_approvals",),  # parents' consent shared access
-    221: ("timetable", "weekly_plan"),  # timetable change
+    221: ("timetable", "weekly_plan", "lesson_cancellations"),  # timetable change
     231: ("picture",),  # student picture
 }
 ALL_NOTIFIED_DATA = frozenset(key for keys in EVENT_DATA_TYPES.values() for key in keys)

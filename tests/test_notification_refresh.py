@@ -170,6 +170,7 @@ async def test_client_logs_in_lazily_after_a_cached_start():
 def test_event_types_map_only_to_data_the_hub_fetches():
     assert all(set(keys) <= set(DATA_KEYS) for keys in EVENT_DATA_TYPES.values())
     assert data_types_for({"eventType": "102"}) == {"homework", "lessons_history"}
+    assert data_types_for({"eventType": 221}) == {"timetable", "weekly_plan", "lesson_cancellations"}
     assert data_types_for({"eventType": TEXT}) == set()
     assert data_types_for({"eventType": None}) == set()
 
