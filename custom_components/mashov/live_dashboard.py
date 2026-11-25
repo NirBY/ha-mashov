@@ -627,8 +627,16 @@ def _student_card(s: dict[str, Any]) -> dict[str, Any]:
 
 
 def _table_cell(expr: str) -> str:
-    """Keep pipes and line breaks inside one Markdown cell (contributed in PR #15)."""
-    return "{{ ((" + expr + ") or '') | string | replace('\\r', '') | replace('\\n', ' ') | replace('|', '\\\\|') }}"
+    """Keep pipes and line breaks inside one Markdown cell (contributed in PR #15).
+
+    Markdown cards render templates strictly, where even testing a missing key raises
+    (issue #34), so a missing or empty value becomes '' through ``default``.
+    """
+    return (
+        "{{ (("
+        + expr
+        + ") | default('', true)) | string | replace('\\r', '') | replace('\\n', ' ') | replace('|', '\\\\|') }}"
+    )
 
 
 def _popup_markdown(s: dict[str, Any], *, recent_only=True) -> str:
@@ -644,10 +652,10 @@ def _popup_markdown(s: dict[str, Any], *, recent_only=True) -> str:
         lessons_loop = (
             "{% for x in L %}"
             "| {{ x.timeTable.lesson }} | "
-            + _table_cell("x.groupDetails.subjectName")
+            + _table_cell("(x.groupDetails | default({}, true)).subjectName")
             + " | "
             + _table_cell(
-                "((x.groupTeachers | default(x.groupDetails.groupTeachers | default([])) or [{}])[0]).teacherName | default('')"
+                "((x.groupTeachers | default((x.groupDetails | default({}, true)).groupTeachers | default([])) or [{}])[0]).teacherName | default('')"
             )
             + " | "
             + _table_cell("x.timeTable.roomNum")
@@ -678,7 +686,7 @@ def _popup_markdown(s: dict[str, Any], *, recent_only=True) -> str:
             + "| {{ as_timestamp(x.lesson_date) | timestamp_custom('%d/%m') }} | "
             + _table_cell("x.subject_name")
             + " | "
-            + _table_cell("(x.homework or '')" + (" | truncate(80)" if recent_only else ""))
+            + _table_cell("(x.homework | default('', true))" + (" | truncate(80)" if recent_only else ""))
             + " |\n{% endfor %}"
             "{% else %}\nאין שיעורי בית 🎉{% endif %}\n"
         )
@@ -686,14 +694,15 @@ def _popup_markdown(s: dict[str, Any], *, recent_only=True) -> str:
         parts.append(
             "\n### 💬 התנהגות\n"
             f"{{% for x in ((state_attr('{s['behavior']}', 'items') or []) | selectattr('lesson_date') | sort(attribute='lesson_date', reverse=true)){('[:4]' if recent_only else '')} %}}"
-            "- **{{ as_timestamp(x.lesson_date) | timestamp_custom('%d/%m') }}** · {{ x.subject }} · {{ x.achva_name }}\n"
+            "- **{{ as_timestamp(x.lesson_date) | timestamp_custom('%d/%m') }}** · {{ x.subject | default('', true) }} · {{ x.achva_name | default('', true) }}\n"
             "{% else %}אין אירועים\n{% endfor %}"
         )
     if s["grades"]:
         parts.append(
             "\n### ⭐ ציונים\n"
             f"{{% for x in (state_attr('{s['grades']}', 'items') or []){('[:4]' if recent_only else '')} %}}"
-            "- **{{ x.subjectName }}** · {{ x.gradingEvent }} · <b>{{ x.grade }}</b>\n"
+            "- **{{ x.subjectName | default('', true) }}** · {{ x.gradingEvent | default('', true) }}"
+            " · <b>{{ x.grade | default('', true) }}</b>\n"
             "{% else %}אין ציונים עדיין\n{% endfor %}"
         )
     if s["noticeboard"]:
@@ -701,9 +710,9 @@ def _popup_markdown(s: dict[str, Any], *, recent_only=True) -> str:
             "\n### 📌 לוח מודעות\n"
             f"{{% set nb = (state_attr('{s['noticeboard']}', 'items') or []) %}}"
             "{% set ns2 = namespace(n=0) %}"
-            "{% for x in nb if (x.eventtext or '') | striptags | trim %}{% set ns2.n = ns2.n + 1 %}"
+            "{% for x in nb if (x.eventtext | default('', true)) | striptags | trim %}{% set ns2.n = ns2.n + 1 %}"
             '\n\n<ha-alert dir="rtl" alert-type="warning">\n'
-            "{{ x.eventtext | replace('\\r', '') | replace('\\n', ' ') }}\n</ha-alert>\n"
+            "{{ x.eventtext | default('', true) | replace('\\r', '') | replace('\\n', ' ') }}\n</ha-alert>\n"
             "{% endfor %}{% if ns2.n == 0 %}אין מודעות{% endif %}"
         )
     parts.append("</div>")

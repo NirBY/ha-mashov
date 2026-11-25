@@ -12,11 +12,17 @@ from homeassistant.components.lovelace.const import ConfigNotFound
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.template import Template
 from homeassistant.setup import async_setup_component
 import pytest
 
 from custom_components.mashov.const import DOMAIN
-from custom_components.mashov.live_dashboard import build_live_dashboard, normalize_students, resolve_students
+from custom_components.mashov.live_dashboard import (
+    _popup_markdown,
+    build_live_dashboard,
+    normalize_students,
+    resolve_students,
+)
 
 KID = {
     "name": "Noa",
@@ -315,3 +321,23 @@ async def test_unrelated_dashboard_requires_overwrite(hass):
             DOMAIN, "create_live_dashboard", {"students": [{**KID, "person": None}]}, blocking=True
         )
     target.async_save.assert_not_awaited()
+
+
+async def test_popup_renders_strictly_without_optional_fields(hass: HomeAssistant):
+    """Issue #34: Markdown cards render strictly, so a missing room or subject must not raise."""
+    student = normalize_students([{**KID, "grades": "sensor.noa_grades", "noticeboard": "sensor.board"}])[0]
+    lessons = [{"timeTable": {"day": day, "lesson": 1}, "groupDetails": {"subjectName": "Math"}} for day in range(1, 8)]
+    lessons += [{"timeTable": {"day": day, "lesson": 2}, "groupDetails": None} for day in range(1, 8)]
+    hass.states.async_set("sensor.noa_timetable", "14", {"items": lessons, "school_days": list(range(1, 8))})
+    homework = [{"lesson_date": "2026-11-24T00:00:00"}, {"lesson_date": "2026-11-23T00:00:00", "homework": "p. 4"}]
+    hass.states.async_set("sensor.noa_homework", "2", {"items": homework})
+    hass.states.async_set("sensor.noa_behavior", "1", {"items": [{"lesson_date": "2026-11-24T00:00:00"}]})
+    hass.states.async_set("sensor.noa_grades", "1", {"items": [{"subjectName": "Bible"}]})
+    hass.states.async_set("sensor.board", "2", {"items": [{"id": 1}, {"eventtext": "Trip on Sunday"}]})
+
+    text = Template(_popup_markdown(student), hass).async_render(strict=True)
+    assert "| 1 | Math |  |  |" in text
+    assert "| 2 |  |  |  |" in text
+    assert "p. 4" in text
+    assert "**Bible** ·  · <b></b>" in text
+    assert "Trip on Sunday" in text
