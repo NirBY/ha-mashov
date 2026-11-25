@@ -30,7 +30,7 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 from .additional_data import STUDENT_RESOURCES
 from .mashov_client import MashovError
 
-VERSION = "1.6.0"
+VERSION = "1.7.0"
 # Notification title -> stable event code. Only the code is exported, never the title text.
 _EVENTS = {
     "Mashov password change required": "password_change_required",
@@ -50,6 +50,7 @@ _STATUSES = {
     "not_fetched",
     "partial_failure",
     "too_large",
+    "not_offered",
 }
 # Exception classes that indicate a bug in the integration (and may be reported).
 # technical_log() relies on the error being one of these to name its type.
@@ -70,6 +71,7 @@ _SOURCE_FILES = {
     "attendance.py",
     "approvals.py",
     "calendar.py",
+    "cancellations.py",
     "config_flow.py",
     "const.py",
     "dashboard_cards.py",
@@ -89,6 +91,7 @@ _SOURCE_FILES = {
     "schedule_panel.py",
     "school_day.py",
     "sensor.py",
+    "timetable.py",
     "todo.py",
 }
 

@@ -14,7 +14,7 @@
   "Native Home Assistant to-do lists, one for each child.": "רשימות משימות מובנות ב־\u2066Home Assistant\u2069, אחת לכל ילד.",
   "DATA TO FETCH  /  1 OF 2": "סוגי מידע לשליפה / חלק 1 מתוך 2",
   "Choose what matters.": "בוחרים את מה שחשוב.",
-  "24 selectable sources. New hubs start with nothing selected.": "24 מקורות מידע לבחירה. חשבון חדש מתחיל ללא בחירת מקורות.",
+  "25 selectable sources. New hubs start with nothing selected.": "25 מקורות מידע לבחירה. חשבון חדש מתחיל ללא בחירת מקורות.",
   "DATA TO FETCH  /  2 OF 2": "סוגי מידע לשליפה / חלק 2 מתוך 2",
   "Go beyond the school day.": "יותר ממערכת שעות.",
   "Choose sources per hub; availability depends on school permissions.": "בוחרים מקורות לכל חשבון; הזמינות תלויה בהרשאות בית הספר.",
@@ -257,5 +257,6 @@
   "Dashboard + daily routines": "דשבורד ושגרות יומיות",
   "English  /  Hebrew  /  Arabic  /  Russian  /  Ukrainian": "אנגלית / עברית / ערבית / רוסית / אוקראינית",
   "Sensors • calendar • to-do • images • freshness status • cache • diagnostics": "חיישנים • לוח שנה • משימות • תמונות • עדכניות • מטמון • אבחון",
-  "Absences / lateness": "היעדרויות / איחורים"
+  "Absences / lateness": "היעדרויות / איחורים",
+  "Lesson cancellations": "ביטולי שיעורים"
 }

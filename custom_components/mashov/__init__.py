@@ -105,6 +105,15 @@ from .mashov_client import (
     MashovPasswordChangeRequiredError,
     configured_school_year,
 )
+from .notifications import (
+    CONF_NOTIFICATION_INTERVAL,
+    CONF_NOTIFICATION_REFRESH,
+    MAX_NOTIFICATION_INTERVAL,
+    MIN_NOTIFICATION_INTERVAL,
+    NotificationWatcher,
+    notifications_store,
+)
+from .pending_auth import take_pending_auth
 from .reporting import is_internal_error, issue_report_url, technical_log
 
 _LOGGER = logging.getLogger(__name__)
@@ -347,6 +356,8 @@ SET_OPTIONS_SCHEMA = vol.Schema(
         vol.Optional(CONF_HOMEWORK_DAYS_BACK): _int_in(0, 60),
         vol.Optional(CONF_HOMEWORK_DAYS_FORWARD): _int_in(1, 120),
         vol.Optional(CONF_API_BASE): vol.Match(r"^https?://"),
+        vol.Optional(CONF_NOTIFICATION_REFRESH): cv.boolean,
+        vol.Optional(CONF_NOTIFICATION_INTERVAL): _int_in(MIN_NOTIFICATION_INTERVAL, MAX_NOTIFICATION_INTERVAL),
     },
     extra=vol.REMOVE_EXTRA,
 )
@@ -633,6 +644,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         cached_students = (cached.get("data") or {}).get("students") or []
         if cached_students and cached_students[0].get("year"):
             saved_auth = {**saved_auth, "session_year": cached_students[0]["year"]}
+    # A new hub reuses the login its credential check just made (as HA's private
+    # device), instead of a second password login and "new device" email.
+    pending_auth = take_pending_auth(hass, data[CONF_SCHOOL_ID], data[CONF_USERNAME])
+    if pending_auth and not (
+        isinstance(saved_auth, dict) and any(saved_auth.get(key) for key in ("csrf_token", "cookies", "device_auth"))
+    ):
+        saved_auth = pending_auth
+
+    async def _save_auth(auth):
+        # Save a new/revoked device pass even if the subsequent data fetch fails.
+        current = await store.async_load()
+        current = dict(current) if isinstance(current, dict) else {}
+        current["auth"] = auth
+        await store.async_save(current)
 
     client = MashovClient(
         school_id=data[CONF_SCHOOL_ID],
@@ -648,6 +673,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         mailbox_full_content=entry.options.get(CONF_MAILBOX_FULL_CONTENT, False),
         mailbox_limit=entry.options.get(CONF_MAILBOX_LIMIT, DEFAULT_MAILBOX_LIMIT),
         attachment_store=await _async_attachment_store(hass, entry),
+        remember_device=True,
+        auth_updated=_save_auth,
     )
 
     coordinator = MashovCoordinator(hass, client, entry)
@@ -863,14 +890,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         for key in set(enabled_data(options)) - set(client.enabled_data):
             ir.async_delete_issue(hass, DOMAIN, _closed_issue_id(updated_entry.entry_id, key))
         if client_changed:
-            if credentials_changed:
+            if credentials_changed or client._api_base != (
+                options.get(CONF_API_BASE, DEFAULT_API_BASE).rstrip("/") + "/"
+            ):
                 # A valid old cookie must not bypass newly supplied credentials.
                 # Stop scheduled coordinator refreshes first, then clear the cached
                 # session so the reloaded client logs in with the new credentials.
                 await coordinator.async_shutdown()
                 cached_entry = await store.async_load()
                 if isinstance(cached_entry, dict):
-                    cached_entry["auth"] = {}
+                    # Configure already logged in with the new credentials; reuse that
+                    # session and remembered device. Without a cache file, setup takes it.
+                    cached_entry["auth"] = (
+                        take_pending_auth(hass, data.get(CONF_SCHOOL_ID), data.get(CONF_USERNAME)) or {}
+                    )
                     await store.async_save(cached_entry)
                 # Log in with them as soon as the hub reloads, even in daily/weekly mode,
                 # so a fixed password clears the auth notice and stale data right away.
@@ -950,6 +983,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry):
     # password) is deleted by HA.
     await Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.cache").async_remove()
     await Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.homework_completion").async_remove()
+    await notifications_store(hass, entry.entry_id).async_remove()
     await async_clear_entry_media(hass, entry.entry_id)
     hass.data.get(DOMAIN, {}).get("report_logs", {}).pop(entry.entry_id, None)
     _async_clear_issue_notification(hass, entry)
@@ -1133,6 +1167,8 @@ async def _async_setup_scheduler(
     previous triggers are cancelled first. A failed daily/weekly run is retried (see
     _ScheduledJob). With ``catch_up`` (setup only), a run whose time passed after the
     last successful refresh starts now. Returns the data types that catch-up covers.
+    With the notification option, a timer also checks Mashov's notification list
+    (notifications.NotificationWatcher), whatever the schedule type.
     """
     from .const import (
         CONF_SCHEDULE_DAY,
@@ -1223,6 +1259,14 @@ async def _async_setup_scheduler(
     coordinator: MashovCoordinator = data["coordinator"]
     unsubs = []
     caught_up: set = set()
+
+    # Opt-in: a new Mashov notification refreshes its data types between scheduled runs.
+    # The watcher outlives reschedules (it remembers what it has seen); only its timer is replaced.
+    if merged.get(CONF_NOTIFICATION_REFRESH):
+        watcher = data.get("notification_watcher")
+        if watcher is None:
+            watcher = data["notification_watcher"] = NotificationWatcher(hass, entry, coordinator)
+        unsubs.append(watcher.async_start(merged))
 
     if merged.get(CONF_DATA_SCHEDULES) or merged.get(CONF_STUDENT_SCHEDULES):
         # A single serialized coordinator merges selective results. No all-data
@@ -1375,8 +1419,13 @@ class MashovCoordinator(DataUpdateCoordinator):
                 self.failed_datasets = set(enabled_data(getattr(self.entry, "options", {})))
                 raise
 
-    async def async_refresh_datasets(self, keys, student_data=None):
-        """Serialize scheduled groups and publish a merged snapshot atomically."""
+    async def async_refresh_datasets(self, keys, student_data=None, *, notified=False):
+        """Serialize scheduled groups and publish a merged snapshot atomically.
+
+        ``notified`` marks a refresh started by a new Mashov notification. Like a
+        picture-only refresh, it is not a refresh of the hub, so it leaves the
+        interval-mode startup cooldown alone.
+        """
         async with self._refresh_slot():
             if self._stopped:
                 return
@@ -1390,13 +1439,24 @@ class MashovCoordinator(DataUpdateCoordinator):
             if not requested:
                 return
             try:
-                data = await self._async_fetch_data(requested, student_data=student_data)
+                data = await self._async_fetch_data(requested, student_data=student_data, keep_refresh_ts=notified)
             except UpdateFailed:
                 self.failed_datasets.update(self._failure_keys(requested, student_data))
                 if self.data:
-                    self.async_set_updated_data(self.data)
+                    self._async_publish(self.data)
                 return
-            self.async_set_updated_data(data)
+            self._async_publish(data)
+
+    @callback
+    def _async_publish(self, data) -> None:
+        """Publish a partial refresh without restarting the polling interval.
+
+        async_set_updated_data would move the next full poll a whole interval away, so
+        frequent partial refreshes (new notifications) could keep it from ever running.
+        """
+        self.data = data
+        self.last_update_success = True
+        self.async_update_listeners()
 
     @contextlib.asynccontextmanager
     async def _refresh_slot(self):
@@ -1448,7 +1508,7 @@ class MashovCoordinator(DataUpdateCoordinator):
             oldest = when if oldest is None else min(oldest, when)
         return oldest
 
-    async def _async_fetch_data(self, requested=None, student_data=None):
+    async def _async_fetch_data(self, requested=None, student_data=None, keep_refresh_ts=False):
         """Fetch everything, merge cached holidays if needed, persist the cache, notify on failure."""
         if not hasattr(self, "failed_datasets"):
             self.failed_datasets = set()
@@ -1545,11 +1605,12 @@ class MashovCoordinator(DataUpdateCoordinator):
                 store = Store(self.hass, 1, f"{DOMAIN}.{self.entry.entry_id}.cache")
                 await store.async_save(
                     {
-                        # A picture-only refresh (after a cached start) is not a refresh of the
-                        # hub: the interval-mode startup cooldown reads this timestamp.
+                        # A picture-only refresh (after a cached start) or one started by a
+                        # notification is not a refresh of the hub: the interval-mode startup
+                        # cooldown reads this timestamp.
                         "last_refresh_ts": (
                             previous_update
-                            if set(requested) == {"picture"} and previous_update
+                            if (keep_refresh_ts or set(requested) == {"picture"}) and previous_update
                             else self.last_successful_update
                         ),
                         # Profile pictures stay in memory only; their status map would

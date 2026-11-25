@@ -42,7 +42,7 @@ Use this table to read the tour without playing the animation. Times are approxi
 | 01:16 | Blueprint 04: Noticeboard | Automation. New notice IDs on refresh, one or more sensors, HA/phone notifications, optional speaker/TTS/language, volumes, text limit and timeout. No speech 22:00–07:00; notifications still arrive; no re-announcement on restart. |
 | 01:23 | Getting started | HACS/manual install, account/school, sources/options and four blueprints. English, Hebrew, Arabic, Russian and Ukrainian; sensor/calendar/to-do/image platforms, freshness, cache and diagnostics. |
 
-All 24 data keys are listed in `DATA_GROUPS` in the renderer. The underlying categories come from `data_selection.py` and `additional_data.py`; configuration behavior comes from `config_flow.py`, `services.yaml` and the blueprint YAML files. Availability still depends on school permissions. Current source code, rather than a frozen marketing asset, is authoritative.
+All 25 data keys are listed in `DATA_GROUPS` in the renderer. The published GIFs were rendered before lesson cancellations was added and show 24; rebuild them to include it. The underlying categories come from `data_selection.py` and `additional_data.py`; configuration behavior comes from `config_flow.py`, `services.yaml` and the blueprint YAML files. Availability still depends on school permissions. Current source code, rather than a frozen marketing asset, is authoritative.
 
 ## Rebuild the GIF
 

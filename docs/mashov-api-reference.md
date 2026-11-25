@@ -18,6 +18,43 @@ Side effects: `none` / `marks read` / `writes`. Rows marked ⚠ are calls the ap
 
 ### Auth / session / shell (loaded on every page)
 
+Remembered-device renewal (issue #33, reporter's live findings): a password login
+with `appName: com.mashov.main` and `isPrivateDevice: true` can return a JSON
+`devicePass` header containing `appName, deviceUuid, pass, semel, userId, year`,
+plus a required `uniquId` cookie. `POST loginDevice` sends the app/version/device
+metadata from password login (including `apiVersion` and `devicePlatform`) in its
+JSON body, the compact complete pass object in the `devicePass` header, and the
+cookie. The school/year/user fields belong in that header, not the body. Omitting
+`devicePlatform` returns 400; omitting version metadata can return 401 with
+"Internal error." This was verified against a local account on 2026-11-24.
+It returns normal session cookies, CSRF and
+children. The integration first reuses valid sessions, then tries this renewal.
+Any 4xx except 408/429 (and a 200 without a session) drops the pass and falls back
+to password login, so a revoked pass or a changed route can never block refreshes;
+a forced password change is still reported as such. Network failures, 408/429,
+5xx, redirects and non-JSON pages are temporary and preserve the pass.
+Device credentials are scoped to the account, API address, school and year;
+credential and API-address changes clear them. They are secrets and must never be
+included in logs or diagnostics. Hub clients persist them even if the subsequent
+data fetch fails. Every login identifies as the app (`com.mashov.main`). The
+add-hub and Configure checks also tick "private device" and hand their session and
+pass to the hub in memory, so a new hub or new credentials cost one password login
+(and one "new device" email), not two. Closing the HTTP session must not call
+`logout`, which reportedly revokes the pass.
+
+The Mashov Android app (3.8.72, read from its bundle) confirms this: it is the same
+Angular bundle as the website, with `MashovAppId` switching between
+`com.mashov.main` and `info.mashov.students`, so both use the same data routes.
+Every login route (`login`, `loginDevice`, `loginBiometric`) goes through one
+`prepareLoginData`, which adds `appName, apiVersion, appVersion, appBuild,
+deviceUuid, devicePlatform, deviceManufacturer, deviceModel, deviceVersion,
+registrationId`. The app sends its stored pass as `devicePass: JSON.stringify(pass)`
+on any login and replaces it whenever a response carries a new one.
+`isPrivateDevice` is the login form's "private device" checkbox, unset by default.
+When a renewal fails, the app asks for the password again. It calls `logout` only on
+an explicit sign-out. The app sends `apiVersion` `3.20210425`; `GET schools` currently
+answers `ApiVersion: 3.20200528`, and the app only warns when the server's value is higher.
+
 | Method | Path | Purpose | Side effects | Captured live? |
 |---|---|---|---|---|
 | POST | `login` | Username/password login. Body includes `semel, year, username, password, appName, apiVersion, appVersion, appBuild, deviceUuid, devicePlatform, deviceManufacturer, deviceModel, deviceVersion` | writes (creates session) | bundle-only |
@@ -334,13 +371,18 @@ GET https://web.mashov.info/api/mail/messages/<MESSAGE_ID>/files/<FILE_ID>/downl
                      "groupTeachers": [{ "teacherGuid": "<GUID>", "teacherName": "<NAME>" }], "groupInactiveTeachers": [] } }]
 ```
 
-`GET students/<STUDENT_GUID>/timetable/changes?start=<ISO>&end=<ISO>`:
+`GET students/<STUDENT_GUID>/timetable/changes?start=<YYYY-MM-DD>T00:00:00&end=<YYYY-MM-DD>T00:00:00` (verified 2026-11-24 on two schools; same session cookies and `X-Csrf-Token` as the other student routes):
 
 ```json
-{ "isEnabled": false, "changes": [], "cancellations": [] }
+{ "isEnabled": true, "changes": [],
+  "cancellations": [{ "lessonDate": "datetime", "lesson": 0, "groupId": 0, "cancellationReason": "<TEXT>" }] }
 ```
 
-`changes` and `cancellations` were empty, so their item shape is **not verified**.
+- One school answered `isEnabled: true` with cancellations for both children between September 1 and November 19, each with a reason. None was dated after the day of the check.
+- The other school answered `isEnabled: false` with empty lists. The integration treats that as "not offered by this school", not as an error.
+- `groupId` matches `timeTable.groupId` / `groupDetails.groupId` in the timetable and `groupId` in `groups`.
+- `cancellationReason` is free text written by staff and may contain names. One row seen the same day carried an integer instead, apparently a reason code whose meaning is not published; the integration keeps it as `reason_code`.
+- `changes` (substitutions) was empty on both schools, so its item shape is **not verified**.
 
 `GET bells`:
 
@@ -428,6 +470,12 @@ When there are attachments the UI also reads `files: [{fileId, fileName}]` and l
 ```
 
 The response also carries the headers `X-Notifications-Count` and `X-UnreadNotifications-Count`. A notification is unread when `readTime` is absent (the client filters with `!readTime`).
+
+`eventType` values (Mashov app 3.8.72 bundle): 1 Text, 11 CantRecover, 16 UnreadConversations, 101 Behave, 102 Homework, 105 BehaveOutside, 106 BehaveEducator, 111 Grade, 113 BagrutGrade, 114 MagenGrade, 121 Maakav, 131 FormAnswer, 141 FormViewAnswer, 151 SchoolActivityAnswer, 171/181/191 staff export files, 201 ParentsConsentAnswer, 211 ParentsConsentSharedAccess, 221 TimeTable, 231 StudentPicture, 241 SchoolTest. The app's routes use `eventUserId` as the student and `eventKey` for the item. The app loads the newest seven when its main screen opens, with no timer. Only opening the list marks items read, through a separate `PUT`.
+
+The opt-in notification refresh (`notifications.py`) reads this list every 5–60 minutes, never sends the `PUT`, and maps each new `eventType` to the data types it changes. Digests of the items it has seen leave out `readTime`, so reading an item in the app does not count as new.
+
+Push (read from the app, not used by the integration): the app gets pushes through its own Firebase project with `@havesource/cordova-plugin-push` (channel `MashovPushNotifications`). It sends its FCM token as `registrationId` in the login body and via `PUT push/registrationId`; the website never registers. A push carries `additionalData: {semel, messageType, messageData}`. `messageType` is the bitmask `{behave:1, grade:2, email:4, bagrut:8, homework:128, maakav:256, timeTable:512, studentPicture:1024, schoolTest:2048, behaveTeacherPush:4096, debug:1<<30}`, and `messageData` holds only IDs (`studentGuid`, `lessonId`, `conversationId`, `gradingEventId`, `maakavId`, ...). The data must still be fetched. The push categories are `push/options` (GET/PUT, a number), which also appears as `pushOptions` in `user/settings`. `POST users/debug/push` sends a test push to the user's devices (a write).
 
 `GET user/settings`:
 
@@ -535,7 +583,7 @@ The response also carries the headers `X-Notifications-Count` and `X-UnreadNotif
   - `message.files[]` shape (`fileId`, `fileName`) and the attachment download response (`Content-Type` / `Content-Disposition`). The mailbox had no attachments (re-checked 2026-11-17).
 - **Forms:** `forms/<id>`, `forms/<id>/answer`, and the field names `formData`, `endTime`, `isAnswered`, `isMust`, `isMultipleAnswer`. The lists were empty (re-checked 2026-11-17).
 - **Trips:** the `schoolActivities` attachment list field, `activityData` / `questions`, the `remark` field, and the exact body of `PUT students/<child>/schoolActivities/<id>`.
-- **Empty lists:** item shapes for `timetable/changes` (`changes`, `cancellations`), `maakav` and its file URL, `parentMaakav/<id>/maakav`, `justificationrequests` (503), `studentReleases`, `files`, `studyFiles`, `reportCards`, `hatamot`, `grades`, `outBehave`, `dailyBehave`, `bbb/recordings`, and meetings.
+- **Empty lists:** item shapes for `timetable/changes` (`changes` only; `cancellations` is verified), `maakav` and its file URL, `parentMaakav/<id>/maakav`, `justificationrequests` (503), `studentReleases`, `files`, `studyFiles`, `reportCards`, `hatamot`, `grades`, `outBehave`, `dailyBehave`, `bbb/recordings`, and meetings.
 - **Downloads:** whether file URLs require the `X-Csrf-Token` header or work with cookies alone.
 - **Write endpoints:** every endpoint marked `writes`. None was called.
 - **Mobile-app variant:** `meetings/parents/<parent>/meetings[/<child>]/details` (used when `IsDevice`).

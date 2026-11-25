@@ -19,11 +19,11 @@ The GIF opens on the **product overview**, which is also its default still previ
 - **Readable detail buttons:** messages, grades, behavior and homework open their content; attendance and lesson counters have labeled breakdowns.
 - **Reusable blueprint:** [Import the new-view blueprint](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2FNirBY%2Fha-mashov%2Fmain%2Fblueprints%2Fscript%2Fmashov%2Fmashov_live_dashboard.yaml), then create and run its script. Requires Mashov **1.6.0+**, Bubble Card **3.4+**, and an empty UI dashboard. [Setup and upgrade guide](docs/dashboard.md).
 
-The table updates when Mashov's published timetable changes. **Cancellations appearing only in messages or Shahaf/iScool are not applied automatically.** The cards and completion data survive normal upgrades with the same persistent HA configuration; future compatibility still requires testing.
+The table updates when Mashov's published timetable changes. With the optional **Lesson cancellations** source, lessons cancelled in Mashov are marked, and a cancelled first or last lesson moves that day's upcoming start or end time. **Cancellations appearing only in messages or Shahaf/iScool are not applied automatically.** The cards and completion data survive normal upgrades with the same persistent HA configuration; future compatibility still requires testing.
 
 ## What it looks like
 
-**Explore the integration in 90 seconds:** family dashboards, timetables, homework checklists, all 24 data sources, refresh schedules, account and advanced options, optional mailbox and AI access, and all four blueprints.
+**Explore the integration in 90 seconds:** family dashboards, timetables, homework checklists, 24 of the 25 data sources (the tour predates lesson cancellations), refresh schedules, account and advanced options, optional mailbox and AI access, and all four blueprints.
 
 [Animated Mashov feature tour: fictional family data, selectable sources, settings and four blueprint walkthroughs](docs/images/mashov-feature-tour.gif)
 
@@ -76,7 +76,7 @@ YAML overrides the shared UI schedule. Separate student/data schedules remain in
 
 ## 🧩 Features
 
-- All **24 data types** are selectable; only enabled categories are fetched. Multiple hubs and students are supported without mixing their records.
+- All **25 data types** are selectable; only enabled categories are fetched. Multiple hubs and students are supported without mixing their records.
 - **Student-specific General and per-data schedules:** daily, weekly or interval, edited inside Setup/Configure. One Submit saves all drafts.
 - **One refresh queue** across hubs, including scheduled, manual and startup requests. Selective refreshes preserve other students’ values and timestamps.
 - **Sensors and holiday calendars**, with structured records, formatted summaries, actual update times, source status and stale-data indicators.
@@ -110,6 +110,10 @@ During registration, set initial defaults first; students become selectable once
 
 [Current inline-form pictures](docs/configuration.md) · [Schedule actions and YAML examples](docs/services.md#mashovset_options)
 
+#### Refresh on new Mashov notifications
+
+Off by default; turn it on in **Refresh schedules**. Every 15 minutes (5–60), the hub reads the seven newest entries of Mashov's notification list, the same list as the bell in the app. It only reads them; nothing is marked read. When a new notification appears, the hub refreshes just the data it is about (homework, grades, behaviour, mail, follow-up notes, approvals, timetable and lesson cancellations, or the student picture) instead of waiting for the next scheduled refresh. Some data, such as the noticeboard and holidays, never has notifications, so the regular schedule keeps running. Notification text is never logged or stored. Checking at least once an hour also keeps the Mashov session alive between refreshes. Checks also run at night; if the session does expire, it is renewed with the remembered device, without a "new device" email.
+
 <a id="data-to-fetch-1"></a>
 
 ### Data to fetch
@@ -118,7 +122,7 @@ Available in **v1.1.0**. New hubs start with nothing selected; upgrades keep exi
 
 | Group | Data types |
 | --- | --- |
-| Lessons | Homework, weekly plan, timetable, lesson history |
+| Lessons | Homework, weekly plan, timetable, lesson history, lesson cancellations |
 | Grades | Grades, term grades, report cards |
 | Behavior | Behavior, daily behavior, outside lesson behavior, follow-up notes, absence and lateness counters |
 | Student records | Study materials, student files, absence justification requests, individual lessons, lessons held and weekly hours per group, study groups and teachers |
@@ -142,6 +146,16 @@ Select **Absence and lateness counters (school year)** for one sensor per studen
 The range is September 1 through August 31 of the selected school year, shown as `period_start`, `period_end` and `school_year`; the homework date window does not affect it. This option reads the portal's behavior counters, school event definitions and study-group labels, even if the separate Behavior and Study Groups options are off. It never submits a justification.
 
 Schools use different event codes. Absences and lateness follow Mashov's standard categories. Custom events without a standard category are preserved as `unclassified_events`, with `classification_complete: false`; they are not guessed from their names or included in the absence/lateness totals. Compare those event rows with your school's definitions when using totals in an automation. Failed requests show a source status instead of a false zero; temporary failures retain the last successful counts and their original dates with `items_retained: true` and `data_stale: true`. Attribute limits may omit subject rows; the totals still include every fetched event.
+
+### Lesson cancellations (optional)
+
+Select **Lesson cancellations published in Mashov** for one sensor per student. It reads Mashov's timetable changes for the homework date window (7 days back and 21 forward by default). Its state is the number of cancellations dated today or later. `upcoming` (soonest first) and `recent` (latest first) list the date, lesson number, subject, teacher and the school's reason (or a numeric `reason_code` when Mashov sends a code instead of text). Subjects and teachers come from the Timetable or Study groups sources when they are selected. Upcoming rows also say whether they move the day's start (`moves_start`) or end (`moves_end`). A cancelled lesson moves the start or end only when every group in that lesson slot is cancelled and no earlier (or later) lesson still meets that day. `next_cancellation` is the soonest date.
+
+Schools choose whether to publish cancellations. When a school does not, the sensor shows `source_status: not_offered` and `offered: false` with an unknown state. This is not an error: there is no warning, retry delay or stale flag. Failed requests are unknown rather than zero, and temporary failures keep the last cancellations with `items_retained: true` and `data_stale: true`. If Mashov's answer changes shape, `invalid_detail` names the field and type that did not match; rows that do not match are skipped and counted in `unparsed_rows` and `unparsed_fields`. Neither shows any content.
+
+With Timetable also selected, the weekly card strikes through cancelled lessons. A cancelled first or last lesson on an upcoming day moves that day's start or end time, with a note. Past days keep their published hours. The same route also lists substitutions (`changes`), but no example has been seen yet, so only `changes_count` is shown.
+
+Cancellation reasons are written by school staff and may include names. They appear only in this sensor's attributes. They are not written to the log, diagnostics or Recorder history (`upcoming` and `recent` are excluded), and the Assist/MCP tool returns the rows without them. Whether schools publish cancellations early enough for a wake-up automation has not been verified: when the two schools were checked, no cancellation was dated in the future.
 
 ### Mailbox (optional)
 
@@ -224,7 +238,7 @@ message channels and do not connect to MCP by themselves.
 - **Multiple kids missing**: ensure your account actually lists multiple students in Mashov. Check HA logs for `custom_components.mashov` debug entries.
 - **Session errors**: if you see "Unclosed client session" errors, restart Home Assistant to clear any stale connections.
 - **Mailbox reload race**: a closed session during mailbox fetching is treated as an operational fetch failure. Other unexpected runtime errors remain reportable.
-- **"New Device" emails**: session persistence reduces unnecessary logins but cannot prevent fresh authentication after a server-side session expiry. Authentication is saved after successful refreshes in `.storage/mashov.<entry_id>.cache`. Avoid unnecessary reloads and never share this file; it contains authentication data.
+- **"New Device" emails**: Home Assistant logs in as a private device and renews an expired session with that remembered device, which sends no email. Expect one after adding a hub, changing its credentials or API address, or if Mashov rejects the remembered device (the hub then logs in with the password once and registers again). Authentication, including the remembered device, is saved in `.storage/mashov.<entry_id>.cache`; never share this file.
 
 ### Enable debug logs
 ```yaml

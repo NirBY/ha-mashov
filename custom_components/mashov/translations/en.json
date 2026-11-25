@@ -132,6 +132,8 @@
           "schedule_day": "Weekday (legacy, backward compat)",
           "schedule_days": "Weekdays (0=Mon ... 6=Sun)",
           "schedule_interval": "Interval minutes (interval mode)",
+          "notification_refresh": "Refresh when Mashov shows a new notification",
+          "notification_interval": "Notification check interval (minutes)",
           "max_items_in_attributes": "Max items stored in attributes",
           "automatic_school_year": "Automatic school year (changes on September 1)",
           "enabled_data": "Data to fetch",
@@ -148,6 +150,8 @@
           "mailbox_limit": "Up to 50 recent inbox conversations. Older conversations are not fetched.",
           "mailbox_attachments": "Off by default. Needs Mailbox and full message content. Saves attachments of already-read conversations in the Home Assistant config folder (mashov_files), where they are included in backups. Only signed-in Home Assistant users can download them.",
           "mailbox_attachment_max_mb": "Larger attachments are skipped and marked too_large (1–100 MB, default 25).",
+          "notification_refresh": "Off by default. Between scheduled refreshes, checks the newest notifications in Mashov's notification list (read only: nothing is marked read) and refreshes only the data they are about. Some data, such as the noticeboard, has no notifications and still follows the schedule.",
+          "notification_interval": "5–60 minutes. Each check is one small request. Checking at least once an hour also keeps the Mashov session from expiring.",
           "mcp_enabled": "Off by default. Authenticated administrators can read all children in this account, limited to selected data sources. Select the Mashov API in MCP Server settings."
         },
         "sections": {
@@ -175,11 +179,15 @@
               "schedule_time": "Refresh time (HH:MM or HH:MM:SS)",
               "schedule_days": "Weekdays (0=Mon ... 6=Sun)",
               "schedule_interval": "Interval minutes (interval mode)",
-              "edit_data_schedules": "Edit schedules by data type"
+              "edit_data_schedules": "Edit schedules by data type",
+              "notification_refresh": "Refresh when Mashov shows a new notification",
+              "notification_interval": "Notification check interval (minutes)"
             },
             "data_description": {
               "edit_data_schedules": "Select a data type, submit, then choose its schedule. Apply returns to this screen. Select Save all changes and finish to save. Shared schedule follows the hub; custom schedules are independent.",
-              "schedule_type": "[Open interactive Refresh schedules editor]({schedule_editor_url})"
+              "schedule_type": "[Open interactive Refresh schedules editor]({schedule_editor_url})",
+              "notification_refresh": "Off by default. Between scheduled refreshes, checks the newest notifications in Mashov's notification list (read only: nothing is marked read) and refreshes only the data they are about. Some data, such as the noticeboard, has no notifications and still follows the schedule.",
+              "notification_interval": "5–60 minutes. Each check is one small request. Checking at least once an hour also keeps the Mashov session from expiring."
             }
           },
           "account": {
@@ -260,7 +268,8 @@
         "special_hours": "Individual lessons",
         "lessons_count": "Lessons held and weekly hours per group",
         "study_groups": "Study groups and teachers",
-        "attendance_counts": "Absence and lateness counters (school year)"
+        "attendance_counts": "Absence and lateness counters (school year)",
+        "lesson_cancellations": "Lesson cancellations published in Mashov"
       }
     },
     "schedule_days": {
@@ -307,7 +316,8 @@
         "parent_approvals": "Parent approvals — trips and forms (read only)",
         "bells": "School bell schedule",
         "picture": "Student profile pictures (image entities)",
-        "attendance_counts": "Absence and lateness counters (school year)"
+        "attendance_counts": "Absence and lateness counters (school year)",
+        "lesson_cancellations": "Lesson cancellations published in Mashov"
       }
     },
     "schedule_scope": {
@@ -454,6 +464,9 @@
       },
       "attendance_counts": {
         "name": "Absence and lateness counters"
+      },
+      "lesson_cancellations": {
+        "name": "Lesson cancellations"
       }
     },
     "calendar": {
@@ -521,6 +534,14 @@
         },
         "schedule_interval": {
           "name": "Interval minutes (interval mode)"
+        },
+        "notification_refresh": {
+          "name": "Refresh when Mashov shows a new notification",
+          "description": "Off by default. Checks Mashov's notification list (read only) and refreshes only the data types new notifications are about."
+        },
+        "notification_interval": {
+          "name": "Notification check interval (minutes)",
+          "description": "5–60 minutes (default 15)."
         },
         "max_items_in_attributes": {
           "name": "Max items stored in attributes"

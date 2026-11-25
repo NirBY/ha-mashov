@@ -65,6 +65,21 @@ set_options:
           min: 5
           max: 1440
           mode: box
+    notification_refresh:
+      name: "רענון כשמופיעה התראה חדשה במשו״ב"
+      description: "כבוי כברירת מחדל. בודק את רשימת ההתראות (קריאה בלבד) ומרענן רק את סוגי הנתונים שהתראות חדשות עוסקות בהן."
+      required: false
+      selector:
+        boolean: {}
+    notification_interval:
+      name: "תדירות בדיקת ההתראות (בדקות)"
+      description: "5..60 דקות (ברירת מחדל 15)"
+      required: false
+      selector:
+        number:
+          min: 5
+          max: 60
+          mode: box
     homework_days_back:
       name: "ימים אחורה לשיעורי בית"
       required: false
@@ -117,6 +132,7 @@ set_options:
             - lessons_count
             - study_groups
             - attendance_counts
+            - lesson_cancellations
     enabled_data:
       name: "Data to fetch"
       description: "Replaces the complete selection for this hub. Existing hubs retain their choices until changed."
@@ -145,6 +161,7 @@ set_options:
             - lessons_count
             - study_groups
             - attendance_counts
+            - lesson_cancellations
             - mailbox
             - parent_approvals
             - bells

@@ -19,7 +19,7 @@ rather than 0, so a failed fetch is never mistaken for an empty list.
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timedelta
 from html import escape
 import logging
 from typing import Any
@@ -28,6 +28,7 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.json import json_bytes
 from homeassistant.util import dt as dt_util
 
@@ -45,6 +46,7 @@ def _local_timestamp(value: float | None) -> str | None:
 from .additional_data import STUDENT_RESOURCES
 from .approvals import FORM_KINDS, PARENT_APPROVALS, open_forms, open_pending
 from .attendance import ATTENDANCE_COUNTS, METADATA_FIELDS
+from .cancellations import LESSON_CANCELLATIONS, NOT_OFFERED, cancellation_rows, upcoming_count
 from .const import (
     CONF_MAX_ITEMS_IN_ATTRIBUTES,
     CONF_SCHEDULE_DAY,
@@ -213,7 +215,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             slug = stu["slug"]
             sid = stu["id"]
             name = stu["name"]
-            _LOGGER.debug("Creating sensors for student: %s (id=%s, slug=%s)", name, sid, slug)
+            _LOGGER.debug("Creating sensors for student id=%s", sid)
 
             entities.extend(
                 MashovListSensor(coord, entry.entry_id, sid, slug, name, key, key, key)
@@ -476,6 +478,83 @@ class MashovAttendanceSensor(MashovAdditionalSensor):
         }
 
 
+class MashovCancellationsSensor(MashovAdditionalSensor):
+    """Upcoming lesson cancellations of one child, with recent ones for context.
+
+    State is the number of cancellations dated today or later. A school that does not
+    publish cancellations (``not_offered``) has an unknown state, like a failed fetch,
+    but is not marked stale. Rows name the subject and teacher from the timetable or
+    study groups. Staff-written reasons appear only in these attributes, which are kept
+    out of Recorder history.
+    """
+
+    _attr_icon = "mdi:calendar-remove"
+    _unrecorded_attributes = frozenset({"upcoming", "recent"})
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        # "Upcoming" changes at midnight even when no refresh is scheduled then.
+        self.async_on_remove(async_track_time_change(self.hass, self._async_new_day, hour=0, minute=0, second=0))
+
+    @callback
+    def _async_new_day(self, _now):
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self):
+        resource = self._resource
+        usable = resource.get("status") == "ok" or resource.get("retained")
+        return upcoming_count(resource.get("items"), dt_util.now().date()) if self.available and usable else None
+
+    @property
+    def extra_state_attributes(self):
+        resource = self._resource
+        status = resource.get("status", "not_fetched")
+        group = _student_group(self.coordinator.data or {}, self._student_id, self._slug)
+        study_groups = group.get("additional_data", {}).get("study_groups") or {}
+        upcoming, recent = cancellation_rows(
+            resource.get("items"),
+            group.get("timetable") or [],
+            study_groups.get("items") or [],
+            dt_util.now().date(),
+        )
+        known = status in ("ok", NOT_OFFERED) or resource.get("retained")
+        attributes = {
+            "student_name": self.student_name,
+            "source_status": status,
+            # False: the school does not publish cancellations in Mashov. None: not known yet.
+            "offered": resource.get("offered") if known else None,
+            "data_stale": self.data_stale or status not in ("ok", NOT_OFFERED),
+            **({"items_retained": True} if resource.get("retained") else {}),
+            "period_start": resource.get("period_start"),
+            "period_end": resource.get("period_end"),
+            "next_cancellation": upcoming[0]["date"] if upcoming else None,
+            "total_upcoming": len(upcoming),
+            "total_recent": len(recent),
+            # Substitutions are published on the same route, but no item has been seen yet.
+            "changes_count": resource.get("changes_count", 0) if known else None,
+            # Field and type names only, for rows or responses outside the verified shape.
+            **{
+                key: resource[key]
+                for key in ("unparsed_rows", "unparsed_fields", "invalid_detail")
+                if resource.get(key)
+            },
+            "last_update": _local_timestamp(
+                group.get(
+                    "source_last_update", {self._key: getattr(self.coordinator, "last_successful_update", None)}
+                ).get(self._key)
+            ),
+            **self.schedule_attributes(self._key),
+            "truncated": False,
+            "upcoming": [],
+            "recent": [],
+        }
+        _fill_bounded(attributes, "upcoming", upcoming)
+        if not attributes["truncated"]:
+            _fill_bounded(attributes, "recent", recent)
+        return attributes
+
+
 class MashovListSensor(MashovStudentEntity, SensorEntity):
     """Count of one core per-student list (homework, grades, timetable, ...).
 
@@ -575,8 +654,18 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
             "next_scheduled_refresh": schedule_info.get("next"),
         }
         if self._data_key == "timetable":
-            # A compact full week survives the raw/formatting attribute limits.
-            attributes["weekly_schedule"], attributes["weekly_schedule_complete"] = weekly_schedule(items)
+            # Selected lesson cancellations mark the lessons they cancel; the weekly card
+            # moves upcoming start/end times from these marks.
+            cancellations = group.get("additional_data", {}).get(LESSON_CANCELLATIONS)
+            marks = ()
+            if isinstance(cancellations, dict):
+                attributes["cancellations_status"] = cancellations.get("status", "not_fetched")
+                if cancellations.get("status") == "ok" or cancellations.get("retained"):
+                    marks = cancellations.get("items") or ()
+            # A compact full week survives the raw/formatting attribute limits. Marks start a
+            # week before the current one, so the payload bound keeps room for the lessons.
+            since = dt_util.now().date() - timedelta(days=14)
+            attributes["weekly_schedule"], attributes["weekly_schedule_complete"] = weekly_schedule(items, marks, since)
             # Distinct Mashov weekdays (1=Sunday..7=Saturday) from the FULL timetable. The items
             # attribute is size-bounded and can drop whole weekdays; next-school-day templates
             # use this small list instead.
@@ -1646,10 +1735,9 @@ class MashovBellsSensor(MashovEntity, SensorEntity):
 def _optional_student_sensors(coord, student, selected, entry_id):
     """Optional per-student sensors for the selected resources and parent approvals."""
     sid, slug, name = student
+    special = {ATTENDANCE_COUNTS: MashovAttendanceSensor, LESSON_CANCELLATIONS: MashovCancellationsSensor}
     sensors = [
-        (MashovAttendanceSensor if key == ATTENDANCE_COUNTS else MashovAdditionalSensor)(
-            coord, sid, slug, name, key, entry_id
-        )
+        special.get(key, MashovAdditionalSensor)(coord, sid, slug, name, key, entry_id)
         for key in selected
         if key in STUDENT_RESOURCES
     ]
