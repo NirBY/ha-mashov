@@ -111,6 +111,10 @@ async def test_read_all_selected_datasets(hass, dataset):
         "forms_status": {"consent": "ok", "general": "ok"},
         "by_student": {"child": [TEST_PENDING_RECORD]},
     }
+    if dataset == "lesson_cancellations":
+        coordinator.data["by_slug"]["child"]["additional_data"] = {
+            dataset: {"status": "ok", "items": [{"date": "2026-11-26", "lesson": 1, "group_id": 5, "reason": "x"}]}
+        }
     result = unwrap(
         await MashovReadTool("account").async_call(
             hass,

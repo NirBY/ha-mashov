@@ -53,6 +53,7 @@ async def test_each_dataset_can_be_fetched_without_other_selected_routes(key):
     client._session.get.return_value = _response(200, [])
     client._fetch_student_resource = AsyncMock(return_value={"items": [], "status": "ok"})
     client._fetch_attendance_counts = AsyncMock(return_value={"items": [], "status": "ok"})
+    client._fetch_lesson_cancellations = AsyncMock(return_value={"items": [], "status": "ok"})
     client._fetch_account_route = AsyncMock(return_value=("ok", []))
     client._fetch_account_json = AsyncMock(side_effect=lambda path, name, expected: ("ok", expected()))
     result = await client.async_fetch_all(selected_data=[key])
@@ -60,9 +61,10 @@ async def test_each_dataset_can_be_fetched_without_other_selected_routes(key):
     # Pictures are one GET per student, like the core per-student routes.
     assert client._session.get.call_count == (1 if key in (*LEGACY_CORE_DATA, "picture") else 0)
     assert client._fetch_student_resource.await_count == (
-        1 if key not in (*LEGACY_CORE_DATA, *SHARED_DATA, "attendance_counts") else 0
+        1 if key not in (*LEGACY_CORE_DATA, *SHARED_DATA, "attendance_counts", "lesson_cancellations") else 0
     )
     assert client._fetch_attendance_counts.await_count == (1 if key == "attendance_counts" else 0)
+    assert client._fetch_lesson_cancellations.await_count == (1 if key == "lesson_cancellations" else 0)
     assert client._fetch_account_route.await_count == (1 if key == "attendance_counts" else 0)
     if client._fetch_student_resource.await_count:
         assert client._fetch_student_resource.call_args.args[1] == key

@@ -2,8 +2,16 @@
 
 ## [Unreleased]
 
+### Added
+- Opt-in, read-only **Lesson cancellations** (`lesson_cancellations`, `timetable/changes`). Each child gets a sensor whose state is the number of cancellations from today on, with upcoming and recent rows (date, lesson, subject, teacher, reason) within the attribute budget. Subjects and teachers come from the timetable or study groups. Upcoming rows say whether they move the day's start or end.
+- The weekly timetable marks cancelled lessons. On upcoming days, a cancelled first or last lesson moves the start or end time; past days keep the published hours.
+- A school that does not publish cancellations (`isEnabled: false`) shows `not_offered` without a warning, retry delay or stale flag.
+
 ### Fixed
 - No more "new device" email every time the saved Mashov session expires (#33). Home Assistant now logs in as a private device in the Mashov app and renews expired sessions with that remembered device instead of the password. Adding a hub or changing its credentials logs in once instead of twice. If Mashov rejects the remembered device, the hub logs in with the password once and registers again.
+
+### Privacy
+- Cancellation reasons are staff-written text. They appear only in the sensor's attributes, are kept out of Recorder history, and are never logged, exported in diagnostics or returned by the Assist/MCP tool. Substitutions (`changes`) are counted only, until a real example is verified.
 
 ## [1.6.0] - 2026-11-22
 
@@ -19,7 +27,7 @@
 - Attendance totals, justified/unjustified breakdowns, subject/teacher details, lesson counts and profile pictures are included when selected.
 
 ### Limitations
-- Hours recalculate when the published Mashov timetable changes. Cancellations available only in messages or Shahaf/iScool are not interpreted automatically; no Shahaf connector is included.
+- Hours recalculate when the published Mashov timetable changes. Lesson cancellations published in Mashov are applied only with the opt-in Lesson cancellations source added after 1.6.0 (see Unreleased). Cancellations available only in messages or Shahaf/iScool are not interpreted automatically; no Shahaf connector is included.
 - Bell times must be published by the school. Missing times are never inferred from another school's schedule.
 
 ## [1.4.0] - 2026-11-21

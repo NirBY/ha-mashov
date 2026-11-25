@@ -371,13 +371,18 @@ GET https://web.mashov.info/api/mail/messages/<MESSAGE_ID>/files/<FILE_ID>/downl
                      "groupTeachers": [{ "teacherGuid": "<GUID>", "teacherName": "<NAME>" }], "groupInactiveTeachers": [] } }]
 ```
 
-`GET students/<STUDENT_GUID>/timetable/changes?start=<ISO>&end=<ISO>`:
+`GET students/<STUDENT_GUID>/timetable/changes?start=<YYYY-MM-DD>T00:00:00&end=<YYYY-MM-DD>T00:00:00` (verified 2026-11-24 on two schools; same session cookies and `X-Csrf-Token` as the other student routes):
 
 ```json
-{ "isEnabled": false, "changes": [], "cancellations": [] }
+{ "isEnabled": true, "changes": [],
+  "cancellations": [{ "lessonDate": "datetime", "lesson": 0, "groupId": 0, "cancellationReason": "<TEXT>" }] }
 ```
 
-`changes` and `cancellations` were empty, so their item shape is **not verified**.
+- One school answered `isEnabled: true` with cancellations for both children between September 1 and November 19, each with a reason. None was dated after the day of the check.
+- The other school answered `isEnabled: false` with empty lists. The integration treats that as "not offered by this school", not as an error.
+- `groupId` matches `timeTable.groupId` / `groupDetails.groupId` in the timetable and `groupId` in `groups`.
+- `cancellationReason` is free text written by staff and may contain names. One row seen the same day carried an integer instead, apparently a reason code whose meaning is not published; the integration keeps it as `reason_code`.
+- `changes` (substitutions) was empty on both schools, so its item shape is **not verified**.
 
 `GET bells`:
 
@@ -572,7 +577,7 @@ The response also carries the headers `X-Notifications-Count` and `X-UnreadNotif
   - `message.files[]` shape (`fileId`, `fileName`) and the attachment download response (`Content-Type` / `Content-Disposition`). The mailbox had no attachments (re-checked 2026-11-17).
 - **Forms:** `forms/<id>`, `forms/<id>/answer`, and the field names `formData`, `endTime`, `isAnswered`, `isMust`, `isMultipleAnswer`. The lists were empty (re-checked 2026-11-17).
 - **Trips:** the `schoolActivities` attachment list field, `activityData` / `questions`, the `remark` field, and the exact body of `PUT students/<child>/schoolActivities/<id>`.
-- **Empty lists:** item shapes for `timetable/changes` (`changes`, `cancellations`), `maakav` and its file URL, `parentMaakav/<id>/maakav`, `justificationrequests` (503), `studentReleases`, `files`, `studyFiles`, `reportCards`, `hatamot`, `grades`, `outBehave`, `dailyBehave`, `bbb/recordings`, and meetings.
+- **Empty lists:** item shapes for `timetable/changes` (`changes` only; `cancellations` is verified), `maakav` and its file URL, `parentMaakav/<id>/maakav`, `justificationrequests` (503), `studentReleases`, `files`, `studyFiles`, `reportCards`, `hatamot`, `grades`, `outBehave`, `dailyBehave`, `bbb/recordings`, and meetings.
 - **Downloads:** whether file URLs require the `X-Csrf-Token` header or work with cookies alone.
 - **Write endpoints:** every endpoint marked `writes`. None was called.
 - **Mobile-app variant:** `meetings/parents/<parent>/meetings[/<child>]/details` (used when `IsDevice`).

@@ -260,7 +260,8 @@
         "special_hours": "الدروس الفردية",
         "lessons_count": "عدد الحصص المنفذة والساعات الأسبوعية لكل مجموعة",
         "study_groups": "مجموعات الدراسة والمعلمون",
-        "attendance_counts": "عدادات الغياب والتأخر (العام الدراسي)"
+        "attendance_counts": "عدادات الغياب والتأخر (العام الدراسي)",
+        "lesson_cancellations": "إلغاءات الحصص المنشورة في Mashov"
       }
     },
     "schedule_days": {
@@ -307,7 +308,8 @@
         "parent_approvals": "موافقات أولياء الأمور — الرحلات والنماذج (للعرض فقط)",
         "bells": "جدول أجراس المدرسة",
         "picture": "صور الملف الشخصي للطلاب (كيانات صور)",
-        "attendance_counts": "عدادات الغياب والتأخر (العام الدراسي)"
+        "attendance_counts": "عدادات الغياب والتأخر (العام الدراسي)",
+        "lesson_cancellations": "إلغاءات الحصص المنشورة في Mashov"
       }
     },
     "schedule_scope": {
@@ -454,6 +456,9 @@
       },
       "attendance_counts": {
         "name": "عدادات الغياب والتأخر"
+      },
+      "lesson_cancellations": {
+        "name": "إلغاءات الحصص"
       }
     },
     "calendar": {

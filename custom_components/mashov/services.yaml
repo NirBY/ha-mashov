@@ -117,6 +117,7 @@ set_options:
             - lessons_count
             - study_groups
             - attendance_counts
+            - lesson_cancellations
     enabled_data:
       name: "Data to fetch"
       description: "Replaces the complete selection for this hub. Existing hubs retain their choices until changed."
@@ -145,6 +146,7 @@ set_options:
             - lessons_count
             - study_groups
             - attendance_counts
+            - lesson_cancellations
             - mailbox
             - parent_approvals
             - bells

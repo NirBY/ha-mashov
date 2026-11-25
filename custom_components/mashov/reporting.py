@@ -50,6 +50,7 @@ _STATUSES = {
     "not_fetched",
     "partial_failure",
     "too_large",
+    "not_offered",
 }
 # Exception classes that indicate a bug in the integration (and may be reported).
 # technical_log() relies on the error being one of these to name its type.
@@ -70,6 +71,7 @@ _SOURCE_FILES = {
     "attendance.py",
     "approvals.py",
     "calendar.py",
+    "cancellations.py",
     "config_flow.py",
     "const.py",
     "dashboard_cards.py",
@@ -89,6 +91,7 @@ _SOURCE_FILES = {
     "schedule_panel.py",
     "school_day.py",
     "sensor.py",
+    "timetable.py",
     "todo.py",
 }
 

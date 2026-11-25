@@ -30,6 +30,7 @@ import yarl  # type: ignore[import]
 from .additional_data import STUDENT_RESOURCES
 from .approvals import ANSWERS_KEY, fetch_parent_approvals
 from .attendance import ATTENDANCE_COUNTS, normalize_attendance
+from .cancellations import LESSON_CANCELLATIONS, normalize_cancellations
 from .const import CONF_YEAR
 from .data_schedule import SHARED_DATA
 from .data_selection import (
@@ -985,14 +986,46 @@ class MashovClient:
         the refresh. HTTP 403/404 park the resource for 24 hours per student;
         while parked, the last status is returned without a request.
         """
-        cache_key = (sid, key)
-        retry_after, previous_status = self._resource_retry_after.get(cache_key, (0, "not_fetched"))
-        if time.monotonic() < retry_after:
-            return {"items": [], "status": previous_status}
         resource = STUDENT_RESOURCES[key]
         url = f"{self._api_base}students/{sid}/{resource.path}"
         if resource.dated:
             url += "?" + urlencode({"start": start, "end": end})
+        status, payload = await self._get_student_json(
+            sid, key, url, lambda payload: isinstance(payload, list) and all(isinstance(i, dict) for i in payload)
+        )
+        return {"items": payload if status == "ok" else [], "status": status}
+
+    async def _fetch_lesson_cancellations(self, sid: str, start: date, end: date) -> dict[str, Any]:
+        """Read the cancellations dated ``start``..``end``; a school without the feature is not an error.
+
+        The route takes date-times. The end is sent as the following midnight, so the last
+        day is included whichever way the server compares; the normalizer keeps only
+        ``start``..``end``. ``isEnabled: false`` becomes ``not_offered`` without a warning or
+        a backoff. Cancellation reasons are staff-written text and are never logged.
+        """
+        bounds = f"start={start.isoformat()}T00:00:00&end={(end + timedelta(days=1)).isoformat()}T00:00:00"
+        url = f"{self._api_base}students/{sid}/{STUDENT_RESOURCES[LESSON_CANCELLATIONS].path}?{bounds}"
+        # Any JSON counts as an answer here; the normalizer says what does not match.
+        status, payload = await self._get_student_json(sid, LESSON_CANCELLATIONS, url, lambda payload: True)
+        if status != "ok":
+            return {"items": [], "status": status}
+        try:
+            return normalize_cancellations(payload, start, end)
+        except ValueError as err:
+            # The message names a field and a JSON type, never a value.
+            return {"items": [], "status": "invalid_response", "invalid_detail": str(err)[:80]}
+
+    async def _get_student_json(self, sid: str, key: str, url: str, valid) -> tuple[str, Any]:
+        """GET one optional per-student route and return ``(status, payload)``.
+
+        Only a forced password change raises. HTTP 403/404 park the route for 24 hours
+        per student; while parked, the last status is returned without a request. A
+        payload that ``valid`` rejects is ``invalid_response`` and does not end a backoff.
+        """
+        cache_key = (sid, key)
+        retry_after, previous_status = self._resource_retry_after.get(cache_key, (0, "not_fetched"))
+        if time.monotonic() < retry_after:
+            return previous_status, None
         try:
             # One re-login retry on 401, then give up for this cycle.
             for attempt in range(2):
@@ -1001,7 +1034,7 @@ class MashovClient:
                         if attempt == 0:
                             await self._ensure_valid_session()
                             continue
-                        return {"items": [], "status": "unauthorized"}
+                        return "unauthorized", None
                     if response.status == 403:
                         # A forced password change also surfaces as 403 on data routes.
                         body = await response.text()
@@ -1021,7 +1054,7 @@ class MashovClient:
                             response.status,
                         )
                         self._resource_retry_after[cache_key] = (time.monotonic() + 86400, status)
-                        return {"items": [], "status": status}
+                        return status, None
                     if response.status >= 400:
                         if response.status >= 500 and cache_key not in self._resource_errors_logged:
                             # Server-side failure: visible once per streak, not on every refresh.
@@ -1032,20 +1065,20 @@ class MashovClient:
                                 key,
                                 response.status,
                             )
-                        return {"items": [], "status": f"http_{response.status}"}
+                        return f"http_{response.status}", None
                     payload = await response.json()
-                    if not isinstance(payload, list) or any(not isinstance(item, dict) for item in payload):
-                        return {"items": [], "status": "invalid_response"}
+                    if not valid(payload):
+                        return "invalid_response", None
                     self._resource_retry_after.pop(cache_key, None)
                     if cache_key in self._resource_errors_logged:
                         self._resource_errors_logged.discard(cache_key)
                         _LOGGER.info("Optional student resource %s recovered", key)
-                    return {"items": payload, "status": "ok"}
+                    return "ok", payload
         except MashovPasswordChangeRequiredError:
             raise
         except (aiohttp.ClientError, TimeoutError, ValueError):
             _LOGGER.warning("Unable to fetch optional Mashov resource %s", key)
-            return {"items": [], "status": "fetch_failed"}
+            return "fetch_failed", None
 
     async def _fetch_attendance_counts(self, sid, definitions_status, definitions, groups=None):
         """Read school-year counters and group labels; never cache the student envelope."""
@@ -1107,8 +1140,9 @@ class MashovClient:
 
         # --- Date window for the dated resources (homework, behavior, optional resources).
         today = date.today()
-        from_dt = (today - timedelta(days=self.homework_days_back)).isoformat()
-        to_dt = (today + timedelta(days=self.homework_days_forward)).isoformat()
+        window_start = today - timedelta(days=self.homework_days_back)
+        window_end = today + timedelta(days=self.homework_days_forward)
+        from_dt, to_dt = window_start.isoformat(), window_end.isoformat()
         today.isoformat()  # Result unused (leftover); harmless.
 
         _LOGGER.info("Fetching data for %d students from %s to %s", len(students), from_dt, to_dt)
@@ -1249,6 +1283,8 @@ class MashovClient:
                     additional[key] = await self._fetch_attendance_counts(
                         sid, attendance_status, attendance_types, additional.get("study_groups")
                     )
+                elif key == LESSON_CANCELLATIONS:
+                    additional[key] = await self._fetch_lesson_cancellations(sid, window_start, window_end)
                 else:
                     additional[key] = await self._fetch_student_resource(sid, key, from_dt, to_dt)
                 self._record_status(key, additional[key]["status"], sid)

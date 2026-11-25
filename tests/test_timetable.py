@@ -30,3 +30,24 @@ def test_invalid_and_oversize_data_is_explicitly_partial():
 def test_alternating_weeks_are_flagged_not_assumed_daily():
     rows, _ = weekly_schedule([slot(1, 1, weeks=2)])
     assert rows[0]["lessons"][0]["weeks"] == "2"
+
+
+def test_cancellations_mark_only_the_matching_group_in_that_slot():
+    # 2026-11-26 is a Thursday: Mashov day 5.
+    items = [slot(5, 1, "Math"), slot(5, 2, "English", groupId=2), slot(5, 2, "English", groupId=3)]
+    items[0]["groupDetails"]["groupId"] = 1  # the group id may come from the group details only
+    cancellations = [
+        {"date": "2026-11-26", "lesson": 1, "group_id": 1},
+        {"date": "2026-11-19", "lesson": 1, "group_id": 1},
+        {"date": "2026-11-26", "lesson": 2, "group_id": 2},
+        {"date": "2026-11-26", "lesson": 1, "group_id": 99},
+        {"date": "2026-11-27", "lesson": 1, "group_id": 1},
+        {"date": "bad", "lesson": 1, "group_id": 1},
+    ]
+    rows, complete = weekly_schedule(items, cancellations)
+    assert complete
+    lessons = rows[4]["lessons"]
+    assert lessons[0]["cancelled"] == ["2026-11-19", "2026-11-26"]
+    # Same subject and room in two groups: only the cancelled group's row is marked, so both stay.
+    assert [row.get("cancelled") for row in lessons[1:]] == [["2026-11-26"], None]
+    assert weekly_schedule(items)[0][4]["lessons"][1:] == [{"lesson": 2, "subject": "English"}]

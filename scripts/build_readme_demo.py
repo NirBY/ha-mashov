@@ -38,6 +38,7 @@ DATA_GROUPS = [
             ("weekly_plan", "Weekly plan"),
             ("timetable", "Timetable"),
             ("lessons_history", "Lesson history"),
+            ("lesson_cancellations", "Lesson cancellations"),
         ],
     ),
     ("GRADES", [("grades", "Grades"), ("periodic_grades", "Term grades"), ("report_cards", "Report cards")]),
@@ -90,7 +91,7 @@ CHAPTERS = [
         "data1",
         "DATA TO FETCH  /  1 OF 2",
         "Choose what matters.",
-        "24 selectable sources. New hubs start with nothing selected.",
+        "25 selectable sources. New hubs start with nothing selected.",
     ),
     (
         "data2",

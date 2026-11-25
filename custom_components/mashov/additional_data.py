@@ -41,4 +41,6 @@ STUDENT_RESOURCES = {
     "lessons_count": StudentResource("Lesson Counters", "lessonsCount"),
     "study_groups": StudentResource("Study Groups", "groups"),
     "attendance_counts": StudentResource("Absence and Lateness Counters", "behave/count", True),
+    # Answers an object, not a list, with date-time bounds: fetched by MashovClient._fetch_lesson_cancellations.
+    "lesson_cancellations": StudentResource("Lesson Cancellations", "timetable/changes", True),
 }

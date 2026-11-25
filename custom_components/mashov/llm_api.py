@@ -10,9 +10,11 @@ except ImportError:  # HA before the schema migration
 
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import llm
+from homeassistant.util import dt as dt_util
 
 from .approvals import FORM_KINDS, PARENT_APPROVALS, pending_summary
 from .attendance import ATTENDANCE_COUNTS, METADATA_FIELDS
+from .cancellations import LESSON_CANCELLATIONS, NOT_OFFERED, cancellation_rows, without_reasons
 from .const import DOMAIN
 from .data_schedule import SHARED_DATA
 from .data_selection import DATA_KEYS, enabled_data, filter_cached_data
@@ -215,12 +217,28 @@ class MashovReadTool(MashovTool):
         items, status, updated = _dataset(data, key, student_id)
         offset, limit = args["offset"], args["limit"]
         failures = getattr(coordinator, "failed_datasets", set())
-        page, next_offset = _bounded_page(items, offset, limit)
         metadata = {}
         if key == ATTENDANCE_COUNTS:
             student = next(s for s in data["students"] if str(s["id"]) == student_id)
             resource = data.get("by_slug", {}).get(student["slug"], {}).get("additional_data", {}).get(key, {})
             metadata = {name: resource[name] for name in METADATA_FIELDS if name in resource}
+        elif key == LESSON_CANCELLATIONS:
+            # Staff-written reasons may name people; they stay in entity attributes only.
+            student = next(s for s in data["students"] if str(s["id"]) == student_id)
+            group = data.get("by_slug", {}).get(student["slug"], {})
+            resource = group.get("additional_data", {}).get(key, {})
+            upcoming, recent = cancellation_rows(
+                items,
+                group.get("timetable") or [],
+                (group.get("additional_data", {}).get("study_groups") or {}).get("items") or [],
+                dt_util.now().date(),
+            )
+            # Chronological; upcoming rows also say whether they move that day's start or end.
+            items = without_reasons([*recent[::-1], *upcoming])
+            fields = ("offered", "period_start", "period_end", "changes_count", "unparsed_rows")
+            metadata = {name: resource[name] for name in fields if name in resource}
+            metadata["upcoming"] = len(upcoming)
+        page, next_offset = _bounded_page(items, offset, limit)
         return self.result(
             {
                 "dataset": key,
@@ -229,7 +247,7 @@ class MashovReadTool(MashovTool):
                 "data_stale": bool(
                     coordinator.data_stale
                     or not coordinator.last_update_success
-                    or status != "ok"
+                    or status not in ("ok", NOT_OFFERED)
                     or key in failures
                     or (student_id, key) in failures
                 ),

@@ -260,7 +260,8 @@
         "special_hours": "שעות פרטניות",
         "lessons_count": "שיעורים שנערכו ושעות שבועיות לפי קבוצה",
         "study_groups": "קבוצות לימוד ומורים",
-        "attendance_counts": "מוני היעדרויות ואיחורים (שנת לימודים)"
+        "attendance_counts": "מוני היעדרויות ואיחורים (שנת לימודים)",
+        "lesson_cancellations": "ביטולי שיעורים שפורסמו במשו״ב"
       }
     },
     "schedule_days": {
@@ -307,7 +308,8 @@
         "parent_approvals": "אישורי הורים — טיולים וטפסים (צפייה בלבד)",
         "bells": "לוח צלצולים של בית הספר",
         "picture": "תמונות פרופיל של התלמידים (ישויות תמונה)",
-        "attendance_counts": "מוני היעדרויות ואיחורים (שנת לימודים)"
+        "attendance_counts": "מוני היעדרויות ואיחורים (שנת לימודים)",
+        "lesson_cancellations": "ביטולי שיעורים שפורסמו במשו״ב"
       }
     },
     "schedule_scope": {
@@ -454,6 +456,9 @@
       },
       "attendance_counts": {
         "name": "מוני היעדרויות ואיחורים"
+      },
+      "lesson_cancellations": {
+        "name": "ביטולי שיעורים"
       }
     },
     "calendar": {
