@@ -26,10 +26,20 @@ FORM_SECTIONS = {
         "mailbox_attachments",
         "mailbox_attachment_max_mb",
     },
-    "refresh": {"schedule_type", "schedule_time", "schedule_days", "schedule_interval", "edit_data_schedules"},
+    "refresh": {
+        "schedule_type",
+        "schedule_time",
+        "schedule_days",
+        "schedule_interval",
+        "edit_data_schedules",
+        "notification_refresh",
+        "notification_interval",
+    },
     "account": {"username", "password", "school_name", "automatic_school_year"},
     "advanced": {"homework_days_back", "homework_days_forward", "api_base", "max_items_in_attributes", "mcp_enabled"},
 }
+# Refresh fields that the inline schedule editor does not replace.
+NOTIFICATION_FIELDS = frozenset({"notification_refresh", "notification_interval"})
 
 
 class ScheduleEditorSelector(Selector):
@@ -65,7 +75,8 @@ class GroupedSettingsSchema(vol.Schema):
                 fields = {
                     vol.Optional("schedule_editor", default=default): ScheduleEditorSelector(
                         {"entry_id": inline.get("entry_id", ""), "setup": setup}
-                    )
+                    ),
+                    **{field: value for field, value in fields.items() if str(field) in NOTIFICATION_FIELDS},
                 }
             if fields:
                 expanded = setup and name == "account"

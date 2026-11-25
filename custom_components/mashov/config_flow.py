@@ -74,6 +74,13 @@ from .data_selection import (
     merge_selection_options,
 )
 from .mashov_client import MashovAuthError, MashovClient, MashovError, configured_school_year
+from .notifications import (
+    CONF_NOTIFICATION_INTERVAL,
+    CONF_NOTIFICATION_REFRESH,
+    MAX_NOTIFICATION_INTERVAL,
+    MIN_NOTIFICATION_INTERVAL,
+    notification_interval,
+)
 from .pending_auth import hand_over_auth
 from .schedule_flow import DataScheduleFlow, schedule_fields
 
@@ -662,6 +669,13 @@ class OptionsFlowHandler(DataScheduleFlow, config_entries.OptionsFlow):
                 ),
                 vol.Optional(CONF_SCHEDULE_INTERVAL, default=options[CONF_SCHEDULE_INTERVAL]): vol.All(
                     int, vol.Range(min=5, max=1440)
+                ),
+                # Opt-in, read-only check of Mashov's notification list (notifications.py).
+                vol.Optional(
+                    CONF_NOTIFICATION_REFRESH, default=bool(current_options.get(CONF_NOTIFICATION_REFRESH, False))
+                ): bool,
+                vol.Optional(CONF_NOTIFICATION_INTERVAL, default=notification_interval(current_options)): vol.All(
+                    int, vol.Range(min=MIN_NOTIFICATION_INTERVAL, max=MAX_NOTIFICATION_INTERVAL)
                 ),
                 vol.Optional(CONF_EDIT_DATA_SCHEDULES, default=False): bool,
                 vol.Optional("mcp_enabled", default=current_options.get("mcp_enabled", False)): bool,

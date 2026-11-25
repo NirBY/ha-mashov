@@ -108,6 +108,10 @@ class MashovPasswordChangeRequiredError(MashovAuthError):
         self.login_url = login_url
 
 
+class MashovNotificationsUnavailable(MashovError):
+    """Raised when Mashov refuses this account's notification list (not a login problem)."""
+
+
 def _slugify(text: str) -> str:
     """Build an entity-safe slug; non-Latin letters (Hebrew) are kept, punctuation dropped."""
     out = []
@@ -1495,6 +1499,52 @@ class MashovClient:
         except (aiohttp.ClientError, TimeoutError, ValueError):
             _LOGGER.warning("Unable to fetch Mashov account resource %s", key)
             return "fetch_failed", None
+
+    async def async_fetch_notifications(self, take: int) -> list[dict[str, Any]]:
+        """Return the account's newest bell notifications, newest first. Read-only.
+
+        ``GET user/notifications`` only lists them. The app and website mark them read
+        with a separate ``PUT user/notifications/...`` when the list is opened; this
+        client never sends it. Like a refresh, the first call after a cached start logs
+        in lazily, and an expired session is renewed once. A 401 that survives the
+        renewal, a 403 or a 404 raises MashovNotificationsUnavailable instead, so a
+        session that may not read the list never causes a login on every check.
+
+        Raises MashovAuthError (rejected login), MashovNotificationsUnavailable, or
+        MashovError (network, server or response problems).
+        """
+        if not self._session or self._session.closed:
+            await self.async_open_session()
+        if not self._students or "X-Csrf-Token" not in self._headers:
+            await self.async_init(None)
+        url = self._api_base + "user/notifications?" + urlencode({"skip": 0, "take": int(take)})
+        for attempt in range(2):
+            try:
+                async with self._session.get(url, headers=self._headers) as response:
+                    status = response.status
+                    if status == 200:
+                        payload = await response.json(content_type=None)
+                        if not isinstance(payload, list):
+                            raise MashovError("Mashov notifications returned an unexpected response")
+                        return [item for item in payload if isinstance(item, dict)]
+                    if status == 403:
+                        body = await response.text()
+                        if (response.headers.get("reason") or "").lower() == "changepass" or (
+                            "change password" in body.lower()
+                        ):
+                            raise MashovPasswordChangeRequiredError(
+                                "Please change password before authenticating.", self.login_page_url
+                            )
+            except (aiohttp.ClientError, TimeoutError, ValueError) as err:
+                # Neither the URL nor the body is logged; both concern the account.
+                raise MashovError(f"Could not read Mashov notifications ({type(err).__name__})") from err
+            if status == 401 and attempt == 0:
+                await self._ensure_valid_session()
+                continue
+            if status in (401, 403, 404):
+                raise MashovNotificationsUnavailable(f"Mashov refused the notification list (HTTP {status})")
+            raise MashovError(f"Mashov notifications request failed (HTTP {status})")
+        raise MashovError("Mashov notifications request failed")  # not reached: attempt 1 always returns or raises
 
     @property
     def pictures(self) -> dict[str, tuple[bytes, str, float]]:

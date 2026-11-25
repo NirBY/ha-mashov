@@ -471,6 +471,12 @@ When there are attachments the UI also reads `files: [{fileId, fileName}]` and l
 
 The response also carries the headers `X-Notifications-Count` and `X-UnreadNotifications-Count`. A notification is unread when `readTime` is absent (the client filters with `!readTime`).
 
+`eventType` values (Mashov app 3.8.72 bundle): 1 Text, 11 CantRecover, 16 UnreadConversations, 101 Behave, 102 Homework, 105 BehaveOutside, 106 BehaveEducator, 111 Grade, 113 BagrutGrade, 114 MagenGrade, 121 Maakav, 131 FormAnswer, 141 FormViewAnswer, 151 SchoolActivityAnswer, 171/181/191 staff export files, 201 ParentsConsentAnswer, 211 ParentsConsentSharedAccess, 221 TimeTable, 231 StudentPicture, 241 SchoolTest. The app's routes use `eventUserId` as the student and `eventKey` for the item. The app loads the newest seven when its main screen opens, with no timer. Only opening the list marks items read, through a separate `PUT`.
+
+The opt-in notification refresh (`notifications.py`) reads this list every 5–60 minutes, never sends the `PUT`, and maps each new `eventType` to the data types it changes. Digests of the items it has seen leave out `readTime`, so reading an item in the app does not count as new.
+
+Push (read from the app, not used by the integration): the app gets pushes through its own Firebase project with `@havesource/cordova-plugin-push` (channel `MashovPushNotifications`). It sends its FCM token as `registrationId` in the login body and via `PUT push/registrationId`; the website never registers. A push carries `additionalData: {semel, messageType, messageData}`. `messageType` is the bitmask `{behave:1, grade:2, email:4, bagrut:8, homework:128, maakav:256, timeTable:512, studentPicture:1024, schoolTest:2048, behaveTeacherPush:4096, debug:1<<30}`, and `messageData` holds only IDs (`studentGuid`, `lessonId`, `conversationId`, `gradingEventId`, `maakavId`, ...). The data must still be fetched. The push categories are `push/options` (GET/PUT, a number), which also appears as `pushOptions` in `user/settings`. `POST users/debug/push` sends a test push to the user's devices (a write).
+
 `GET user/settings`:
 
 ```json

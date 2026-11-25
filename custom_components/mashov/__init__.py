@@ -105,6 +105,14 @@ from .mashov_client import (
     MashovPasswordChangeRequiredError,
     configured_school_year,
 )
+from .notifications import (
+    CONF_NOTIFICATION_INTERVAL,
+    CONF_NOTIFICATION_REFRESH,
+    MAX_NOTIFICATION_INTERVAL,
+    MIN_NOTIFICATION_INTERVAL,
+    NotificationWatcher,
+    notifications_store,
+)
 from .pending_auth import take_pending_auth
 from .reporting import is_internal_error, issue_report_url, technical_log
 
@@ -348,6 +356,8 @@ SET_OPTIONS_SCHEMA = vol.Schema(
         vol.Optional(CONF_HOMEWORK_DAYS_BACK): _int_in(0, 60),
         vol.Optional(CONF_HOMEWORK_DAYS_FORWARD): _int_in(1, 120),
         vol.Optional(CONF_API_BASE): vol.Match(r"^https?://"),
+        vol.Optional(CONF_NOTIFICATION_REFRESH): cv.boolean,
+        vol.Optional(CONF_NOTIFICATION_INTERVAL): _int_in(MIN_NOTIFICATION_INTERVAL, MAX_NOTIFICATION_INTERVAL),
     },
     extra=vol.REMOVE_EXTRA,
 )
@@ -973,6 +983,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry):
     # password) is deleted by HA.
     await Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.cache").async_remove()
     await Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.homework_completion").async_remove()
+    await notifications_store(hass, entry.entry_id).async_remove()
     await async_clear_entry_media(hass, entry.entry_id)
     hass.data.get(DOMAIN, {}).get("report_logs", {}).pop(entry.entry_id, None)
     _async_clear_issue_notification(hass, entry)
@@ -1156,6 +1167,8 @@ async def _async_setup_scheduler(
     previous triggers are cancelled first. A failed daily/weekly run is retried (see
     _ScheduledJob). With ``catch_up`` (setup only), a run whose time passed after the
     last successful refresh starts now. Returns the data types that catch-up covers.
+    With the notification option, a timer also checks Mashov's notification list
+    (notifications.NotificationWatcher), whatever the schedule type.
     """
     from .const import (
         CONF_SCHEDULE_DAY,
@@ -1246,6 +1259,14 @@ async def _async_setup_scheduler(
     coordinator: MashovCoordinator = data["coordinator"]
     unsubs = []
     caught_up: set = set()
+
+    # Opt-in: a new Mashov notification refreshes its data types between scheduled runs.
+    # The watcher outlives reschedules (it remembers what it has seen); only its timer is replaced.
+    if merged.get(CONF_NOTIFICATION_REFRESH):
+        watcher = data.get("notification_watcher")
+        if watcher is None:
+            watcher = data["notification_watcher"] = NotificationWatcher(hass, entry, coordinator)
+        unsubs.append(watcher.async_start(merged))
 
     if merged.get(CONF_DATA_SCHEDULES) or merged.get(CONF_STUDENT_SCHEDULES):
         # A single serialized coordinator merges selective results. No all-data

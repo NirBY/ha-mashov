@@ -110,6 +110,10 @@ During registration, set initial defaults first; students become selectable once
 
 [Current inline-form pictures](docs/configuration.md) · [Schedule actions and YAML examples](docs/services.md#mashovset_options)
 
+#### Refresh on new Mashov notifications
+
+Off by default; turn it on in **Refresh schedules**. Every 15 minutes (5–60), the hub reads the seven newest entries of Mashov's notification list, the same list as the bell in the app. It only reads them; nothing is marked read. When a new notification appears, the hub refreshes just the data it is about (homework, grades, behaviour, mail, follow-up notes, approvals, timetable or the student picture) instead of waiting for the next scheduled refresh. Some data, such as the noticeboard and holidays, never has notifications, so the regular schedule keeps running. Notification text is never logged or stored. Checking at least once an hour also keeps the Mashov session alive between refreshes.
+
 <a id="data-to-fetch-1"></a>
 
 ### Data to fetch
