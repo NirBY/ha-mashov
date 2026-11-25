@@ -687,6 +687,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     if isinstance(cached, dict) and cached.get("data"):
         coordinator.data = cached["data"]
         coordinator.last_successful_update = cached.get("last_refresh_ts")
+        coordinator.last_refresh_ts = cached.get("last_refresh_ts")
 
     hass.data[DOMAIN][entry.entry_id] = {
         "client": client,
@@ -1375,6 +1376,9 @@ class MashovCoordinator(DataUpdateCoordinator):
         self.entry = entry
         self.data_stale = False
         self.last_successful_update = None  # epoch seconds; restored from the cache on setup
+        # The cache's last_refresh_ts: the last refresh of the hub, which picture-only and
+        # notification-started refreshes do not advance (the restart cooldown reads it).
+        self.last_refresh_ts = None
         # Transient failures notify only on the 3rd in a row (when cached data exists).
         self._consecutive_failures = 0
         # Internal errors notify once per failure streak; reset on the next success.
@@ -1419,16 +1423,17 @@ class MashovCoordinator(DataUpdateCoordinator):
                 self.failed_datasets = set(enabled_data(getattr(self.entry, "options", {})))
                 raise
 
-    async def async_refresh_datasets(self, keys, student_data=None, *, notified=False):
+    async def async_refresh_datasets(self, keys, student_data=None, *, notified=False) -> bool:
         """Serialize scheduled groups and publish a merged snapshot atomically.
 
+        Returns False when the refresh did not run or failed, so a caller can retry it.
         ``notified`` marks a refresh started by a new Mashov notification. Like a
         picture-only refresh, it is not a refresh of the hub, so it leaves the
         interval-mode startup cooldown alone.
         """
         async with self._refresh_slot():
             if self._stopped:
-                return
+                return False
             requested = set(keys) & set(enabled_data(self.entry.options))
             if student_data is not None:
                 students = (self.data or {}).get("students", [])
@@ -1437,15 +1442,16 @@ class MashovCoordinator(DataUpdateCoordinator):
                         self.failed_datasets.remove(key)
                         self.failed_datasets.update((student["id"], key) for student in students)
             if not requested:
-                return
+                return True
             try:
                 data = await self._async_fetch_data(requested, student_data=student_data, keep_refresh_ts=notified)
             except UpdateFailed:
                 self.failed_datasets.update(self._failure_keys(requested, student_data))
                 if self.data:
                     self._async_publish(self.data)
-                return
+                return False
             self._async_publish(data)
+            return True
 
     @callback
     def _async_publish(self, data) -> None:
@@ -1600,19 +1606,16 @@ class MashovCoordinator(DataUpdateCoordinator):
             if not self.failed_datasets:
                 _async_clear_issue_notification(self.hass, self.entry)
             _LOGGER.debug("Coordinator update completed; students=%d", len(data.get("students", [])))
+            # A picture-only refresh (after a cached start) or one started by a notification is
+            # not a refresh of the hub: the interval-mode startup cooldown reads this timestamp.
+            if not ((keep_refresh_ts or set(requested) == {"picture"}) and getattr(self, "last_refresh_ts", None)):
+                self.last_refresh_ts = self.last_successful_update
             # Persist cache after every successful data update (interval, daily, or manual refresh)
             try:
                 store = Store(self.hass, 1, f"{DOMAIN}.{self.entry.entry_id}.cache")
                 await store.async_save(
                     {
-                        # A picture-only refresh (after a cached start) or one started by a
-                        # notification is not a refresh of the hub: the interval-mode startup
-                        # cooldown reads this timestamp.
-                        "last_refresh_ts": (
-                            previous_update
-                            if (keep_refresh_ts or set(requested) == {"picture"}) and previous_update
-                            else self.last_successful_update
-                        ),
+                        "last_refresh_ts": self.last_refresh_ts,
                         # Profile pictures stay in memory only; their status map would
                         # otherwise claim pictures that a restart no longer has.
                         "data": {key: value for key, value in data.items() if key != "picture"},

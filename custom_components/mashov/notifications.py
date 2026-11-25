@@ -130,6 +130,8 @@ class NotificationWatcher:
         self._store = notifications_store(hass, entry.entry_id)
         self._seen: list[str] | None = None  # None: nothing recorded yet
         self._generated: list[str] | None = None  # generated entries the previous check listed
+        # Data types whose notified refresh failed; retried after the next successful check.
+        self._pending: set[str] = set()
         self._loaded = False
         self._busy = False
         self._unavailable = False
@@ -161,28 +163,38 @@ class NotificationWatcher:
         self._busy = True
         try:
             keys = await self._async_new_data()
+            if keys is None:
+                return  # the check failed; pending refreshes wait for a working one
+            new, keys = keys, keys | self._pending
             if keys:
                 _LOGGER.info(
-                    "New Mashov notifications for %s; refreshing %s", self._entry.title, ", ".join(sorted(keys))
+                    "%s for %s; refreshing %s",
+                    "New Mashov notifications" if new else "Retrying a failed notified refresh",
+                    self._entry.title,
+                    ", ".join(sorted(keys)),
                 )
-                await coordinator.async_refresh_datasets(keys, notified=True)
+                done = await coordinator.async_refresh_datasets(keys, notified=True)
+                pending = set() if done else keys
+                if pending != self._pending:
+                    self._pending = pending
+                    await self._async_save()
         finally:
             self._busy = False
 
-    async def _async_new_data(self) -> set[str]:
-        """Read the list once (in the refresh queue); return the data types to refresh."""
+    async def _async_new_data(self) -> set[str] | None:
+        """Read the list once (in the refresh queue); the data types to refresh, or None."""
         coordinator = self._coordinator
         title = self._entry.title
         # The same queue as refreshes: a check never overlaps a refresh or another hub's login.
         async with coordinator._refresh_slot():
             if coordinator._stopped:
-                return set()
+                return None
             try:
                 items = await coordinator.client.async_fetch_notifications(NOTIFICATION_TAKE)
             except MashovNotificationsUnavailable as err:
                 self._unavailable = True
                 _LOGGER.warning("%s for %s; notification checks are off until the hub reloads", err, title)
-                return set()
+                return None
             except MashovAuthError as err:
                 self._paused = True
                 self._auth_paused_at = coordinator.last_successful_update
@@ -192,14 +204,20 @@ class NotificationWatcher:
                     title,
                     type(err).__name__,
                 )
-                return set()
+                return None
             except MashovError as err:
                 _LOGGER.debug("Could not check Mashov notifications for %s: %s", title, err)
-                return set()
+                return None
             except Exception as err:  # keep the timer alive; never log response content
                 _LOGGER.warning("Unexpected error while checking Mashov notifications for %s: %r", title, type(err))
-                return set()
+                return None
         return await self._async_compare(items)
+
+    async def _async_save(self) -> None:
+        data = {"seen": self._seen or [], "generated": self._generated or []}
+        if self._pending:
+            data["pending"] = sorted(self._pending)
+        await self._store.async_save(data)
 
     async def _async_compare(self, items: list[dict]) -> set[str]:
         """Record the listed notifications; return the enabled data types new ones concern.
@@ -210,10 +228,11 @@ class NotificationWatcher:
         if not self._loaded:
             data = await self._store.async_load()
             data = data if isinstance(data, dict) else {}
-            seen, generated = data.get("seen"), data.get("generated")
+            seen, generated, pending = data.get("seen"), data.get("generated"), data.get("pending")
             self._seen = [str(digest) for digest in seen] if isinstance(seen, list) else None
             # Missing in older files: the next check only records the generated entries.
             self._generated = [str(digest) for digest in generated] if isinstance(generated, list) else None
+            self._pending = {str(key) for key in pending} if isinstance(pending, list) else set()
             self._loaded = True
         listed = [(item, notification_digest(item), is_stored(item)) for item in items]
         stored_now = [digest for _, digest, stored in listed if stored]
@@ -227,7 +246,7 @@ class NotificationWatcher:
         seen = list(dict.fromkeys(stored_now + (before or [])))[:SEEN_LIMIT]
         if seen != before or generated_now != before_generated:
             self._seen, self._generated = seen, generated_now
-            await self._store.async_save({"seen": seen, "generated": generated_now})
+            await self._async_save()
         _LOGGER.debug(
             "Checked Mashov notifications for %s: %d listed, %d new%s",
             self._entry.title,
