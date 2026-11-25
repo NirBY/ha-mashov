@@ -597,3 +597,10 @@ def test_a_numeric_string_group_id_is_kept_as_a_number():
     result = normalize_cancellations(payload, START, END)
     assert result["items"][0]["group_id"] == 5
     assert "unparsed_rows" not in result
+
+
+def test_a_cancelled_regular_lesson_beside_a_some_weeks_lesson_makes_the_shift_unknown():
+    """The week-specific lesson left in that slot may or may not take place that day."""
+    timetable = [slot(DAY, 1, 1, "Math"), slot(DAY, 1, 4, "Art", weeks="2"), slot(DAY, 2, 2, "Bible")]
+    upcoming, _ = cancellation_rows([item(TOMORROW, 1, 1)], timetable, [], TODAY)
+    assert (upcoming[0]["moves_start"], upcoming[0]["moves_end"]) == (None, False)

@@ -12,7 +12,7 @@ import asyncio
 from datetime import timedelta
 import json
 import logging
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import aiohttp
 from homeassistant.util import dt as dt_util
@@ -289,7 +289,7 @@ async def test_a_file_without_generated_entries_only_records_them(hass, mock_con
 
 
 async def test_a_notified_refresh_keeps_the_poll_and_the_restart_cooldown(hass, mock_config_entry, hass_storage):
-    """A partial refresh neither pushes the next full poll back nor counts as the hub's refresh."""
+    """Partial refreshes neither push the next full poll back nor count as the hub's refresh."""
     mock_config_entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(mock_config_entry, options=ENABLED)
     client = MagicMock()
@@ -297,20 +297,58 @@ async def test_a_notified_refresh_keeps_the_poll_and_the_restart_cooldown(hass, 
     client.auth_data = {}
     coordinator = MashovCoordinator(hass, client, mock_config_entry)
     coordinator.data = {"students": [], "by_slug": {}}
-    coordinator.last_successful_update = 100.0
+    coordinator.last_successful_update = coordinator.last_refresh_ts = 100.0
     listener = MagicMock()
     unsubscribe = coordinator.async_add_listener(listener)
     coordinator.set_interval_minutes(120)
     scheduled = coordinator._unsub_refresh
+    cache = f"{DOMAIN}.{mock_config_entry.entry_id}.cache"
 
-    await coordinator.async_refresh_datasets({"homework"}, notified=True)
+    # Two in a row: the second must not save the first one's time either.
+    assert await coordinator.async_refresh_datasets({"homework"}, notified=True)
+    assert await coordinator.async_refresh_datasets({"grades"}, notified=True)
     assert coordinator._unsub_refresh is scheduled
     listener.assert_called()
     assert coordinator.last_successful_update > 100.0
-    assert hass_storage[f"{DOMAIN}.{mock_config_entry.entry_id}.cache"]["data"]["last_refresh_ts"] == 100.0
+    assert hass_storage[cache]["data"]["last_refresh_ts"] == 100.0
+
+    # A scheduled refresh is a refresh of the hub.
+    assert await coordinator.async_refresh_datasets({"homework"})
+    assert hass_storage[cache]["data"]["last_refresh_ts"] == coordinator.last_successful_update
 
     unsubscribe()
     coordinator.set_interval_minutes(None)
+
+
+async def test_a_failed_notified_refresh_is_retried_after_the_next_working_check(hass, mock_config_entry, hass_storage):
+    """The notification is already recorded as seen, so its refresh must not be lost."""
+    lists = [[_note(1)], [_note(2), _note(1)], MashovError("offline"), [_note(2), _note(1)], [_note(2), _note(1)]]
+    watcher, coordinator = _watcher(hass, mock_config_entry, ENABLED, lists)
+    coordinator.async_refresh_datasets = AsyncMock(side_effect=[False, True])
+
+    for _ in lists[:3]:
+        await watcher.async_check()
+    # The refresh failed and the next check failed too: no retry yet, but it is kept.
+    assert coordinator.async_refresh_datasets.await_count == 1
+    assert hass_storage[_store_key(mock_config_entry)]["data"]["pending"] == ["homework"]
+
+    for _ in lists[3:]:
+        await watcher.async_check()
+    assert coordinator.async_refresh_datasets.await_args_list == [call({"homework"}, notified=True)] * 2
+    assert "pending" not in hass_storage[_store_key(mock_config_entry)]["data"]
+
+
+async def test_a_pending_refresh_survives_a_restart(hass, mock_config_entry):
+    watcher, coordinator = _watcher(hass, mock_config_entry, ENABLED, [[_note(1)], [_note(2), _note(1)]])
+    coordinator.async_refresh_datasets = AsyncMock(return_value=False)
+    await watcher.async_check()
+    await watcher.async_check()
+
+    # Home Assistant restarts before the refresh succeeded.
+    coordinator.async_refresh_datasets = AsyncMock(return_value=True)
+    coordinator.client.async_fetch_notifications = AsyncMock(return_value=[_note(2), _note(1)])
+    await NotificationWatcher(hass, mock_config_entry, coordinator).async_check()
+    coordinator.async_refresh_datasets.assert_awaited_once_with({"homework"}, notified=True)
 
 
 async def test_notifications_about_data_the_hub_does_not_fetch_are_ignored(hass, mock_config_entry):

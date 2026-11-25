@@ -1,8 +1,7 @@
-# v1.7.0 — Notification refresh, no more "new device" emails and lesson cancellations
+# v1.7.1 — Notification refresh, dashboard and weekly card fixes
 
-- **Refresh on new notifications (off by default).** Between scheduled refreshes, Home Assistant checks Mashov's notification list and refreshes only the data a new notification is about. Nothing is marked as read. Data without notifications, such as the noticeboard, keeps its schedule.
-  To turn it on: go to **Settings → Devices & services → Mashov**, select **Configure** on the hub, open **Refresh schedules**, tick **Refresh when Mashov shows a new notification** and select **Submit**. Checks run every 15 minutes by default (5–60, set in **Notification check interval**). Each hub has its own setting. From the next version, it will be on by default.
-- **No more "new device" emails (#33).** Home Assistant now logs in to Mashov as a private device and renews expired sessions with that remembered device instead of the password. Adding a hub or changing its credentials logs in once. Thanks to @ari-gen-x for reporting it.
-- **Lesson cancellations (off by default).** Each child gets a sensor with upcoming and recent cancellations. The weekly card strikes out cancelled lessons and moves the day's start or end time when its first or last lesson is cancelled. To turn it on, tick **Lesson cancellations published in Mashov** under **Configure → Data to fetch**.
+- **Refresh on new notifications:** if a refresh started by a new notification fails, it is retried after the next check, also after a restart, instead of waiting for the next scheduled refresh. A restart no longer skips an overdue full refresh after several notification refreshes.
+- **Dashboard pop-up error (#34):** the pop-up no longer fails with "Error while processing template" when a lesson has no room or another field is missing. To update an existing dashboard, run the dashboard blueprint again. Thanks to @Fannangir for reporting it.
+- **Weekly card and lesson cancellations:** when a cancelled lesson leaves only a lesson that runs in some weeks at the start or end of a day, that start or end time is left open instead of guessed.
 
-After updating, restart Home Assistant and refresh the browser. Each hub logs in with its password one last time to register as a private device, so expect one final "new device" email.
+Refresh on new notifications stays off by default in this fix release; it will be on by default from 1.8.0.

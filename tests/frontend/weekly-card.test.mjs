@@ -76,6 +76,13 @@ test("a fully cancelled day has no hours, and a week-specific new first lesson i
   const weekly=schoolWeek([{day:1,lessons:[{lesson:1,cancelled:["2026-11-22"]},{lesson:2,weeks:"2"},{lesson:3}]}],bells,[],"2026-11-22")[0];
   assert.equal(weekly.start,"");assert.equal(weekly.laterStart,true);assert.equal(weekly.end,"11:15");
 });
+test("a cancelled weekly lesson beside a week-specific one leaves the boundary time unknown",()=>{
+  const slot=[{day:1,lessons:[{lesson:1,cancelled:["2026-11-22"]},{lesson:1,weeks:"2"},{lesson:2}]}];
+  const upcoming=schoolWeek(slot,bells,[],"2026-11-22")[0];
+  assert.equal(upcoming.start,"");assert.equal(upcoming.laterStart,false);
+  // Past days keep the published hours.
+  assert.equal(schoolWeek(slot,bells,[],"2026-11-23")[0].start,"08:30");
+});
 test("the input schedule is not modified",()=>{
   const input=[{day:1,lessons:[{lesson:1,cancelled:["2026-11-22"]}]}];
   schoolWeek(input,bells,[],"2026-11-22");

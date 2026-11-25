@@ -34,7 +34,7 @@ export function schoolWeek(schedule, bells, holidays, today, offset = 0, complet
     while (hi >= lo && gone(groups[hi])) hi--;
     const kept = lo <= hi, first = kept ? groups[lo] : undefined, last = kept ? groups[hi] : undefined;
     const open = !holiday && complete;
-    const definite = group => !!group && group.some(x => x.weeks == null);
+    const definite = group => !!group && group.some(x => x.weeks == null && !(upcoming && x.cancelled));
     const variable = lessons.some(x => x.weeks != null);
     return {date,day:i + 1,holiday:holiday?.name || (holiday ? "—" : ""),lessons,
       start: open && definite(first) ? slots.get(Number(first[0].lesson))?.start || "" : "",
