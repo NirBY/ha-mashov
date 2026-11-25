@@ -105,6 +105,7 @@ from .mashov_client import (
     MashovPasswordChangeRequiredError,
     configured_school_year,
 )
+from .pending_auth import take_pending_auth
 from .reporting import is_internal_error, issue_report_url, technical_log
 
 _LOGGER = logging.getLogger(__name__)
@@ -633,6 +634,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         cached_students = (cached.get("data") or {}).get("students") or []
         if cached_students and cached_students[0].get("year"):
             saved_auth = {**saved_auth, "session_year": cached_students[0]["year"]}
+    # A new hub reuses the login its credential check just made (as HA's private
+    # device), instead of a second password login and "new device" email.
+    pending_auth = take_pending_auth(hass, data[CONF_SCHOOL_ID], data[CONF_USERNAME])
+    if pending_auth and not (
+        isinstance(saved_auth, dict) and any(saved_auth.get(key) for key in ("csrf_token", "cookies", "device_auth"))
+    ):
+        saved_auth = pending_auth
+
+    async def _save_auth(auth):
+        # Save a new/revoked device pass even if the subsequent data fetch fails.
+        current = await store.async_load()
+        current = dict(current) if isinstance(current, dict) else {}
+        current["auth"] = auth
+        await store.async_save(current)
 
     client = MashovClient(
         school_id=data[CONF_SCHOOL_ID],
@@ -648,6 +663,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         mailbox_full_content=entry.options.get(CONF_MAILBOX_FULL_CONTENT, False),
         mailbox_limit=entry.options.get(CONF_MAILBOX_LIMIT, DEFAULT_MAILBOX_LIMIT),
         attachment_store=await _async_attachment_store(hass, entry),
+        remember_device=True,
+        auth_updated=_save_auth,
     )
 
     coordinator = MashovCoordinator(hass, client, entry)
@@ -863,14 +880,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         for key in set(enabled_data(options)) - set(client.enabled_data):
             ir.async_delete_issue(hass, DOMAIN, _closed_issue_id(updated_entry.entry_id, key))
         if client_changed:
-            if credentials_changed:
+            if credentials_changed or client._api_base != (
+                options.get(CONF_API_BASE, DEFAULT_API_BASE).rstrip("/") + "/"
+            ):
                 # A valid old cookie must not bypass newly supplied credentials.
                 # Stop scheduled coordinator refreshes first, then clear the cached
                 # session so the reloaded client logs in with the new credentials.
                 await coordinator.async_shutdown()
                 cached_entry = await store.async_load()
                 if isinstance(cached_entry, dict):
-                    cached_entry["auth"] = {}
+                    # Configure already logged in with the new credentials; reuse that
+                    # session and remembered device. Without a cache file, setup takes it.
+                    cached_entry["auth"] = (
+                        take_pending_auth(hass, data.get(CONF_SCHOOL_ID), data.get(CONF_USERNAME)) or {}
+                    )
                     await store.async_save(cached_entry)
                 # Log in with them as soon as the hub reloads, even in daily/weekly mode,
                 # so a fixed password clears the auth notice and stale data right away.

@@ -74,6 +74,7 @@ from .data_selection import (
     merge_selection_options,
 )
 from .mashov_client import MashovAuthError, MashovClient, MashovError, configured_school_year
+from .pending_auth import hand_over_auth
 from .schedule_flow import DataScheduleFlow, schedule_fields
 
 
@@ -99,7 +100,8 @@ async def _async_login_error(hass, data, options) -> str | None:
     """Log in once with the hub's school, year and API address and these credentials.
 
     Returns a form error key ("auth" or "cannot_connect"), or None when the login
-    works. The client is only used for this check and is closed right away.
+    works. Like the hub, the check logs in as HA's private device; a working login is
+    handed over to the reloaded hub, so it does not log in (and email) a second time.
     """
     client = MashovClient(
         school_id=data[CONF_SCHOOL_ID],
@@ -107,9 +109,11 @@ async def _async_login_error(hass, data, options) -> str | None:
         username=data[CONF_USERNAME],
         password=data[CONF_PASSWORD],
         api_base=options.get(CONF_API_BASE, DEFAULT_API_BASE),
+        remember_device=True,
     )
     try:
         await client.async_init(hass)
+        hand_over_auth(hass, data[CONF_SCHOOL_ID], data[CONF_USERNAME], client.auth_data)
     except MashovAuthError as err:
         _LOGGER.warning("Mashov rejected the new credentials: %s", err)
         return "auth"
@@ -341,17 +345,20 @@ class ConfigFlow(DataScheduleFlow, config_entries.ConfigFlow, domain=DOMAIN):
                             description_placeholders={"schedule_summary": await self._schedule_summary(submitted)},
                         )
 
-            # Validate login; client will fetch all kids. The client is only used for
-            # validation and is closed right away; the coordinator creates its own.
+            # Validate login; client will fetch all kids. The client is closed right away
+            # and the coordinator creates its own, which reuses this login (see below).
             client = MashovClient(
                 school_id=user_input[CONF_SCHOOL_ID],
                 year=None,
                 username=user_input[CONF_USERNAME],
                 password=user_input[CONF_PASSWORD],
+                remember_device=True,
             )
+            auth = None
             try:
                 # Run authentication directly
                 await client.async_init(self.hass)
+                auth = client.auth_data
             except MashovAuthError as e:
                 _LOGGER.error("Authentication error: %s", e)
                 errors["base"] = "auth"
@@ -379,6 +386,9 @@ class ConfigFlow(DataScheduleFlow, config_entries.ConfigFlow, domain=DOMAIN):
                     f"{user_input[CONF_SCHOOL_ID]}_{user_input[CONF_USERNAME].strip().lower()}"
                 )
                 self._abort_if_unique_id_configured()
+                # HA is a private device: the new hub reuses this login and its remembered
+                # device instead of a second password login (and "new device" email).
+                hand_over_auth(self.hass, user_input[CONF_SCHOOL_ID], user_input[CONF_USERNAME], auth)
                 # Get school name from the cached data or use semel as fallback
                 if self._cached_user and CONF_SCHOOL_NAME in self._cached_user:
                     school_name = self._cached_user[CONF_SCHOOL_NAME]

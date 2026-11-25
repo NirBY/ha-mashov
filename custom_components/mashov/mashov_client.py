@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from datetime import date, timedelta
+import hashlib
 import json
 import logging
 import time
@@ -186,6 +187,8 @@ class MashovClient:
         mailbox_full_content: bool = False,
         mailbox_limit: int = DEFAULT_MAILBOX_LIMIT,
         attachment_store=None,
+        remember_device: bool = False,
+        auth_updated=None,
     ) -> None:
         # school may be semel int or name string (resolved in async_init)
         self.school_id = int(school_id) if str(school_id).isdigit() else None
@@ -240,6 +243,20 @@ class MashovClient:
         self._saved_auth = (
             saved_auth if saved_auth and (saved_auth.get("csrf_token") or saved_auth.get("cookies")) else None
         )
+        # Every login identifies as the Mashov app. With remember_device it also ticks the
+        # app's "private device" box (HA is one): Mashov then issues a pass that renews
+        # expired sessions without a password login and its "new device" email.
+        self._remember_device = remember_device
+        self._auth_updated = auth_updated
+        self._device_auth: dict[str, Any] = {}
+        if remember_device and isinstance(saved_auth, dict):
+            device_auth = saved_auth.get("device_auth")
+            # A school stored by name gets its code only in async_init, so its binding
+            # is checked there, before the pass is ever sent.
+            if isinstance(device_auth, dict) and (
+                self.school_id is None or device_auth.get("binding") == self._device_binding()
+            ):
+                self._device_auth = dict(device_auth)
         # Set once a real login (not a session restore) has reloaded the children list.
         self.roster_refreshed = False
 
@@ -295,7 +312,149 @@ class MashovClient:
             "session_year": self._session_year,
             "csrf_token": self._headers.get("X-Csrf-Token"),
             "cookies": cookies,
+            "device_auth": dict(self._device_auth),
         }
+
+    def _device_binding(self) -> str:
+        """Keep a remembered device confined to this account and API address."""
+        value = json.dumps([self._api_base, str(self.school_id), self.username])
+        return hashlib.sha256(value.encode()).hexdigest()
+
+    async def _async_auth_updated(self) -> None:
+        if self._auth_updated is not None:
+            try:
+                await self._auth_updated(self.auth_data)
+            except Exception:
+                _LOGGER.warning("Could not persist Mashov authentication; a restart may require password login")
+
+    def _valid_device_pass(self, value) -> bool:
+        return (
+            isinstance(value, dict)
+            and all(
+                isinstance(value.get(key), str) and value[key] for key in ("appName", "deviceUuid", "pass", "userId")
+            )
+            and value.get("appName") == "com.mashov.main"
+            and str(value.get("semel")) == str(self.school_id)
+            and str(value.get("year")) == str(self.year)
+        )
+
+    def _login_device_fields(self) -> dict[str, str]:
+        """App/version/device metadata that the Mashov app sends with every login route."""
+        return {
+            "appName": "com.mashov.main",
+            "apiVersion": "4.20250101",
+            "appVersion": "4.20250101",
+            "appBuild": "4.20250101",
+            "deviceUuid": "chrome-ha",
+            "devicePlatform": "chrome",
+            "deviceManufacturer": "homeassistant",
+            "deviceModel": "integration",
+            "deviceVersion": "1.0.5",
+        }
+
+    async def _async_drop_device(self) -> None:
+        """Forget a pass that cannot renew the session, so the password login may run."""
+        self._device_auth = {}
+        self._headers = {}
+        self._session.cookie_jar.clear()
+        await self._async_auth_updated()
+
+    async def _async_device_login(self) -> bool:
+        """Renew an expired session without registering another device.
+
+        Returns False when the password login should run instead. A definite answer
+        (any 4xx except 408/429, or a 200 without a session) drops the pass: keeping
+        it would fail every refresh, for example after a change to this unofficial
+        route, while a fallback costs at most one "new device" email. Temporary
+        failures (network, 408, 429, 5xx, redirects, a non-JSON page) keep the pass
+        and raise MashovError. Stale session cookies are never sent with the pass.
+        """
+        device_pass = self._device_auth.get("pass")
+        cookie = self._device_auth.get("uniquId")
+        if (
+            not self._valid_device_pass(device_pass)
+            or not isinstance(cookie, str)
+            or not cookie
+            or self._device_auth.get("binding") != self._device_binding()
+        ):
+            if self._device_auth:
+                self._device_auth = {}
+                await self._async_auth_updated()
+            return False
+        # School, year and user identity are in the pass header. The body contains
+        # the same device/version metadata as password login, as in the official app.
+        fields = self._login_device_fields()
+        fields.update(appName=device_pass["appName"], deviceUuid=device_pass["deviceUuid"])
+        for attempt in range(3):
+            self._session.cookie_jar.clear()
+            self._session.cookie_jar.update_cookies({"uniquId": cookie}, response_url=yarl.URL(self._api_base).origin())
+            try:
+                async with self._session.post(
+                    self._api_base + "loginDevice",
+                    json=fields,
+                    headers={
+                        "Accept": "application/json",
+                        "devicePass": json.dumps(device_pass, separators=(",", ":")),
+                    },
+                    allow_redirects=False,
+                ) as resp:
+                    if 400 <= resp.status < 500 and resp.status not in (408, 429):
+                        message = await resp.text(errors="replace")
+                        await self._async_drop_device()
+                        if (
+                            resp.headers.get("reason") or ""
+                        ).strip().lower() == "changepass" or "change password" in message.lower():
+                            raise MashovPasswordChangeRequiredError(
+                                "Please change password before authenticating.", self.login_page_url
+                            )
+                        # Mashov's message is not logged: it may contain account details.
+                        _LOGGER.warning(
+                            "Mashov rejected the remembered device (HTTP %s); logging in with the password",
+                            resp.status,
+                        )
+                        return False
+                    if resp.status != 200:
+                        raise MashovError(f"Device login failed HTTP {resp.status}")
+                    try:
+                        data = await resp.json(content_type=None)
+                    except ValueError as err:
+                        # A proxy or maintenance page: temporary, and not a code defect.
+                        raise MashovError("Device login returned a non-JSON response") from err
+                    csrf = resp.headers.get("X-Csrf-Token")
+                    if not isinstance(data, dict) or not data.get("accessToken") or not csrf:
+                        await self._async_drop_device()
+                        _LOGGER.warning("Remembered-device login returned no session; logging in with the password")
+                        return False
+                    self._auth_data = data
+                    self._headers = {"Accept": "application/json", "X-Csrf-Token": csrf}
+                    await self._extract_students()
+                    self.roster_refreshed = True
+                    self._capture_device_auth(resp.headers)
+                    await self._async_auth_updated()
+                    _LOGGER.info("Mashov session renewed with remembered device")
+                    return True
+            except (TimeoutError, aiohttp.ClientError) as err:
+                if attempt == 2:
+                    raise MashovError("Device login network failure") from err
+            await asyncio.sleep(2)
+        return False
+
+    def _capture_device_auth(self, headers) -> None:
+        """Capture secrets without logging response headers or cookie values."""
+        if not self._remember_device:
+            return
+        raw = headers.get("devicePass")
+        if raw:
+            try:
+                device_pass = json.loads(raw)
+            except (TypeError, ValueError):
+                return
+        else:
+            device_pass = self._device_auth.get("pass")
+        cookies = self._session.cookie_jar.filter_cookies(yarl.URL(self._api_base))
+        cookie = cookies.get("uniquId")
+        if self._valid_device_pass(device_pass) and cookie and cookie.value:
+            self._device_auth = {"pass": device_pass, "uniquId": cookie.value, "binding": self._device_binding()}
 
     async def _ensure_valid_session(self):
         """Ensure session is valid, re-logging in if necessary, with concurrency protection.
@@ -583,29 +742,24 @@ class MashovClient:
                 self._headers = {}
                 self._session.cookie_jar.clear()
 
+        if self._remember_device and await self._async_device_login():
+            return
+
         # --- Full login, always from an empty cookie jar. Restored cookies are host-only
         # with path /api. If the login sets the session cookie with Path=/ (or a Domain),
         # aiohttp would keep sending the expired restored cookie on every /api/ request
         # after a re-login, so every refresh would fail with 401 until HA restarts.
         self._session.cookie_jar.clear()
 
-        # The payload and headers mimic the official web client
-        # (app name/version and device fields), as the portal expects.
+        # The payload mirrors the Mashov app's login form (app name, version and device
+        # fields); its "private device" box is ticked only for clients that keep the pass.
         payload = {
             "semel": int(self.school_id),
             "year": int(self.year),
             "username": self.username,
             "password": self.password,
             "IsBiometric": False,
-            "appName": "info.mashov.students",
-            "apiVersion": "4.20250101",
-            "appVersion": "4.20250101",
-            "appBuild": "4.20250101",
-            "deviceUuid": "chrome-ha",
-            "devicePlatform": "chrome",
-            "deviceManufacturer": "homeassistant",
-            "deviceModel": "integration",
-            "deviceVersion": "1.0.5",
+            **self._login_device_fields(),
         }
         headers = {
             "Accept": "application/json, text/plain, */*",
@@ -614,6 +768,8 @@ class MashovClient:
             "Referer": "https://web.mashov.info/students/login",
             "User-Agent": "Mozilla/5.0 (HomeAssistant) Mashov/1.0.5",
         }
+        if self._remember_device:
+            payload["isPrivateDevice"] = True
         # Try login with retry mechanism
         for attempt in range(max_retries):
             _LOGGER.info("=== LOGIN ATTEMPT %d/%d ===", attempt + 1, max_retries)
@@ -703,6 +859,7 @@ class MashovClient:
                         _LOGGER.info("Authentication successful - accessToken/credential received")
                         # Store the full response data for later use
                         self._auth_data = data
+                        self._capture_device_auth(resp.headers)
                         break  # Success, exit retry loop
                     _LOGGER.error("=== AUTHENTICATION FAILED ===")
                     _LOGGER.error(
@@ -736,6 +893,7 @@ class MashovClient:
         # above either retries or raises.
         await self._extract_students()
         self.roster_refreshed = True
+        await self._async_auth_updated()
 
     async def _extract_students(self):
         """Build ``self._students`` from ``accessToken.children`` in the login response.

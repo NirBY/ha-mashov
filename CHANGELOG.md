@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- No more "new device" email every time the saved Mashov session expires (#33). Home Assistant now logs in as a private device in the Mashov app and renews expired sessions with that remembered device instead of the password. Adding a hub or changing its credentials logs in once instead of twice. If Mashov rejects the remembered device, the hub logs in with the password once and registers again.
+
 ## [1.6.0] - 2026-11-22
 
 ### Added

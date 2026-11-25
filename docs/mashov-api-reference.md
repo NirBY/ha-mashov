@@ -18,6 +18,43 @@ Side effects: `none` / `marks read` / `writes`. Rows marked ⚠ are calls the ap
 
 ### Auth / session / shell (loaded on every page)
 
+Remembered-device renewal (issue #33, reporter's live findings): a password login
+with `appName: com.mashov.main` and `isPrivateDevice: true` can return a JSON
+`devicePass` header containing `appName, deviceUuid, pass, semel, userId, year`,
+plus a required `uniquId` cookie. `POST loginDevice` sends the app/version/device
+metadata from password login (including `apiVersion` and `devicePlatform`) in its
+JSON body, the compact complete pass object in the `devicePass` header, and the
+cookie. The school/year/user fields belong in that header, not the body. Omitting
+`devicePlatform` returns 400; omitting version metadata can return 401 with
+"Internal error." This was verified against a local account on 2026-11-24.
+It returns normal session cookies, CSRF and
+children. The integration first reuses valid sessions, then tries this renewal.
+Any 4xx except 408/429 (and a 200 without a session) drops the pass and falls back
+to password login, so a revoked pass or a changed route can never block refreshes;
+a forced password change is still reported as such. Network failures, 408/429,
+5xx, redirects and non-JSON pages are temporary and preserve the pass.
+Device credentials are scoped to the account, API address, school and year;
+credential and API-address changes clear them. They are secrets and must never be
+included in logs or diagnostics. Hub clients persist them even if the subsequent
+data fetch fails. Every login identifies as the app (`com.mashov.main`). The
+add-hub and Configure checks also tick "private device" and hand their session and
+pass to the hub in memory, so a new hub or new credentials cost one password login
+(and one "new device" email), not two. Closing the HTTP session must not call
+`logout`, which reportedly revokes the pass.
+
+The Mashov Android app (3.8.72, read from its bundle) confirms this: it is the same
+Angular bundle as the website, with `MashovAppId` switching between
+`com.mashov.main` and `info.mashov.students`, so both use the same data routes.
+Every login route (`login`, `loginDevice`, `loginBiometric`) goes through one
+`prepareLoginData`, which adds `appName, apiVersion, appVersion, appBuild,
+deviceUuid, devicePlatform, deviceManufacturer, deviceModel, deviceVersion,
+registrationId`. The app sends its stored pass as `devicePass: JSON.stringify(pass)`
+on any login and replaces it whenever a response carries a new one.
+`isPrivateDevice` is the login form's "private device" checkbox, unset by default.
+When a renewal fails, the app asks for the password again. It calls `logout` only on
+an explicit sign-out. The app sends `apiVersion` `3.20210425`; `GET schools` currently
+answers `ApiVersion: 3.20200528`, and the app only warns when the server's value is higher.
+
 | Method | Path | Purpose | Side effects | Captured live? |
 |---|---|---|---|---|
 | POST | `login` | Username/password login. Body includes `semel, year, username, password, appName, apiVersion, appVersion, appBuild, deviceUuid, devicePlatform, deviceManufacturer, deviceModel, deviceVersion` | writes (creates session) | bundle-only |
