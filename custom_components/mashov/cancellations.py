@@ -183,16 +183,19 @@ def _day_slots(timetable, weekday: int) -> dict[int, list]:
 def _edge(order, slots, cancelled) -> dict[int, bool | None]:
     """Cancelled lessons that move one edge of the day, walking ``order`` from that edge.
 
-    True when every slot before the lesson is cancelled too. None when one of those slots
-    runs only in some weeks, so it may or may not take place that day.
+    True when every slot before the lesson is cancelled too. None when the lesson's slot or
+    one before it keeps only lessons that run in some weeks, so it may or may not take place.
     """
     moved, certain = {}, True
     for lesson in order:
-        if all((lesson, group) in cancelled for group, _ in slots[lesson]):
+        kept = [every_week for group, every_week in slots[lesson] if (lesson, group) not in cancelled]
+        if not kept:
             moved[lesson] = True if certain else None
-        elif any(every_week for _, every_week in slots[lesson]):
+        elif any(kept):
             break
         else:
+            if len(kept) < len(slots[lesson]):
+                moved[lesson] = None
             certain = False
     return moved
 
