@@ -8,7 +8,7 @@
 - Opt-in, read-only **Lesson cancellations** (`lesson_cancellations`, `timetable/changes`). Each child gets a sensor whose state is the number of cancellations from today on, with upcoming and recent rows (date, lesson, subject, teacher, reason) within the attribute budget. Subjects and teachers come from the timetable or study groups. Upcoming rows say whether they move the day's start or end.
 - The weekly timetable marks cancelled lessons. On upcoming days, a cancelled first or last lesson moves the start or end time; past days keep the published hours.
 - A school that does not publish cancellations (`isEnabled: false`) shows `not_offered` without a warning, retry delay or stale flag.
-- Optional refresh when Mashov shows a new notification (off by default, in **Refresh schedules**). Every 15 minutes (5–60), the hub reads Mashov's notification list without marking anything read and refreshes only the data a new notification is about, between scheduled refreshes. Notification text is never logged or stored.
+- Optional refresh when Mashov shows a new notification (off by default, in **Refresh schedules**). Every 15 minutes (5–60), the hub reads Mashov's notification list without marking anything read and refreshes only the data a new notification is about, between scheduled refreshes. Notification text is never logged or stored. It will be on by default from the next version.
 
 ### Changed
 - The weekly card shows a day's start or end time when any lesson in its first or last slot runs every week. Before, a lesson that runs only in some weeks, listed first in that slot, hid the time.
