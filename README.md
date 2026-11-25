@@ -112,7 +112,7 @@ During registration, set initial defaults first; students become selectable once
 
 #### Refresh on new Mashov notifications
 
-Off by default; turn it on in **Refresh schedules**. Every 15 minutes (5–60), the hub reads the seven newest entries of Mashov's notification list, the same list as the bell in the app. It only reads them; nothing is marked read. When a new notification appears, the hub refreshes just the data it is about (homework, grades, behaviour, mail, follow-up notes, approvals, timetable or the student picture) instead of waiting for the next scheduled refresh. Some data, such as the noticeboard and holidays, never has notifications, so the regular schedule keeps running. Notification text is never logged or stored. Checking at least once an hour also keeps the Mashov session alive between refreshes.
+Off by default; turn it on in **Refresh schedules**. Every 15 minutes (5–60), the hub reads the seven newest entries of Mashov's notification list, the same list as the bell in the app. It only reads them; nothing is marked read. When a new notification appears, the hub refreshes just the data it is about (homework, grades, behaviour, mail, follow-up notes, approvals, timetable and lesson cancellations, or the student picture) instead of waiting for the next scheduled refresh. Some data, such as the noticeboard and holidays, never has notifications, so the regular schedule keeps running. Notification text is never logged or stored. Checking at least once an hour also keeps the Mashov session alive between refreshes. Checks also run at night; if the session does expire, it is renewed with the remembered device, without a "new device" email.
 
 <a id="data-to-fetch-1"></a>
 
@@ -238,7 +238,7 @@ message channels and do not connect to MCP by themselves.
 - **Multiple kids missing**: ensure your account actually lists multiple students in Mashov. Check HA logs for `custom_components.mashov` debug entries.
 - **Session errors**: if you see "Unclosed client session" errors, restart Home Assistant to clear any stale connections.
 - **Mailbox reload race**: a closed session during mailbox fetching is treated as an operational fetch failure. Other unexpected runtime errors remain reportable.
-- **"New Device" emails**: session persistence reduces unnecessary logins but cannot prevent fresh authentication after a server-side session expiry. Authentication is saved after successful refreshes in `.storage/mashov.<entry_id>.cache`. Avoid unnecessary reloads and never share this file; it contains authentication data.
+- **"New Device" emails**: Home Assistant logs in as a private device and renews an expired session with that remembered device, which sends no email. Expect one after adding a hub, changing its credentials or API address, or if Mashov rejects the remembered device (the hub then logs in with the password once and registers again). Authentication, including the remembered device, is saved in `.storage/mashov.<entry_id>.cache`; never share this file.
 
 ### Enable debug logs
 ```yaml
