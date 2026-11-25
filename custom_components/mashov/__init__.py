@@ -1419,8 +1419,13 @@ class MashovCoordinator(DataUpdateCoordinator):
                 self.failed_datasets = set(enabled_data(getattr(self.entry, "options", {})))
                 raise
 
-    async def async_refresh_datasets(self, keys, student_data=None):
-        """Serialize scheduled groups and publish a merged snapshot atomically."""
+    async def async_refresh_datasets(self, keys, student_data=None, *, notified=False):
+        """Serialize scheduled groups and publish a merged snapshot atomically.
+
+        ``notified`` marks a refresh started by a new Mashov notification. Like a
+        picture-only refresh, it is not a refresh of the hub, so it leaves the
+        interval-mode startup cooldown alone.
+        """
         async with self._refresh_slot():
             if self._stopped:
                 return
@@ -1434,13 +1439,24 @@ class MashovCoordinator(DataUpdateCoordinator):
             if not requested:
                 return
             try:
-                data = await self._async_fetch_data(requested, student_data=student_data)
+                data = await self._async_fetch_data(requested, student_data=student_data, keep_refresh_ts=notified)
             except UpdateFailed:
                 self.failed_datasets.update(self._failure_keys(requested, student_data))
                 if self.data:
-                    self.async_set_updated_data(self.data)
+                    self._async_publish(self.data)
                 return
-            self.async_set_updated_data(data)
+            self._async_publish(data)
+
+    @callback
+    def _async_publish(self, data) -> None:
+        """Publish a partial refresh without restarting the polling interval.
+
+        async_set_updated_data would move the next full poll a whole interval away, so
+        frequent partial refreshes (new notifications) could keep it from ever running.
+        """
+        self.data = data
+        self.last_update_success = True
+        self.async_update_listeners()
 
     @contextlib.asynccontextmanager
     async def _refresh_slot(self):
@@ -1492,7 +1508,7 @@ class MashovCoordinator(DataUpdateCoordinator):
             oldest = when if oldest is None else min(oldest, when)
         return oldest
 
-    async def _async_fetch_data(self, requested=None, student_data=None):
+    async def _async_fetch_data(self, requested=None, student_data=None, keep_refresh_ts=False):
         """Fetch everything, merge cached holidays if needed, persist the cache, notify on failure."""
         if not hasattr(self, "failed_datasets"):
             self.failed_datasets = set()
@@ -1589,11 +1605,12 @@ class MashovCoordinator(DataUpdateCoordinator):
                 store = Store(self.hass, 1, f"{DOMAIN}.{self.entry.entry_id}.cache")
                 await store.async_save(
                     {
-                        # A picture-only refresh (after a cached start) is not a refresh of the
-                        # hub: the interval-mode startup cooldown reads this timestamp.
+                        # A picture-only refresh (after a cached start) or one started by a
+                        # notification is not a refresh of the hub: the interval-mode startup
+                        # cooldown reads this timestamp.
                         "last_refresh_ts": (
                             previous_update
-                            if set(requested) == {"picture"} and previous_update
+                            if (keep_refresh_ts or set(requested) == {"picture"}) and previous_update
                             else self.last_successful_update
                         ),
                         # Profile pictures stay in memory only; their status map would

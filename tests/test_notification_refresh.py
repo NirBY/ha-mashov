@@ -214,7 +214,7 @@ async def test_first_check_only_records_the_list(hass, mock_config_entry, hass_s
     await watcher.async_check()
     coordinator.async_refresh_datasets.assert_not_awaited()
     stored = hass_storage[_store_key(mock_config_entry)]["data"]
-    assert stored == {"seen": [notification_digest(_note(2)), notification_digest(_note(1))]}
+    assert stored == {"seen": [notification_digest(_note(2)), notification_digest(_note(1))], "generated": []}
     assert SECRET_TEXT not in json.dumps(hass_storage[_store_key(mock_config_entry)])
 
 
@@ -225,7 +225,7 @@ async def test_a_new_notification_refreshes_only_its_enabled_data_types(hass, mo
     for _ in lists:
         await watcher.async_check()
     # Homework also concerns lessons_history, which this hub does not fetch.
-    coordinator.async_refresh_datasets.assert_awaited_once_with({"homework"})
+    coordinator.async_refresh_datasets.assert_awaited_once_with({"homework"}, notified=True)
     coordinator.client.async_fetch_notifications.assert_awaited_with(NOTIFICATION_TAKE)
 
 
@@ -245,7 +245,72 @@ async def test_a_generated_entry_refreshes_only_when_its_content_changes(hass, m
 
     for _ in lists:
         await watcher.async_check()
-    coordinator.async_refresh_datasets.assert_awaited_once_with({"mailbox"})
+    coordinator.async_refresh_datasets.assert_awaited_once_with({"mailbox"}, notified=True)
+
+
+async def test_an_unread_count_that_returns_after_being_read_is_new(hass, mock_config_entry):
+    """One unread conversation, read in the app, then a new one: the same entry again."""
+    lists = [[_unread(1, 10), _note(1)], [_note(1)], [_unread(1, 30), _note(1)]]
+    watcher, coordinator = _watcher(hass, mock_config_entry, ENABLED, lists)
+
+    for _ in lists:
+        await watcher.async_check()
+    coordinator.async_refresh_datasets.assert_awaited_once_with({"mailbox"}, notified=True)
+
+
+async def test_an_unchanged_generated_entry_does_not_hide_a_full_list(hass, mock_config_entry):
+    """Only stored notifications count when deciding that older ones scrolled past."""
+    full = [_unread(3, 20)] + [_note(nid, TEXT) for nid in range(20, 20 + NOTIFICATION_TAKE - 1)]
+    watcher, coordinator = _watcher(hass, mock_config_entry, ENABLED, [[_unread(3, 10), _note(1)], full])
+
+    await watcher.async_check()
+    await watcher.async_check()
+    coordinator.async_refresh_datasets.assert_awaited_once_with(
+        {"homework", "grades", "behavior", "mailbox"}, notified=True
+    )
+
+
+async def test_a_file_without_generated_entries_only_records_them(hass, mock_config_entry, hass_storage):
+    """A digest file from before generated entries were kept apart refreshes nothing."""
+    hass_storage[_store_key(mock_config_entry)] = {
+        "version": 1,
+        "minor_version": 1,
+        "key": _store_key(mock_config_entry),
+        "data": {"seen": [notification_digest(_note(1))]},
+    }
+    lists = [[_unread(2, 10), _note(1)], [_unread(2, 20), _note(1)]]
+    watcher, coordinator = _watcher(hass, mock_config_entry, ENABLED, lists)
+
+    for _ in lists:
+        await watcher.async_check()
+    coordinator.async_refresh_datasets.assert_not_awaited()
+    stored = hass_storage[_store_key(mock_config_entry)]["data"]
+    assert stored["generated"] == [notification_digest(_unread(2, 20))]
+
+
+async def test_a_notified_refresh_keeps_the_poll_and_the_restart_cooldown(hass, mock_config_entry, hass_storage):
+    """A partial refresh neither pushes the next full poll back nor counts as the hub's refresh."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(mock_config_entry, options=ENABLED)
+    client = MagicMock()
+    client.async_fetch_all = AsyncMock(return_value={"students": [], "by_slug": {}})
+    client.auth_data = {}
+    coordinator = MashovCoordinator(hass, client, mock_config_entry)
+    coordinator.data = {"students": [], "by_slug": {}}
+    coordinator.last_successful_update = 100.0
+    listener = MagicMock()
+    unsubscribe = coordinator.async_add_listener(listener)
+    coordinator.set_interval_minutes(120)
+    scheduled = coordinator._unsub_refresh
+
+    await coordinator.async_refresh_datasets({"homework"}, notified=True)
+    assert coordinator._unsub_refresh is scheduled
+    listener.assert_called()
+    assert coordinator.last_successful_update > 100.0
+    assert hass_storage[f"{DOMAIN}.{mock_config_entry.entry_id}.cache"]["data"]["last_refresh_ts"] == 100.0
+
+    unsubscribe()
+    coordinator.set_interval_minutes(None)
 
 
 async def test_notifications_about_data_the_hub_does_not_fetch_are_ignored(hass, mock_config_entry):
@@ -265,7 +330,9 @@ async def test_a_full_list_of_new_notifications_refreshes_every_notified_type(ha
     await watcher.async_check()
     await watcher.async_check()
     # The noticeboard has no notifications, so it stays with its schedule.
-    coordinator.async_refresh_datasets.assert_awaited_once_with({"homework", "grades", "behavior", "mailbox"})
+    coordinator.async_refresh_datasets.assert_awaited_once_with(
+        {"homework", "grades", "behavior", "mailbox"}, notified=True
+    )
 
 
 async def test_a_restart_remembers_what_was_seen_and_catches_up(hass, mock_config_entry):
@@ -276,7 +343,7 @@ async def test_a_restart_remembers_what_was_seen_and_catches_up(hass, mock_confi
     coordinator.client.async_fetch_notifications = AsyncMock(return_value=[_note(2), _note(1, GRADE)])
     restarted = NotificationWatcher(hass, mock_config_entry, coordinator)
     await restarted.async_check()
-    coordinator.async_refresh_datasets.assert_awaited_once_with({"homework"})
+    coordinator.async_refresh_datasets.assert_awaited_once_with({"homework"}, notified=True)
 
 
 async def test_a_refused_list_stops_the_checks_until_reload(hass, mock_config_entry, caplog):
@@ -317,7 +384,7 @@ async def test_a_temporary_failure_is_tried_again_at_the_next_check(hass, mock_c
     for _ in lists:
         await watcher.async_check()
     assert coordinator.client.async_fetch_notifications.await_count == 3
-    coordinator.async_refresh_datasets.assert_awaited_once_with({"homework"})
+    coordinator.async_refresh_datasets.assert_awaited_once_with({"homework"}, notified=True)
 
 
 async def test_notification_text_never_reaches_the_log(hass, mock_config_entry, caplog):
@@ -338,7 +405,7 @@ async def test_the_triggered_refresh_queues_after_the_check(hass, mock_config_en
 
     await watcher.async_check()
     await asyncio.wait_for(watcher.async_check(), timeout=5)
-    coordinator._async_fetch_data.assert_awaited_once_with({"homework"}, student_data=None)
+    coordinator._async_fetch_data.assert_awaited_once_with({"homework"}, student_data=None, keep_refresh_ts=True)
     await coordinator.async_shutdown()
 
 

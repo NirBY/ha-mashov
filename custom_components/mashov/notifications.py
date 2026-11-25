@@ -49,7 +49,8 @@ SEEN_LIMIT = 50
 _IDENTITY_FIELDS = ("id", "eventType", "eventTime", "addTime", "eventKey", "eventData", "eventText", "eventUserId")
 # Mashov also lists generated entries with an id of 0 or less (for example "unread
 # conversations", type 16) whose times are those of the request itself. Only their
-# content identifies them, so they count as new only when it changes.
+# content identifies them, and the same content can return (one unread conversation,
+# read, then a new one), so they are compared with the previous check only.
 _REQUEST_TIME_FIELDS = ("eventTime", "addTime")
 
 # Mashov eventType (from the app's bundle) -> data types such a notification changes.
@@ -83,11 +84,17 @@ def notification_interval(options) -> int:
     return max(MIN_NOTIFICATION_INTERVAL, min(MAX_NOTIFICATION_INTERVAL, minutes))
 
 
+def is_stored(item: dict) -> bool:
+    """Whether Mashov stored the notification (a positive id) rather than generated it."""
+    item_id = item.get("id")
+    return isinstance(item_id, int) and not isinstance(item_id, bool) and item_id > 0
+
+
 def notification_digest(item: dict) -> str:
     """A short one-way digest of a notification, without its read state."""
-    item_id = item.get("id")
-    stored = isinstance(item_id, int) and not isinstance(item_id, bool) and item_id > 0
-    fields = _IDENTITY_FIELDS if stored else tuple(f for f in _IDENTITY_FIELDS if f not in _REQUEST_TIME_FIELDS)
+    fields = (
+        _IDENTITY_FIELDS if is_stored(item) else tuple(f for f in _IDENTITY_FIELDS if f not in _REQUEST_TIME_FIELDS)
+    )
     identity = {field: item.get(field) for field in fields}
     raw = json.dumps(identity, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
@@ -122,6 +129,7 @@ class NotificationWatcher:
         self._coordinator = coordinator
         self._store = notifications_store(hass, entry.entry_id)
         self._seen: list[str] | None = None  # None: nothing recorded yet
+        self._generated: list[str] | None = None  # generated entries the previous check listed
         self._loaded = False
         self._busy = False
         self._unavailable = False
@@ -157,7 +165,7 @@ class NotificationWatcher:
                 _LOGGER.info(
                     "New Mashov notifications for %s; refreshing %s", self._entry.title, ", ".join(sorted(keys))
                 )
-                await coordinator.async_refresh_datasets(keys)
+                await coordinator.async_refresh_datasets(keys, notified=True)
         finally:
             self._busy = False
 
@@ -194,23 +202,32 @@ class NotificationWatcher:
         return await self._async_compare(items)
 
     async def _async_compare(self, items: list[dict]) -> set[str]:
-        """Record the listed notifications; return the enabled data types new ones concern."""
+        """Record the listed notifications; return the enabled data types new ones concern.
+
+        A stored notification is new when the remembered history lacks it. A generated
+        entry is new when the previous check did not list it with the same content.
+        """
         if not self._loaded:
-            stored = await self._store.async_load()
-            seen = stored.get("seen") if isinstance(stored, dict) else None
+            data = await self._store.async_load()
+            data = data if isinstance(data, dict) else {}
+            seen, generated = data.get("seen"), data.get("generated")
             self._seen = [str(digest) for digest in seen] if isinstance(seen, list) else None
+            # Missing in older files: the next check only records the generated entries.
+            self._generated = [str(digest) for digest in generated] if isinstance(generated, list) else None
             self._loaded = True
-        digests = [notification_digest(item) for item in items]
-        before = self._seen
-        new_items = (
-            []
-            if before is None
-            else [item for item, digest in zip(items, digests, strict=True) if digest not in before]
-        )
-        seen = list(dict.fromkeys(digests + (before or [])))[:SEEN_LIMIT]
-        if seen != before:
-            self._seen = seen
-            await self._store.async_save({"seen": seen})
+        listed = [(item, notification_digest(item), is_stored(item)) for item in items]
+        stored_now = [digest for _, digest, stored in listed if stored]
+        generated_now = [digest for _, digest, stored in listed if not stored]
+        before, before_generated = self._seen, self._generated
+        new_items = []
+        if before is not None:
+            new_items = [item for item, digest, stored in listed if stored and digest not in before]
+            if before_generated is not None:
+                new_items += [item for item, digest, stored in listed if not stored and digest not in before_generated]
+        seen = list(dict.fromkeys(stored_now + (before or [])))[:SEEN_LIMIT]
+        if seen != before or generated_now != before_generated:
+            self._seen, self._generated = seen, generated_now
+            await self._store.async_save({"seen": seen, "generated": generated_now})
         _LOGGER.debug(
             "Checked Mashov notifications for %s: %d listed, %d new%s",
             self._entry.title,
@@ -220,9 +237,10 @@ class NotificationWatcher:
         )
         if not new_items:
             return set()
-        if before and len(items) >= NOTIFICATION_TAKE and len(new_items) == len(items):
-            # Everything listed is new, so older notifications may have scrolled past
-            # unseen: refresh every data type that notifications can be about.
+        new_stored = sum(1 for item in new_items if is_stored(item))
+        if before and len(items) >= NOTIFICATION_TAKE and stored_now and new_stored == len(stored_now):
+            # Every stored notification listed is new, so older ones may have scrolled
+            # past unseen: refresh every data type that notifications can be about.
             keys = set(ALL_NOTIFIED_DATA)
         else:
             keys = set().union(*(data_types_for(item) for item in new_items))
