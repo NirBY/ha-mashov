@@ -16,7 +16,6 @@ from homeassistant import config_entries
 from homeassistant.core import Context
 from homeassistant.helpers import llm
 from homeassistant.helpers.json import json_bytes
-from homeassistant.util import dt as dt_util
 import pytest
 import yaml
 
@@ -40,9 +39,20 @@ from custom_components.mashov.sensor import MashovCancellationsSensor, MashovLis
 from .test_roster_change import _response
 
 REASON = "Synthetic reason naming Teacher Example"
-TODAY = dt_util.now().date()
+TODAY = date(2026, 11, 24)
 START, END = date(2026, 11, 17), date(2026, 12, 15)
 LANGUAGES = ("en", "he", "ar", "ru", "uk")
+
+
+@pytest.fixture(autouse=True)
+def _fixed_clock(freezer):
+    """Pin the clock to noon US/Pacific on TODAY.
+
+    The code reads today from Home Assistant's time zone, which the test harness sets to
+    US/Pacific. Noon there is the same date in UTC and Israel, so the rows dated relative
+    to TODAY no longer depend on the time of day the tests run.
+    """
+    freezer.move_to("2026-11-24 20:00:00+00:00")
 
 
 def raw(day, lesson, group, reason=REASON):
