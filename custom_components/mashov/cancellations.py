@@ -71,7 +71,7 @@ def _row_problem(raw) -> str | None:
     checks = (
         ("lessonDate", parse_date(raw.get("lessonDate")) is not None),
         ("lesson", _is_int(lesson) and lesson >= 0),
-        ("groupId", group is None or _is_int(group)),
+        ("groupId", group is None or normalized_group_id(group) is not None),
         ("cancellationReason", reason is None or isinstance(reason, str) or _is_int(reason)),
     )
     for field, valid in checks:
@@ -112,7 +112,7 @@ def normalize_cancellations(payload, start: date, end: date) -> dict:
         day, lesson, group, reason = (
             parse_date(raw["lessonDate"]),
             raw["lesson"],
-            raw.get("groupId"),
+            normalized_group_id(raw.get("groupId")),
             raw.get("cancellationReason"),
         )
         if start <= day <= end:
@@ -160,7 +160,7 @@ def group_labels(timetable, groups) -> dict[int, tuple[str | None, str | None]]:
 
 
 def _day_slots(timetable, weekday: int) -> dict[int, list]:
-    """Lesson number -> group ids the timetable lists on a Mashov weekday."""
+    """Lesson number -> (group id, runs every week) for each lesson on a Mashov weekday."""
     slots: dict[int, list] = {}
     for item in timetable or []:
         slot = item.get("timeTable") if isinstance(item, dict) else None
@@ -173,32 +173,42 @@ def _day_slots(timetable, weekday: int) -> dict[int, list]:
         except (TypeError, ValueError):
             continue
         group = slot.get("groupId")
-        if group is None:
-            group = (item.get("groupDetails") or {}).get("groupId")
-        slots.setdefault(lesson, []).append(normalized_group_id(group))
+        details = item.get("groupDetails")
+        if group is None and isinstance(details, dict):
+            group = details.get("groupId")
+        slots.setdefault(lesson, []).append((normalized_group_id(group), slot.get("weeks") in (None, -1, "-1")))
     return slots
 
 
-def day_shift(timetable, day: date, cancelled: set) -> tuple[set, set]:
-    """Lesson numbers whose cancellation moves the day's start, and the day's end.
+def _edge(order, slots, cancelled) -> dict[int, bool | None]:
+    """Cancelled lessons that move one edge of the day, walking ``order`` from that edge.
+
+    True when every slot before the lesson is cancelled too. None when one of those slots
+    runs only in some weeks, so it may or may not take place that day.
+    """
+    moved, certain = {}, True
+    for lesson in order:
+        if all((lesson, group) in cancelled for group, _ in slots[lesson]):
+            moved[lesson] = True if certain else None
+        elif any(every_week for _, every_week in slots[lesson]):
+            break
+        else:
+            certain = False
+    return moved
+
+
+def day_shift(timetable, day: date, cancelled: set) -> tuple[dict, dict]:
+    """Lessons whose cancellation moves the day's start, and the day's end.
 
     A lesson slot counts as cancelled only when every group the timetable lists in it is
     cancelled. Cancelled slots at the start of the day move the start, cancelled slots at
     its end move the end, and a day with every slot cancelled moves both. A cancelled
-    lesson between two lessons that still take place moves neither.
+    lesson between two lessons that still take place moves neither. Lessons map to True,
+    or to None when a slot that runs only in some weeks makes the answer unknown.
     """
     slots = _day_slots(timetable, mashov_weekday(day))
     order = sorted(slots)
-    gone = [all((lesson, group) in cancelled for group in slots[lesson]) for lesson in order]
-    first = 0
-    while first < len(order) and gone[first]:
-        first += 1
-    if first == len(order):
-        return set(order), set(order)
-    last = len(order) - 1
-    while gone[last]:
-        last -= 1
-    return set(order[:first]), set(order[last + 1 :])
+    return _edge(order, slots, cancelled), _edge(order[::-1], slots, cancelled)
 
 
 def cancellation_rows(items, timetable, groups, today: date) -> tuple[list, list]:
@@ -206,7 +216,8 @@ def cancellation_rows(items, timetable, groups, today: date) -> tuple[list, list
 
     Each row names the subject and teacher when the timetable or study groups list the
     group. Upcoming rows say whether they move that day's start or end (None without a
-    timetable). Recent rows never move anything.
+    timetable, or when a lesson that runs only in some weeks makes it unknown). Recent rows
+    never move anything.
     """
     labels = group_labels(timetable, groups)
     by_day: dict[date, set] = {}
@@ -218,7 +229,7 @@ def cancellation_rows(items, timetable, groups, today: date) -> tuple[list, list
         dated.append((day, item))
         by_day.setdefault(day, set()).add((item["lesson"], normalized_group_id(item.get("group_id"))))
     dated.sort(key=lambda pair: (pair[0], pair[1]["lesson"]))
-    shifts: dict[date, tuple[set, set]] = {}
+    shifts: dict[date, tuple[dict, dict]] = {}
     upcoming, recent = [], []
     for day, item in dated:
         subject, teacher = labels.get(normalized_group_id(item.get("group_id")), (None, None))
@@ -237,8 +248,8 @@ def cancellation_rows(items, timetable, groups, today: date) -> tuple[list, list
         if timetable:
             if day not in shifts:
                 shifts[day] = day_shift(timetable, day, by_day[day])
-            row["moves_start"] = item["lesson"] in shifts[day][0]
-            row["moves_end"] = item["lesson"] in shifts[day][1]
+            row["moves_start"] = shifts[day][0].get(item["lesson"], False)
+            row["moves_end"] = shifts[day][1].get(item["lesson"], False)
         else:
             row["moves_start"] = row["moves_end"] = None
         upcoming.append(row)

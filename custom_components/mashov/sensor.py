@@ -19,7 +19,7 @@ rather than 0, so a failed fetch is never mistaken for an empty list.
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timedelta
 from html import escape
 import logging
 from typing import Any
@@ -215,7 +215,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             slug = stu["slug"]
             sid = stu["id"]
             name = stu["name"]
-            _LOGGER.debug("Creating sensors for student: %s (id=%s, slug=%s)", name, sid, slug)
+            _LOGGER.debug("Creating sensors for student id=%s", sid)
 
             entities.extend(
                 MashovListSensor(coord, entry.entry_id, sid, slug, name, key, key, key)
@@ -662,8 +662,10 @@ class MashovListSensor(MashovStudentEntity, SensorEntity):
                 attributes["cancellations_status"] = cancellations.get("status", "not_fetched")
                 if cancellations.get("status") == "ok" or cancellations.get("retained"):
                     marks = cancellations.get("items") or ()
-            # A compact full week survives the raw/formatting attribute limits.
-            attributes["weekly_schedule"], attributes["weekly_schedule_complete"] = weekly_schedule(items, marks)
+            # A compact full week survives the raw/formatting attribute limits. Marks start a
+            # week before the current one, so the payload bound keeps room for the lessons.
+            since = dt_util.now().date() - timedelta(days=14)
+            attributes["weekly_schedule"], attributes["weekly_schedule_complete"] = weekly_schedule(items, marks, since)
             # Distinct Mashov weekdays (1=Sunday..7=Saturday) from the FULL timetable. The items
             # attribute is size-bounded and can drop whole weekdays; next-school-day templates
             # use this small list instead.

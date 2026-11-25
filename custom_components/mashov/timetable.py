@@ -5,7 +5,7 @@ from homeassistant.helpers.json import json_bytes
 from .cancellations import mashov_weekday, normalized_group_id, parse_date
 
 
-def _cancelled_dates(cancellations):
+def _cancelled_dates(cancellations, since=None):
     """(Mashov weekday, lesson, group id) -> ISO dates on which that lesson is cancelled."""
     dates = {}
     for item in cancellations or ():
@@ -15,18 +15,22 @@ def _cancelled_dates(cancellations):
         lesson = item.get("lesson")
         if day is None or group is None or not isinstance(lesson, int) or isinstance(lesson, bool):
             continue
+        if since is not None and day < since:
+            continue
         dates.setdefault((mashov_weekday(day), lesson, group), set()).add(day.isoformat())
     return dates
 
 
-def weekly_schedule(items, cancellations=()):
+def weekly_schedule(items, cancellations=(), since=None):
     """Keep every weekday and simultaneous subject within a bounded payload.
 
     ``cancellations`` are normalized lesson cancellations. A lesson gets ``cancelled``: the
     dates on which its group's lesson in that slot is cancelled. Matching needs the group
     id, so a cancellation of a group the timetable does not list in that slot is not marked.
+    Dates before ``since`` are left out: every date counts against the payload bound, and
+    older ones would push lessons out of it.
     """
-    cancelled = _cancelled_dates(cancellations)
+    cancelled = _cancelled_dates(cancellations, since)
     days = {day: [] for day in range(1, 8)}
     complete = True
     for item in items:

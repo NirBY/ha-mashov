@@ -1,5 +1,7 @@
 """Full-week data survives sensor storage limits without inventing school times."""
 
+from datetime import date
+
 from homeassistant.helpers.json import json_bytes
 
 from custom_components.mashov.timetable import weekly_schedule
@@ -51,3 +53,16 @@ def test_cancellations_mark_only_the_matching_group_in_that_slot():
     # Same subject and room in two groups: only the cancelled group's row is marked, so both stay.
     assert [row.get("cancelled") for row in lessons[1:]] == [["2026-11-26"], None]
     assert weekly_schedule(items)[0][4]["lessons"][1:] == [{"lesson": 2, "subject": "English"}]
+
+
+def test_cancellation_marks_before_since_are_left_out():
+    """Older dates would only take room from lessons in the bounded payload."""
+    items = [slot(5, 1, "Math", groupId=1)]
+    cancellations = [
+        {"date": "2026-10-01", "lesson": 1, "group_id": 1},
+        {"date": "2026-11-19", "lesson": 1, "group_id": 1},
+        {"date": "2026-11-26", "lesson": 1, "group_id": 1},
+    ]
+    rows, complete = weekly_schedule(items, cancellations, since=date(2026, 11, 12))
+    assert complete
+    assert rows[4]["lessons"][0]["cancelled"] == ["2026-11-19", "2026-11-26"]

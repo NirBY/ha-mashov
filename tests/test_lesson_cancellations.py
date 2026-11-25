@@ -574,3 +574,26 @@ def test_a_numeric_reason_is_kept_as_a_code_and_the_row_still_counts():
     )
     assert upcoming[0]["reason_code"] == 7 and upcoming[0]["moves_start"] is True
     assert "reason_code" not in without_reasons(upcoming)[0]
+
+
+def test_a_lesson_running_only_in_some_weeks_makes_a_shift_unknown():
+    """Lesson 1 runs only in some weeks, so it may or may not start that day."""
+    timetable = [slot(DAY, 1, 1, "Math", weeks="1"), slot(DAY, 2, 2, "Bible"), slot(DAY, 3, 3, "English A")]
+    upcoming, _ = cancellation_rows([item(TOMORROW, 2, 2)], timetable, [], TODAY)
+    assert (upcoming[0]["moves_start"], upcoming[0]["moves_end"]) == (None, False)
+    # Lessons 2 and 3 cancelled: the end moves either way; the start depends on that week.
+    upcoming, _ = cancellation_rows([item(TOMORROW, 2, 2), item(TOMORROW, 3, 3)], timetable, [], TODAY)
+    assert [(row["moves_start"], row["moves_end"]) for row in upcoming] == [(None, True), (None, True)]
+
+
+def test_unexpected_group_details_do_not_break_the_rows():
+    timetable = [{"timeTable": {"day": DAY, "lesson": 1}, "groupDetails": ["unexpected"]}, slot(DAY, 2, 2, "Bible")]
+    upcoming, _ = cancellation_rows([item(TOMORROW, 2, 2)], timetable, [], TODAY)
+    assert (upcoming[0]["subject"], upcoming[0]["moves_start"], upcoming[0]["moves_end"]) == ("Bible", False, True)
+
+
+def test_a_numeric_string_group_id_is_kept_as_a_number():
+    payload = {"isEnabled": True, "changes": [], "cancellations": [raw(START, 1, "5")]}
+    result = normalize_cancellations(payload, START, END)
+    assert result["items"][0]["group_id"] == 5
+    assert "unparsed_rows" not in result
