@@ -5,6 +5,7 @@
 ## [1.7.1] - 2026-11-25
 
 ### Fixed
+- The dashboard pop-up no longer fails with "Error while processing template" when a lesson has no room or another listed field is missing (#34). Markdown cards render templates strictly; missing fields now show as empty. Re-run the dashboard blueprint to update an existing view.
 - A refresh started by a new notification that fails is retried after the next successful check, also after a restart, instead of waiting for the next scheduled refresh.
 - A restart no longer skips an overdue full refresh in interval mode after several notification refreshes in a row.
 - On upcoming days, a cancelled every-week lesson no longer shows that its slot takes place. When only a lesson that runs in some weeks is left at the start or end of the day, the weekly card leaves that time open and the cancellations sensor reports the shift as unknown.
